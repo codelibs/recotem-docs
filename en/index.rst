@@ -1,51 +1,47 @@
-=====================================
-オープンソースレコメンドサーバー |Recotem|
-=====================================
+==============================
+Recommendation Server: Recotem
+==============================
 
-概要
-====
-
-|Recotem| (フェス) は「\ **5 分で簡単に構築可能な全文検索サーバー**\ 」です。
-Java 実行環境があればどの OS でも実行可能です。
-|Recotem| は Apache ライセンスで提供され、無料 (フリーソフト) でご利用いただけます。
-
-
-ダウンロード
-============
-
-- :doc:`Recotem 1.0.0 <downloads>` (zip/rpm/debパッケージ)
-
-特徴
-====
-
--  Apache ライセンスで提供 (フリーソフトなので、無料で利用可能)
-
-
-ニュース
+Overview
 ========
 
-2021-06-18
-    `Recotem 13.13.0 <https://github.com/codelibs/recotem/releases/tag/recotem-13.13.0>`__ リリース
+Recotem is "**easily deployable Recomendation Server**".
+Recotem is licensed under the Apache License and is available for free (free software).
 
-2021-05-10
-    `Recotem 13.11.3 <https://github.com/codelibs/recotem/releases/tag/recotem-13.11.3>`__ リリース
 
-2021-04-27
-    `Recotem 13.12.1 <https://github.com/codelibs/recotem/releases/tag/recotem-13.12.1>`__ リリース
+Download
+========
 
-過去のニュースは :doc:`こちら <news>` をご覧ください。
+- TBD
 
-フォーラム
+Features
+========
+
+- Very Easy Installation/Configuration
+- Apache License (OSS)
+
+
+News
+====
+
+None
+
+:doc:`More news <news>`...
+
+
+Discussion
 ==========
 
-質問などがあれば、 `フォーラム <https://discuss.codelibs.org/c/RecotemJA/>`__ をご利用ください。
+- `Discussion Forum <https://discuss.codelibs.org/c/recotemen/>`__
 
-商用サポート
-============
 
-|Recotem| は Apache ライセンスで提供されるオープンソース製品で、個人や商用向けでも無料でご自由にご利用いただけます。
+Support Service
+===============
 
-|Recotem| のカスタマイズや導入・構築などのサポートサービスが必要な場合は、\ `商用サポート(有償) <https://codelibs.co/ja/>`__\ をご覧ください。
+Recotem is an open source product provided under the Apache license and is free and open for personal and commercial use.
+
+If you need support services for customizing, installing or building Recotem, please visit \ `Commercial Support (Paid) <https://codelibs.co/ja/>`__.
+
 
 .. toctree::
    :hidden:
