@@ -1,17 +1,11 @@
-============================================
-その他
-============================================
+======
+Others
+======
 
 .. toctree::
 
-   ニュース <news>
-   フォーラム <https://discuss.codelibs.org/c/RecotemJA/7>
-   掲載記事 <articles>
-   製品サポート期限 <eol>
-   ライセンス <license>
-   関連プロジェクト <supporting-projects>
-   対応ファイル形式 <supported-files>
-   商用サポート <support-services>
-   ASP/SaaS <asp>
-   利用サイト <users>
+   News <news>
+   Forum <https://discuss.codelibs.org/c/RecotemJA/7>
+   EOL <eol>
+   License <license>
 

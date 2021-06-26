@@ -3,7 +3,7 @@ SCRIPT_DIR=$(cd $(dirname $0);pwd)
 
 PROJECT="Recotem"
 TITLE="Recotem"
-DOCLANG="ja"
+DOCLANG="en"
 AUTHOR="CodeLibs"
 RELEASE="1.0"
 
