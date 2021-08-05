@@ -1,15 +1,20 @@
-Recotem Documentation
-=====================
+# Recotem Documentation
 
-Online Documents
-----------------
+## Online Documents
 
-* English(en): https://recotem.org/
-* Japanese(ja): https://recotem.org/ja/
+- English(en): https://recotem.org/
+- Japanese(ja): https://recotem.org/ja/
 
-Build Documents
----------------
+## Build Documents
 
 ```
-bash ./build.sh
+yarn && yarn build
+```
+
+The resulting static files will be put under `src/.vuepress/dist/`.
+
+## Dev sever
+
+```
+yarn dev
 ```

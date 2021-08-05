@@ -1,0 +1,23 @@
+{
+  "name": "Recotem",
+  "version": "0.0.1",
+  "description": "An easy and powerful interface to recommender systems.",
+  "main": "index.js",
+  "authors": {
+    "name": "Tomoki Ohtsuki",
+    "email": "tomoki.ohtsuki.19937@outlook.jp"
+  },
+  "repository": "https://github.com/codelibs/recotem/Recotem",
+  "scripts": {
+    "dev": "vuepress dev src",
+    "build": "vuepress build src"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "vuepress": "^1.5.3"
+  },
+  "dependencies": {
+    "vuepress-plugin-google-tag-manager": "^0.0.5",
+    "vuepress-plugin-sitemap": "^2.3.1"
+  }
+}
