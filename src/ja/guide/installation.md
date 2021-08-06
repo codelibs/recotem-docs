@@ -10,13 +10,13 @@ Docker のインストールについては [Docker の公式ページ](https://
 
 ### Windows
 
-1. 起動用スクリプト[recotem-docker.bat](https://example.com)をダウンロードします
+1. 起動用スクリプト[recotem-docker.bat]をダウンロードします
 1. ダウンロードした `recotem-docker.bat` をダブルクリックします。
    - 初回はリソースのダウンロードのため、起動に時間を要します。
 
 ### Linux & MacOS
 
-1. 起動用スクリプト[recotem-docker.sh](https://example.com)をダウンロードします
+1. 起動用スクリプト[recotem-docker.sh]をダウンロードします
 1. コマンドラインから`sh recotem-docker.sh` で recotem-docker を起動します。
 
 ## Recotem へのアクセス

@@ -3,7 +3,7 @@ home: true
 heroImage: /recotem-logo.png
 tagline: 専門知識のいらない推薦システム
 actionText: クイックスタート →
-actionLink: /guide/
+actionLink: /ja/guide/
 features:
   - title: 簡単に利用できる
     details: すべての操作はブラウザ上で行うことができます。 Dockerの実行環境があれば、コマンド1つでRecotemを起動できます。
