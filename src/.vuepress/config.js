@@ -17,6 +17,7 @@ module.exports = (ctx) => ({
   head: [
     ["meta", { name: "theme-color", content: "#3eaf7c" }],
     ["meta", { name: "apple-mobile-web-app-capable", content: "yes" }],
+    ["link", { rel: "icon", href: "/favicon.png" }],
     [
       "meta",
       { name: "apple-mobile-web-app-status-bar-style", content: "black" },
@@ -94,7 +95,7 @@ module.exports = (ctx) => ({
     "@vuepress/plugin-medium-zoom": {},
     "vuepress-plugin-export": {},
     "vuepress-plugin-google-tag-manager": {
-      gtm: "GTM-5QR8QHV",
+      gtm: process.env.NODE_ENV ? "GTM-5QR8QHV" : undefined,
     },
     sitemap: {
       hostname: "https://recotem.org",

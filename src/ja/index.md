@@ -6,7 +6,7 @@ actionText: クイックスタート →
 actionLink: /guide/
 features:
   - title: 簡単に利用できる
-    details: すべての操作はブラウザ上で行うことができます。 Dockerの実行環境があれば、コマンド1つでFioneを起動できます。
+    details: すべての操作はブラウザ上で行うことができます。 Dockerの実行環境があれば、コマンド1つでRecotemを起動できます。
   - title: オープンな技術
     details: RecotemはGitHub上で開発されるオープンソースのソフトウェアです。 OSSの開発に自由に参加して、利用することができます。
   - title: 高いパフォーマンス
