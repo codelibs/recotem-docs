@@ -55,7 +55,7 @@ module.exports = (ctx) => ({
         label: "English",
         ariaLabel: "Select Languages",
         sidebar: {
-          "/guide/": getGuidSidebar("Basics", "Advanced"),
+          "/guide/": getGuideSidebar("Basics", "Advanced"),
           "/docs/": [],
         },
         nav: [
@@ -74,8 +74,8 @@ module.exports = (ctx) => ({
         label: "日本語",
         ariaLabel: "Languages",
         sidebar: {
-          "/ja/guide/": getGuidSidebar("Basics", "進んだ使い方"),
-          "/ja/docs/": [],
+          "/ja/guide/": getGuideSidebar("基礎編", "進んだ使い方"),
+          "/ja/docs/": getDocsSidebar("Dockerコンテナについて", "ビルド"),
         },
         nav: [
           {
@@ -107,16 +107,25 @@ module.exports = (ctx) => ({
   },
 });
 
-function getGuidSidebar(basicTitle, advancedTitle) {
+function getGuideSidebar(basicTitle, advancedTitle) {
+  return [
+    {
+      title: basicTitle,
+      collapsable: true,
+      children: ["", "installation.md", "tutorial/"],
+    },
+    {
+      title: advancedTitle,
+      collapsable: false,
+    },
+  ];
+}
+function getDocsSidebar(basicTitle, advancedTitle) {
   return [
     {
       title: basicTitle,
       collapsable: false,
-      children: ["", "installation", "tutorial"],
+      children: ["installation", "build"],
     },
-    //    {
-    //      title: advancedTitle,
-    //      collapsable: false,
-    //    }
   ];
 }
