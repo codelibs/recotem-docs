@@ -13,7 +13,7 @@ yarn && yarn build
 
 The resulting static files will be put under `src/.vuepress/dist/`.
 
-## Dev sever
+## Dev Server
 
 ```
 yarn dev
