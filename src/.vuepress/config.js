@@ -26,6 +26,14 @@ module.exports = (ctx) => ({
       "meta",
       { name: "apple-mobile-web-app-status-bar-style", content: "black" },
     ],
+    [
+      "script",
+      {
+        async: "",
+        src: "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-0248074489415800",
+        crossorigin: "anonymous",
+      },
+    ],
   ],
   locales: {
     "/": {
