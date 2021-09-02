@@ -53,6 +53,7 @@ module.exports = (ctx) => ({
    * ref：https://v1.vuepress.vuejs.org/theme/default-theme-config.html
    */
   themeConfig: {
+    logo: "/recotem-header.png",
     repo: "codelibs/recotem",
     editLinks: false,
     docsDir: "",
