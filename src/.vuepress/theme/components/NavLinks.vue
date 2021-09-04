@@ -45,7 +45,7 @@ export default {
       if (this.$lang === "ja-JA") {
         return {
           link: `https://codelibs.co/ja/`,
-          text: "商用サポートはこちら",
+          text: "商用サポート",
         };
       } else {
         return {

@@ -2,7 +2,7 @@
 home: true
 heroImage: /recotem-logo.png
 tagline: 専門知識のいらない推薦システム
-actionText: クイックスタート →
+actionText: 使ってみる →
 actionLink: /ja/guide/
 features:
   - title: 簡単に利用できる

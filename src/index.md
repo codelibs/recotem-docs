@@ -2,7 +2,7 @@
 home: true
 heroImage: /recotem-logo.png
 tagline: Recommender system for non-experts
-actionText: Quick Start →
+actionText: Getting Started →
 actionLink: /guide/
 features:
   - title: Easy to use
