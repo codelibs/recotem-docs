@@ -8,4 +8,4 @@ Follow the installation instruction of [Docker official page](https://docs.docke
 
 ## Get recotem-docker
 
-## Run docker-compose
+See [recotem-docker](https://github.com/codelibs/recotem).

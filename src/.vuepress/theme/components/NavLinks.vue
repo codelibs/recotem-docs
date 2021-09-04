@@ -6,6 +6,9 @@
       <NavLink v-else :item="item" />
     </div>
     <div class="nav-item">
+      <NavLink :item="forumSiteLink" />
+    </div>
+    <div class="nav-item">
       <NavLink :item="supportSiteLink" />
     </div>
     <!-- repo link -->
@@ -38,6 +41,21 @@ export default {
   computed: {
     userNav() {
       return this.$themeLocaleConfig.nav || this.$site.themeConfig.nav || [];
+    },
+
+    forumSiteLink() {
+      console.log(this.$lang);
+      if (this.$lang === "ja-JA") {
+        return {
+          link: `https://discuss.codelibs.org/c/recotemja/`,
+          text: "フォーラム",
+        };
+      } else {
+        return {
+          link: `https://discuss.codelibs.org/c/recotemen/`,
+          text: "Forum",
+        };
+      }
     },
 
     supportSiteLink() {

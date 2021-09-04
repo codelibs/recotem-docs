@@ -1,4 +1,4 @@
-# Tutorial with xxxx dataset
+# Tutorial with dataset
 
 In this tutorial, we will try out recotem's browser-based interface.
 
@@ -6,4 +6,3 @@ In this tutorial, we will try out recotem's browser-based interface.
 
 Access [http://localhost:8000](http://localhost:8000).
 
-You will be asked
