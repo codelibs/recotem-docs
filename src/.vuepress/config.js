@@ -89,7 +89,10 @@ module.exports = (ctx) => {
           ariaLabel: "Languages",
           sidebar: {
             "/ja/guide/": getGuideSidebar("基礎編", "進んだ使い方"),
-            "/ja/docs/": getDocsSidebar("Dockerコンテナについて", "ビルド"),
+            "/ja/docs/": getDocsSidebar(
+              "Dockerコンテナについて",
+              "ユーザーページ"
+            ),
           },
           nav: [
             {
@@ -141,6 +144,11 @@ function getDocsSidebar(basicTitle, advancedTitle) {
       title: basicTitle,
       collapsable: false,
       children: ["installation", "build"],
+    },
+    {
+      title: advancedTitle,
+      collapsable: true,
+      children: ["user/project-list/", "user/project/", "user/first-tuning/"],
     },
   ];
 }

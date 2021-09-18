@@ -40,12 +40,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="A script to convert recotem Github Actions's img output to a tutorial page imgs."
     )
+    CURRENT_DIR = Path(__file__).resolve().parent
     parser.add_argument("input_zip_path", nargs=1)
-    parser.add_argument("output_path", nargs=1)
     args = parser.parse_args()
 
     INPUT_ZIP_PATH = Path(args.input_zip_path[0])
-    OUTPUT_PATH = Path(args.output_path[0])
+    OUTPUT_PATHS = [
+        CURRENT_DIR / "src" / "docs" / "user",
+        CURRENT_DIR / "src" / "ja" / "docs" / "user",
+    ]
 
     zf = ZipFile(INPUT_ZIP_PATH)
     pngs = {
@@ -59,6 +62,8 @@ if __name__ == "__main__":
         match = re.search("user\/([^\.]+)\.([^\.]+)\.png", key)
         pagename, imgname = match.groups()
         print(pagename, imgname)
-        dir = OUTPUT_PATH / pagename
-        dir.mkdir(parents=True, exist_ok=True)
-        img.save(dir / f"{imgname}.png")
+
+        for output_path in OUTPUT_PATHS:
+            dir = output_path / pagename
+            dir.mkdir(parents=True, exist_ok=True)
+            img.save(dir / f"{imgname}.png")
