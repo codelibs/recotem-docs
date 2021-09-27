@@ -151,8 +151,12 @@ function getDocsSidebar(basicTitle, advancedTitle) {
       children: [
         "user/project-list/",
         "user/project/",
+        "user/data-list/",
         "user/first-tuning/",
         "user/tuning-job-detail/",
+        "user/trained-model-detail/",
+        "user/trained-model-list/",
+        "user/start-training/",
       ],
     },
   ];
