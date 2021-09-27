@@ -152,6 +152,7 @@ function getDocsSidebar(basicTitle, advancedTitle) {
         "user/project-list/",
         "user/project/",
         "user/data-list/",
+        "user/start-tuning/",
         "user/first-tuning/",
         "user/tuning-job-detail/",
         "user/trained-model-detail/",
