@@ -148,7 +148,12 @@ function getDocsSidebar(basicTitle, advancedTitle) {
     {
       title: advancedTitle,
       collapsable: true,
-      children: ["user/project-list/", "user/project/", "user/first-tuning/"],
+      children: [
+        "user/project-list/",
+        "user/project/",
+        "user/first-tuning/",
+        "user/tuning-job-detail/",
+      ],
     },
   ];
 }
