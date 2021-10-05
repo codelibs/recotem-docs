@@ -44,7 +44,6 @@ export default {
     },
 
     forumSiteLink() {
-      console.log(this.$lang);
       if (this.$lang === "ja-JA") {
         return {
           link: `https://discuss.codelibs.org/c/recotemja/`,
@@ -59,7 +58,6 @@ export default {
     },
 
     supportSiteLink() {
-      console.log(this.$lang);
       if (this.$lang === "ja-JA") {
         return {
           link: `https://codelibs.co/ja/`,

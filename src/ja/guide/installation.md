@@ -2,7 +2,7 @@
 
 ## Docker のインストール
 
-Recotem は Docker として開発されているので、まずは Docker をインストールする必要があります。
+Recotem は Docker として開発されているので、まずは 最新の Docker をインストールする必要があります。
 
 Docker のインストールについては [Docker の公式ページ](https://docs.docker.com/get-docker/)を参照してください。
 
