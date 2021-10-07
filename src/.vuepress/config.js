@@ -131,7 +131,8 @@ function getGuideSidebar(basicTitle, advancedTitle) {
     },
     {
       title: advancedTitle,
-      collapsable: false,
+      collapsable: true,
+      children: ["cli.md", "batch.md"],
     },
   ];
 }
