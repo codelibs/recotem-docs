@@ -10,22 +10,44 @@ Docker のインストールについては [Docker の公式ページ](https://
 
 ### Windows
 
-1. 起動用スクリプト[recotem-docker.bat](https://github.com/codelibs/recotem/releases/latest/download/recotem-compose.bat)をダウンロードします。
-   - ブラウザによっては「この種のファイルはコンピュータに損害を与える可能性があります」との警告がでますが、そのまま保存して下さい。
-1. ダウンロードした `recotem-docker.bat` をダブルクリックします。
+1. [最新のリリースページ](https://github.com/codelibs/recotem/releases/latest/)から"Docker resources to try out" と書かれた zip ファイルをダウンロードします。
+
+   ![recotem compose download page](./download-recotem-compose.png)
+
+1. ダウンロードしたファイル `recotem-compose-vx.y.z.zip` を展開します。
+1. 2. で展開したフォルダ中には、更に"recotem-compose"というフォルダが含まれているので、"recotem-compose"の中に移動します。下のようなファイル・フォルダが含まれているはずです。![recotem-compose content](./recotem-compose-content.png)
+
+1. 上の図で赤枠で囲った、`recotem-compose`(環境によっては `recotem-docker.bat` と表示される) をダブルクリックします。
    - Microsoft defender により警告が出る場合がありますが、「詳細情報」から「実行」を選択してください。
    - 初回はリソースのダウンロードのため、起動に時間を要します。
 
 ::: tip
-ここで紹介した手順で発生しうる警告が好ましくない場合は、[ドキュメントのインストール手順](../docs/installation)に従ってください。
+手順 4. で発生しうる Microsoft Defender による警告が好ましくない場合、
+
+- Windows Power Shell などを起動し、上のステップ 3 のディレクトリ(`recotem-compose`が存在するディレクトリ)に移動する
+- ```
+  docker-compose.exe up
+  ```
+
+とすれば、Microsoft Defender による警告なしで起動が可能です。
 :::
 
 ### Linux & MacOS
 
-1. 起動用スクリプト[recotem-docker.sh]をダウンロードします
-1. コマンドラインから`sh recotem-docker.sh` で recotem-docker を起動します。
+1. [最新のリリースページ](https://github.com/codelibs/recotem/releases/latest/)から"Docker resources to try out" と書かれた zip ファイルをダウンロードします。
+
+   ![recotem compose download page](./download-recotem-compose.png)
+
+1. ダウンロードしたファイル `recotem-compose-vx.y.z.zip` を展開します。
+1. ターミナルで 2. で展開したフォルダ中に移動し、以下を実行します。
+
+```sh
+docker-compose up
+```
 
 ## Recotem へのアクセス
 
 [http://localhost:8000](http://localhost:8000)へアクセスします。
 下のようなログイン画面が現れれば正常に起動しています。チュートリアルへお進みください。
+
+![initial login](./initial-login.png)
