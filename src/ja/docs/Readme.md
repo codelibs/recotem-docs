@@ -9,7 +9,7 @@ Recotem には以下のコンテナが存在します。
 - celer_worker
   - チューニングやモデルの訓練を実行するためのコンテナです。
 - queue
-  - `backend` と `celery_workerq の通信のためのメッセージブローカであり、rabbitmq イメージを用います。
+  - `backend` と `celery_worker` の通信のためのメッセージブローカであり、rabbitmq イメージを用います。
 - frontend
   - Web UI のための HTML & Javascript & css をサーブするコンテナです。
 - proxy

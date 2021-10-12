@@ -1,23 +1,18 @@
----
-sidebar: auto
----
+# Role of recotem containers
 
-# Installation
+Recotem includes following Docker containers.
 
-[[toc]]
+- db
+  - PosgreSQL database. All information about user/project will be saved on `db`.
+- backend
+  - A container that provides web API.
+- celer_worker
+  - A container to execute tuning and training
+- queue
+  - A rabbit-mq message broker between `backend` and `celery_worker`
+- frontend
+  - Serves TML & Javascript & css.
+- proxy
+  - Reverse proxy which for the communication between `backend` and `frontend`.
 
-## Docker containers
-
-Recotem is comprised of several docker containers:
-
-- Frontend server
-- API server
-- Recommendation Worker
-- Task queue manager
-- posgresql Database
-
-If you don't need
-
-## Django Admin
-
-By default `docker-compose.yml`, you can access django admin
+We have to set several environment variables for these containers to cooperate. See the comments in `envs/production.env` file in [recotem](https://github.com/codelibs/recotem).
