@@ -1,4 +1,4 @@
-# Tuning setting view
+# Tuning Configuration View
 
 In this view, you can perform tuning in four steps.
 Each of these steps corresponds to the following:
