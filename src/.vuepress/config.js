@@ -49,7 +49,7 @@ module.exports = (ctx) => {
       "/ja/": {
         lang: "ja-JA",
         title: "Recotem",
-        description: "専門知識の要らないレコメンドサーバー",
+        description: "専門知識の要らないレコメンドエンジン",
       },
     },
     /**
