@@ -11,7 +11,7 @@ recotem の基本的な用法である
 
 ## データの準備
 
-このチュートリアルで使用する購買履歴データ `purchase_log.csv` を<a href="https://github.com/codelibs/recotem/releases/download/v0.1.0.alpha4/purchase_log.csv" download="purchase_log.csv" >こちら</a>からダウンロードします。 このデータは「どのユーザーがどの商品を購入したか」という情報を記録するシンプルな履歴データです:
+このチュートリアルで使用する購買履歴データ `purchase_log.csv` を<a href="https://raw.githubusercontent.com/codelibs/recotem/refs/tags/v1.0.0/frontend/e2e/test_data/purchase_log.csv" download="purchase_log.csv" >こちら</a>からダウンロードします。 このデータは「どのユーザーがどの商品を購入したか」という情報を記録するシンプルな履歴データです:
 
 | user_id | item_id |
 | ------- | ------- |

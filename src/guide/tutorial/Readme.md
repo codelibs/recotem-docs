@@ -8,7 +8,7 @@ In this tutorial, we will use (dummy) purchase log data for a fashion e-commerce
 
 ## Data preparation
 
-Download the purchase log data `purchase_log.csv` that we will use in this tutorial from <a href="https://github.com/codelibs/recotem/releases/download/v0.1.0.alpha4/purchase_log.csv" download="purchase_log.csv" >this link</a>. This data is a simple log data which records "who purchased which item":
+Download the purchase log data `purchase_log.csv` that we will use in this tutorial from <a href="https://raw.githubusercontent.com/codelibs/recotem/refs/tags/v1.0.0/frontend/e2e/test_data/purchase_log.csv" download="purchase_log.csv" >this link</a>. This data is a simple log data which records "who purchased which item":
 
 | user_id | item_id |
 | ------- | ------- |
