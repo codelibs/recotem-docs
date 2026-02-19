@@ -5,7 +5,7 @@ hero:
   name: Recotem
   text: 専門知識のいらない推薦システム
   image:
-    src: /recotem-logo.png
+    src: /1.0/recotem-logo.png
     alt: Recotem
   actions:
     - theme: brand

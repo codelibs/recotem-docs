@@ -5,7 +5,7 @@ hero:
   name: Recotem
   text: Recommender system for non-experts
   image:
-    src: /recotem-logo.png
+    src: /1.0/recotem-logo.png
     alt: Recotem
   actions:
     - theme: brand
