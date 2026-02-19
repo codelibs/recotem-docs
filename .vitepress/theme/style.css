@@ -1,0 +1,90 @@
+:root {
+  --vp-c-brand-1: #3eaf7c;
+  --vp-c-brand-2: #3eaf7c;
+  --vp-c-brand-3: #3eaf7c;
+}
+
+/* Hide site title text, show logo only */
+.VPNavBarTitle .title {
+  display: none;
+}
+
+/* Constrain hero image size on home page */
+.vp-doc .hero img {
+  max-width: 450px;
+}
+
+/* Version switcher dropdown */
+.VPVersionSwitcher {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.VPVersionSwitcher .version-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  height: var(--vp-nav-height);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--vp-c-text-1);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.25s;
+  white-space: nowrap;
+}
+
+.VPVersionSwitcher .version-button:hover {
+  color: var(--vp-c-brand-1);
+}
+
+.VPVersionSwitcher .vpi-chevron-down {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background-color: currentColor;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+}
+
+.VPVersionSwitcher .version-menu {
+  position: absolute;
+  top: calc(var(--vp-nav-height) - 4px);
+  right: 0;
+  min-width: 80px;
+  background-color: var(--vp-c-bg-elv);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: var(--vp-shadow-3);
+  z-index: 100;
+}
+
+.VPVersionSwitcher .version-item {
+  display: block;
+  padding: 6px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--vp-c-text-1);
+  border-radius: 4px;
+  text-decoration: none;
+  transition: background-color 0.25s, color 0.25s;
+  white-space: nowrap;
+}
+
+.VPVersionSwitcher .version-item:hover {
+  background-color: var(--vp-c-default-soft);
+  color: var(--vp-c-brand-1);
+}
+
+.VPVersionSwitcher .version-item.active {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}
