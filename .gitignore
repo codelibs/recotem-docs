@@ -1,5 +1,28 @@
-*.pyc
-_build
+# Dependencies
+node_modules/
+
+# VitePress build output
+.vitepress/dist/
+.vitepress/cache/
+
+# OS files
 .DS_Store
-node_modules
-**/dist/*
+Thumbs.db
+
+# Python
+*.pyc
+__pycache__/
+_build/
+
+# Editor / IDE
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Serena (AI tooling)
+.serena/
+
+# Misc
+*.log

@@ -1,0 +1,15 @@
+:root {
+  --vp-c-brand-1: #3eaf7c;
+  --vp-c-brand-2: #3eaf7c;
+  --vp-c-brand-3: #3eaf7c;
+}
+
+/* Hide site title text, show logo only */
+.VPNavBarTitle .title {
+  display: none;
+}
+
+/* Constrain hero image size on home page */
+.vp-doc .hero img {
+  max-width: 450px;
+}
