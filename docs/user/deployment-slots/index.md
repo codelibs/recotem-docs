@@ -29,7 +29,7 @@ POST /inference/predict/{model_id}
 POST /inference/predict/project/{project_id}
 ```
 
-The project-level endpoint distributes requests based on the configured slot **Weight** values. This can be used to run [A/B tests](../ab-tests/).
+The project-level endpoint distributes requests based on the configured slot **Weight** values. This can be used to run [A/B tests](../ab-tests/). Each request automatically records an impression event for the selected slot, so you don't need to track impressions manually.
 
 ## Enabling/Disabling Slots
 
