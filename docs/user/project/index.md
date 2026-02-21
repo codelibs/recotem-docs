@@ -1,5 +1,14 @@
-# Project Top View
+# Project Dashboard
 
-In the initial state, there is no data, so there is a link to the [flow](../first-tuning/) for uploading data and configuring job.
+When you select a project, the dashboard is displayed. The dashboard provides an overview of the project's summary statistics:
 
-![Uploading Data → Tuning Jobs](./empty-project-top.png)
+![Dashboard](../../../ja/docs/user/dashboard/dashboard.png)
+
+The dashboard shows the following information:
+
+- **Training Data** --- Number of uploaded training datasets
+- **Tuning Jobs** --- Number of tuning jobs executed
+- **Trained Models** --- Number of trained models created
+- **Deployment Slots** --- Number of deployment slots configured
+
+Use the sidebar on the left to navigate to each feature page.

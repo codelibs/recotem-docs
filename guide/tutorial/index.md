@@ -1,14 +1,10 @@
-# Tutorial with EC-site data
+# Tutorial
 
-In this tutorial, we will use (dummy) purchase log data for a fashion e-commerce site to explore the basic usage of recotem. These include
+In this tutorial, we will use dummy purchase log data for a fashion e-commerce site to learn the basic workflow of Recotem. We will walk through the full process from data upload to model tuning, training, deployment, and calling the recommendation API.
 
-- Specification of the training data format
-- Creation a parameter tuning job
-- Check of the validity of the recommendation algorithm
+## 1. Data Preparation
 
-## Data preparation
-
-Download the purchase log data `purchase_log.csv` that we will use in this tutorial from <a href="https://raw.githubusercontent.com/codelibs/recotem/refs/tags/v1.0.0/frontend/e2e/test_data/purchase_log.csv" download="purchase_log.csv" >this link</a>. This data is a simple log data which records "who purchased which item":
+Download the purchase log data `purchase_log.csv` that we will use in this tutorial from <a href="https://raw.githubusercontent.com/codelibs/recotem/refs/tags/v1.0.0/frontend/e2e/test_data/purchase_log.csv" download="purchase_log.csv">this link</a>. This data is a simple log that records "who purchased which item":
 
 | user_id | item_id |
 | ------- | ------- |
@@ -17,121 +13,105 @@ Download the purchase log data `purchase_log.csv` that we will use in this tutor
 | 2       | 21      |
 | 2       | 57      |
 
-## Login to recotem
+## 2. Login
 
-When you access [http://localhost:8000](http://localhost:8000), you will be asked to authenticate on the following screen. Immediately after the installation (described in [the previous page](../installation), you are able to login with the following information.
+When you access [http://localhost:8000](http://localhost:8000), a login screen will appear. Right after [installation](../installation), you can log in with the following credentials:
 
-- username: `admin`
-- password: `very_bad_password`
+- Username: `admin`
+- Password: `very_bad_password`
 
-![login](./1.input-login-info.png)
+Enter the credentials and click the "Login" button.
 
-After filling the user information, click "Login" button. Initially, you will be navigated to a view like the one below.
-Click on the tab labelled "Create".
+## 3. Create a Project
 
-![project top](./2.project-top.png)
+After logging in, the project selection screen is displayed. Click the "New Project" button to create a new project.
 
-## Create a project
+In Recotem, a "project" is the fundamental unit for data management. All data within a single project must share the same column structure.
 
-The first thing you need in order to use recotem is a unit called "project". Within a single project, multiple data can be used, but the format of the data must be the same.
+Since our data has `user_id` and `item_id` columns, enter the following:
 
-The format of the data used in this project was as follows:
+- **Project name**: Any name (e.g., `fashion-ec`)
+- **User column**: `user_id`
+- **Item column**: `item_id`
 
-| user_id | item_id |
-| ------- | ------- |
-| 1       | 49      |
-| 1       | 69      |
-| 2       | 21      |
+Click "Create" to create the project.
 
-The column name for a user is "user_id" and the column name for an item is "item_id", so enter them exactly as they are:
+## 4. Upload Data
 
-![filling project info](./3.fill-project-info.png)
+Once on the project screen, navigate to the Data Management page from the sidebar and click the "Upload" button. Select the `purchase_log.csv` file you downloaded earlier and upload it.
 
-Clicking on "Create new project", you will see the top view of the project as shown below.
+## 5. Tuning Wizard
 
-![empty project top](./4.empty-project-top.png)
+After uploading the data, start tuning. Navigate to the Tuning page from the sidebar and follow the 4-step wizard.
 
-Click "Start upload -> tuning" button.
+### Step 1: Select Data
 
-## Create a parameter tuning job
+Select the training data to use for tuning. Choose the `purchase_log.csv` you just uploaded and proceed.
 
-You are now seeing the following view. Let's set up a job following 4 steps to explore the best algorithm and parameters for our data.
+### Step 2: Split Config
 
-![file input](./5.file-input.png)
+Configure how to split the training data into train/validation sets. Leave the default values and click "Continue".
 
-To start with, we first upload `purchase_log.csv` above. Click on the file input box (marked with a red box below) to open the file selection window, and select `purchase_log.csv`.
+### Step 3: Evaluation Config
 
-![file selected](./6.file-selection-done.png)
+Configure the evaluation metric and recommendation count. Leave the default values and click "Continue".
 
-As shown above, once the training data is selected, you can click the "Upload" button to proceed to the next step.
+### Step 4: Run
 
-You will then see a a view like the one shown below (Step 2). "Use default values" checkbox is selected, so click "Continue" to proceed.
+Configure the algorithm types and number of trials to explore. Leave the default values and click "Start the job".
 
-![split config](./7.split-config.png)
+## 6. Review Tuning Results
 
-Then you should be navigated to Step 3 as shown below. The checkbox is already on "Use default values", so click "Continue" to proceed.
+Once the job starts, you will be navigated to the tuning job detail screen. You can monitor progress in the Logs panel.
 
-![evaluation config](./8.evaluation-config.png)
+When the job completes, the explored algorithms and parameters are displayed in the "Results" panel. Each row shows performance metrics (NDCG, etc.) and parameters. The best model configuration is automatically saved.
 
-Now you should be on the final step as shown below. Leaving "Use default values" checkbox, click "Start the job" button.
+## 7. Train a Model
 
-![job config](./9.job-config.png)
+The optimal model configuration is automatically created from the tuning results. Navigate to the Model Training page from the sidebar, select the model configuration, and click "Train" to start training with all data.
 
-If you see a screen like the one below, the search for the best algorithm has started as expected.
+Once training completes, the trained model is added to the model list.
 
-![tuning job top](./10.tuning-job.png)
+## 8. Create a Deployment Slot
 
-Click the panel named "Logs" to show the progress of the job:
+To serve a trained model as a recommendation API, create a deployment slot.
 
-![tuning logs](./11.tuning-logs.png)
+Navigate to the Deployment Slots page from the sidebar and click "Create Slot". Enter a slot name, select the model you just trained, and save.
 
-If the top-right status (initially "In progress") becomes "Complete", the parameter tuning has successfully completed. There should then appear a panel named "Results", so open the panel to see the following:
+## 9. Create an API Key
 
-![tuning results](./12.tuning-results.png)
+To call the recommendation API, you need an API key with the `predict` scope.
 
-"Results" shows the detailed report for the selected algorithm and parameters. By default, the parameter tuning job will create a recommendation model trained against the entire data (without train/validation split), and you can navigate to the trained model by clicking on the green calculator icon circled red above.
+Navigate to the API Keys management page from the sidebar and click "Create API Key". Enter a name, select the `predict` scope, and create the key.
 
-![model results](./13.model-results.png)
+::: warning
+The API key is displayed only at creation time. Be sure to copy it and store it in a safe place.
+:::
 
-## Examine the validity of the recommender model
+## 10. Call the Recommendation API
 
-You can check the model's validity by examining how it behaves against the input interaction. If you open "Preview results" panel, there should be "Sample" button, and when you click on it,
-you can see a JSON representing the result of recommendation
+With the API key and deployment slot ready, you can call the recommendation API.
 
-![Raw model preview results](./14.model-results-preview.png)
+### Single-user Recommendations
 
-This JSON represents "what items will be recommended for a user with these interactions". However, since we lack the information about items, it is hard to gain insight about the qualitative feature of the model. So let us now upload items' metadata to see friendlier results.
+```bash
+curl -X POST http://localhost:8000/inference/predict/project/{project_id} \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: {your_api_key}" \
+  -d '{"user_id": "1", "n_recommendations": 10}'
+```
 
-You can download items' metadata `item_info.csv` from [this link](https://github.com/codelibs/recotem/releases/download/v0.1.0.alpha4/item_info.csv).
+Replace `{project_id}` with your project's ID and `{your_api_key}` with the API key you created.
 
-As you see below, this data contains category & price information about items.
+The response returns a list of recommended item IDs in JSON format:
 
-| item_id | category | price |
-| ------- | -------- | ----- |
-| 1       | formal   | 61    |
-| 4       | formal   | 111   |
-| 5       | casual   | 106   |
-| 6       | casual   | 178   |
+```json
+{
+  "user_id": "1",
+  "recommendations": ["42", "15", "78", "3", "91", "27", "56", "8", "64", "33"],
+  "model_id": 1,
+  "slot_name": "default"
+}
+```
 
-To upload the data, click on the icon circled red below to navigate to the data management view, where you should see the training data already uploaded. Click on the "Upload" button circled blue.
-
-![data management](./15.item-metadata-upload.png)
-
-You will be prompted to select the file, so click the form and select the `item_info.csv`.
-Once you select the file, then click on "Upload" button.
-
-![input metadata](./16.item-metadata-file-input.png)
-
-Let us move back the model preview by clicking on the calculator icon circled red below. Click on the frame marked blue below to go to the model detail view again.
-
-![model management](./17.model-selection.png)
-
-Now you should be on the model detail view, so open "Preview results" panel. To preview the recommendation results using the item metadata, click on the frame marked red below and select `item_info.csv`.
-
-![model management](./18.item-metadata-selection.png)
-
-When you click on "Sample" button with `item_info.csv` selected, you can confirm "what kind of items will be recommended for a user who have already purchased these items" in a friendlier way.
-
-![model preview with metadata](./19.sample-with-metadata.png)
-
-By clicking on "Sample" you can refresh the information for another user. The result will reflect users preference (`formal` vs `casual` genre and the price), and now we know the model's output is meaningful.
+You have now completed the basic Recotem workflow --- data upload, tuning, training, deployment, and API call.

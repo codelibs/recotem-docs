@@ -1,17 +1,10 @@
-# EC サイトデータによるチュートリアル
+# チュートリアル
 
-このチュートリアルでは、とあるファッション EC サイトの購買ログ（ダミーデータ）を用いて、
-recotem の基本的な用法である
+このチュートリアルでは、EC サイトの購買ログ（ダミーデータ）を用いて、Recotem の基本的なワークフローを学びます。データのアップロードからモデルのチューニング・学習、そして推薦 API の呼び出しまでを一通り体験します。
 
-- 学習データの形式の指定
-- パラメータ調整ジョブの作成
-- 推薦アルゴリズムの妥当性の確認
+## 1. データの準備
 
-を学んでいきます。
-
-## データの準備
-
-このチュートリアルで使用する購買履歴データ `purchase_log.csv` を<a href="https://raw.githubusercontent.com/codelibs/recotem/refs/tags/v1.0.0/frontend/e2e/test_data/purchase_log.csv" download="purchase_log.csv" >こちら</a>からダウンロードします。 このデータは「どのユーザーがどの商品を購入したか」という情報を記録するシンプルな履歴データです:
+チュートリアルで使用する購買履歴データ `purchase_log.csv` を<a href="https://raw.githubusercontent.com/codelibs/recotem/refs/tags/v1.0.0/frontend/e2e/test_data/purchase_log.csv" download="purchase_log.csv">こちら</a>からダウンロードします。このデータは「どのユーザーがどの商品を購入したか」を記録するシンプルな履歴データです:
 
 | user_id | item_id |
 | ------- | ------- |
@@ -20,126 +13,105 @@ recotem の基本的な用法である
 | 2       | 21      |
 | 2       | 57      |
 
-## Recotem へのログイン
+## 2. ログイン
 
-[http://localhost:8000](http://localhost:8000)にアクセスすると、以下のような画面で認証を求められます。[前項](../installation)でのインストールの直後は、
+[http://localhost:8000](http://localhost:8000) にアクセスすると、ログイン画面が表示されます。[インストール](../installation)直後は、以下の情報でログインできます。
 
 - ユーザー名: `admin`
 - パスワード: `very_bad_password`
 
-によってログインすることができます。
+ユーザー名とパスワードを入力し、「Login」ボタンをクリックします。
 
-![login](../../../guide/tutorial/1.input-login-info.png)
+## 3. プロジェクトの作成
 
-ユーザー情報を入力したら"Login"ボタンをクリックします。初期状態では、以下のような画面に遷移します。"Create"と書かれたタブをクリックします。
+ログインするとプロジェクト選択画面が表示されます。右上の **"New Project"** ボタンをクリックして新しいプロジェクトを作成します。
 
-![project top](../../../guide/tutorial/2.project-top.png)
+Recotem では「プロジェクト」がデータ管理の基本単位です。同一プロジェクト内のデータは同じカラム構成である必要があります。
 
-## プロジェクトの作成
+今回のデータには `user_id` と `item_id` の 2 つのカラムがあるため、以下のように入力します:
 
-Recotem を使うにあたって、最初に必要なのは「プロジェクト」と呼ばれる単位です。同じプロジェクト内では、複数のデータを扱うことができますが、データの形式は同一であることが求められます。
+- **Project name**: 任意の名前（例: `fashion-ec`）
+- **User column**: `user_id`
+- **Item column**: `item_id`
 
-今回使用するデータの形式は以下のようなものでした。
+入力したら「Create new project」をクリックします。
 
-| user_id | item_id |
-| ------- | ------- |
-| 1       | 49      |
-| 1       | 69      |
-| 2       | 21      |
+## 4. データのアップロード
 
-ユーザーを表す列名はそのまま"user_id", アイテムは"item_id"ですから、その通り入力します:
+プロジェクト画面に移動したら、サイドバーからデータ管理ページに移動し、「Upload」ボタンをクリックします。ファイル選択欄で先ほどダウンロードした `purchase_log.csv` を選択し、アップロードします。
 
-![filling project info](../../../guide/tutorial/3.fill-project-info.png)
+## 5. チューニングウィザード
 
-"Create new project"をクリックすると、下のようなプロジェクトのトップ画面に異動します。
+データをアップロードしたら、チューニングを開始します。サイドバーからチューニングページに移動し、ウィザードに従って 4 ステップで設定します。
 
-![empty project top](../../../guide/tutorial/4.empty-project-top.png)
+### Step 1: データの選択
 
-"Start upload -> tuning" をクリックします。
+チューニングに使用する学習データを選択します。先ほどアップロードした `purchase_log.csv` を選択して次へ進みます。
 
-## パラメータ調整ジョブの作成
+### Step 2: 分割設定（Split Config）
 
-以下のような画面に移動しました。データに最も適したアルゴリズムやパラメータを探索するため、4 ステップでジョブを設定していきましょう。
+学習データの分割方法を設定します。デフォルト値のまま「Continue」をクリックします。
 
-![file input](../../../guide/tutorial/5.file-input.png)
+### Step 3: 評価設定（Evaluation Config）
 
-推薦システムプロジェクトを始めるには、まずは学習データがなければなりませんので、アップロードしてきます。赤い枠のファイル入力欄をクリックすると、ファイル選択画面が現れるので、適宜先ほどダウンロードした`purchase_log.csv`を選択してください。
+評価指標や推薦件数を設定します。デフォルト値のまま「Continue」をクリックします。
 
-![file selected](../../../guide/tutorial/6.file-selection-done.png)
+### Step 4: ジョブ設定
 
-上の図のように、学習データが選択されると、"Upload"ボタンをクリックすることができるようになりますので、クリックして次に進みます。
+探索するアルゴリズムの種類や試行回数を設定します。デフォルト値のまま「Start the job」をクリックします。
 
-すると、以下のような画面 (Step 2)に進みます。"Use default values"にチェックが入っていますので、そのまま"Continue"をクリックします。
+## 6. チューニング結果の確認
 
-![split config](../../../guide/tutorial/7.split-config.png)
+ジョブが開始されると、チューニングジョブ詳細画面に移動します。進行状況はログパネルで確認できます。
 
-以下のように Step 3 に進みます。こちらも"Use default values"にチェックが入っていますので、そのまま"Continue"をクリックします。
+ジョブが完了すると、探索されたアルゴリズムとパラメータの一覧が「Results」パネルに表示されます。各行には性能指標（NDCG 等）とパラメータが記載されています。最も性能の良いモデル設定は自動的に保存されます。
 
-![evaluation config](../../../guide/tutorial/8.evaluation-config.png)
+## 7. モデルの学習
 
-以下のように Step 4 に進みます。こちらも"Use default values"にチェックが入っていますので、そのまま"Start the job"をクリックします。
+チューニング結果から最適なモデル設定が自動的に作成されます。サイドバーからモデル学習ページに移動し、モデル設定を選択して「Train」をクリックすることで、全データを用いたモデルの学習が開始されます。
 
-![job config](../../../guide/tutorial/9.job-config.png)
+学習が完了すると、学習済みモデルが一覧に追加されます。
 
-以下のような画面に移動していれば、最適なアルゴリズムとパラメータの探索が始まっています。
-![tuning job top](../../../guide/tutorial/10.tuning-job.png)
+## 8. デプロイメントスロットの作成
 
-赤枠で囲った"Logs"というパネルをクリックすると、以下のように学習の進行状況を確認できます:
+学習済みモデルを推薦 API として配信するには、デプロイメントスロットを作成します。
 
-![tuning logs](../../../guide/tutorial/11.tuning-logs.png)
+サイドバーからデプロイメントスロットページに移動し、「Create Slot」をクリックします。スロット名を入力し、先ほど学習したモデルを選択して保存します。
 
-右上の学習ステータスが"In progress"から"Complete"に変われば、パラメータ探索が完了しています。
-すると、"Logs"の上に"Results"というパネルが現れるはずなので、それをクリックしてパネルを開きます:
+## 9. API キーの作成
 
-![tuning results](../../../guide/tutorial/12.tuning-results.png)
+推薦 API を呼び出すには、`predict` スコープを持つ API キーが必要です。
 
-"Results"には探索されたアルゴリズムの示した性能やそのパラメータなどが記載されています。また、デフォルトでは探索されたアルゴリズムとパラメータを用いて、推薦モデルが作成されます。上図で赤枠で囲った緑の電卓アイコンをクリックすると、以下のようなモデルの詳細を確認する画面に移動します。
+サイドバーから API キー管理ページに移動し、「Create API Key」をクリックします。名前を入力し、スコープから `predict` を選択して作成します。
 
-![model results](../../../guide/tutorial/13.model-results.png)
+::: warning
+API キーは作成時にのみ表示されます。必ずコピーして安全な場所に保管してください。
+:::
 
-## 推薦結果の妥当性の確認
+## 10. 推薦 API の呼び出し
 
-Recotem には、得られた推薦モデルがどのような推薦結果を返すのか、をプレビューする機能があります。
-モデル詳細画面で "Preview results"と書かれたパネルをクリックすると、"Sample"というボタンが現れるので、クリックします。すると、以下のように推薦結果を表す JSON が出現します。
+API キーとデプロイメントスロットが準備できたら、推薦 API を呼び出すことができます。
 
-![Raw model preview results](../../../guide/tutorial/14.model-results-preview.png)
+### 単一ユーザーへの推薦
 
-この JSON は「どのようなアイテムと接触したユーザーに、どのようなアイテムが推薦されるか」という情報を表していますが、このままではアイテムの ID の羅列であり、あまり推薦がうまくいっているという感覚は掴めないかと思います。そこで、アイテムのメタデータを Recotem にアップロードしてこのプレビューをより見やすくしましょう。
+```bash
+curl -X POST http://localhost:8000/inference/predict/project/{project_id} \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: {your_api_key}" \
+  -d '{"user_id": "1", "n_recommendations": 10}'
+```
 
-今回の購買ログデータにおけるアイテムのメタデータ `item_info.csv` は、 [ここ](https://github.com/codelibs/recotem/releases/download/v0.1.0.alpha4/item_info.csv)からダウンロードできます。このデータは以下のように、各々のファッションアイテムがどのようなカテゴリに属していて、値段はいくらだったかを表す表になっています。
+`{project_id}` にはプロジェクトの ID を、`{your_api_key}` には先ほど作成した API キーを指定します。
 
-| item_id | category | price |
-| ------- | -------- | ----- |
-| 1       | formal   | 61    |
-| 4       | formal   | 111   |
-| 5       | casual   | 106   |
-| 6       | casual   | 178   |
+レスポンスとして、推薦アイテムの ID リストが JSON 形式で返されます。
 
-Recotem に戻り、赤枠で囲われている画面左のフォルダアイコンをクリックすると、データ管理画面に移動します。既にアップロードした学習データが確認できますが、今回はメタデータをアップロードするので、青枠で囲われた"Upload"ボタンをクリックします。
+```json
+{
+  "user_id": "1",
+  "recommendations": ["42", "15", "78", "3", "91", "27", "56", "8", "64", "33"],
+  "model_id": 1,
+  "slot_name": "default"
+}
+```
 
-![data management](../../../guide/tutorial/15.item-metadata-upload.png)
-
-以下のようにファイル選択を促されるので、赤枠をクリックし、ファイルを選択します。
-
-![input metadata](../../../guide/tutorial/16.item-metadata-file-input.png)
-
-ファイル選択後は "Upload" ボタンが選択可能になるのでそれを押せばアップロードが開始されます。
-アップロードが完了したら先ほどのモデルプレビュー画面に戻りましょう。下の図で赤枠で囲った電卓アイコンをクリックするとモデル管理画面に移動します。先ほど作成したモデルも表示されるので、青枠で囲った行をクリックします。
-
-![model management](../../../guide/tutorial/17.model-selection.png)
-
-先ほどのモデル詳細画面に遷移しました。再び "Preview results" パネルをクリックします。先ほどアップロードしたメタデータを用いてプレビューを行うため、下図赤枠で囲っている部分をクリックして先ほどアップロードした`item_info.csv`を選択します。
-
-![model management](../../../guide/tutorial/18.item-metadata-selection.png)
-
-`item_info.csv`が選択された状態で "Sample" を押すと、下のようにより見やすい形で
-
-- どのようなアイテムを購入したユーザーに
-- どのような別のアイテムが推薦されるか
-
-を確認することが出来ます。
-
-![model preview with metadata](../../../guide/tutorial/19.sample-with-metadata.png)
-
-Sample を何回か押していくと、ランダムなユーザーに対する結果が次々と表示されていきます。
-ユーザーの`formal` vs `casual` のジャンル、購入価格帯に応じた好みをある程度反映した納得感のある推薦結果が表示され、モデルの作成が上手くいったことが分かります。
+これで Recotem の基本的なワークフロー --- データアップロード、チューニング、学習、デプロイ、API 呼び出し --- を一通り体験しました。

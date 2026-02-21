@@ -1,18 +1,13 @@
-# Role of recotem containers
+# Role of Recotem Containers
 
-Recotem includes following Docker containers.
+Recotem consists of the following 7 Docker containers:
 
-- db
-  - PosgreSQL database. All information about user/project will be saved on `db`.
-- backend
-  - A container that provides web API.
-- celer_worker
-  - A container to execute tuning and training
-- queue
-  - A rabbit-mq message broker between `backend` and `celery_worker`
-- frontend
-  - Serves TML & Javascript & css.
-- proxy
-  - Reverse proxy which for the communication between `backend` and `frontend`.
+- **db** --- PostgreSQL 17 database. Manages all user, project, and model information.
+- **redis** --- Redis 7. Used for the Celery broker (db0), Channels (db1), cache (db2), and model events (db3).
+- **backend** --- Django 5.1 + Django REST Framework + Django Channels. Runs on Daphne (ASGI) and provides the management API and WebSocket endpoints.
+- **worker** --- Celery worker. Executes asynchronous tasks such as tuning and model training. Uses the same Docker image as the backend.
+- **beat** --- Celery Beat. Handles scheduling for automatic model retraining.
+- **inference** --- FastAPI service. Provides the real-time recommendation API (port 8081). Caches deployed models in memory and supports A/B routing.
+- **proxy** --- Nginx + Vue 3 SPA. Serves as the reverse proxy for all services on port 8000.
 
-We have to set several environment variables for these containers to cooperate. See the comments in `envs/production.env` file in [recotem](https://github.com/codelibs/recotem).
+For details on environment variables, refer to `envs/.env.example` in [the recotem repository](https://github.com/codelibs/recotem).

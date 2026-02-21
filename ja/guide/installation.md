@@ -2,52 +2,38 @@
 
 ## Docker のインストール
 
-Recotem は Docker として開発されているので、まずは 最新の Docker をインストールする必要があります。
+Recotem は Docker で動作します。まずは [Docker の公式ページ](https://docs.docker.com/get-docker/) から Docker をインストールしてください。
 
-Docker のインストールについては [Docker の公式ページ](https://docs.docker.com/get-docker/)を参照してください。
+## Recotem の起動
 
-## recotem-docker による起動
+### リポジトリのクローン
 
-### Windows
-
-1. [最新のリリースページ](https://github.com/codelibs/recotem/releases/latest/)から"Docker resources to try out" と書かれた zip ファイルをダウンロードします。
-
-   ![recotem compose download page](./download-recotem-compose.png)
-
-1. ダウンロードしたファイル `recotem-compose-vx.y.z.zip` を展開します。
-1. 2. で展開したフォルダ中には、更に"recotem-compose"というフォルダが含まれているので、"recotem-compose"の中に移動します。下のようなファイル・フォルダが含まれているはずです。![recotem-compose content](./recotem-compose-content.png)
-
-1. 上の図で赤枠で囲った、`recotem-compose`(環境によっては `recotem-docker.bat` と表示される) をダブルクリックします。
-   - Microsoft defender により警告が出る場合がありますが、「詳細情報」から「実行」を選択してください。
-   - 初回はリソースのダウンロードのため、起動に時間を要します。
-
-::: tip
-手順 4. で発生しうる Microsoft Defender による警告が好ましくない場合、
-
-- Windows Power Shell などを起動し、上のステップ 3 のディレクトリ(`recotem-compose`が存在するディレクトリ)に移動する
-- ```
-  docker-compose.exe up
-  ```
-
-とすれば、Microsoft Defender による警告なしで起動が可能です。
-:::
-
-### Linux & MacOS
-
-1. [最新のリリースページ](https://github.com/codelibs/recotem/releases/latest/)から"Docker resources to try out" と書かれた zip ファイルをダウンロードします。
-
-   ![recotem compose download page](./download-recotem-compose.png)
-
-1. ダウンロードしたファイル `recotem-compose-vx.y.z.zip` を展開します。
-1. ターミナルで 2. で展開したフォルダ中に移動し、以下を実行します。
-
-```sh
-docker-compose up
+```bash
+git clone https://github.com/codelibs/recotem.git
+cd recotem
 ```
 
-## Recotem へのアクセス
+### 起動
 
-[http://localhost:8000](http://localhost:8000)へアクセスします。
-下のようなログイン画面が現れれば正常に起動しています。チュートリアルへお進みください。
+```bash
+docker compose up -d
+```
 
-![initial login](./initial-login.png)
+初回起動時はイメージのダウンロードとビルドのため時間がかかります。
+
+### Recotem へのアクセス
+
+[http://localhost:8000](http://localhost:8000) へアクセスします。下のようなログイン画面が表示されれば正常に起動しています。
+
+初期ログイン情報:
+
+- ユーザー名: `admin`
+- パスワード: `DEFAULT_ADMIN_PASSWORD` 環境変数の値（デフォルト: `very_bad_password`）
+
+![ログイン画面](./login.png)
+
+### 停止
+
+```bash
+docker compose down
+```

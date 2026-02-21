@@ -1,13 +1,21 @@
 # Model Detail View
 
-Here you can check the model configuration, download the model (which can be done by clicking on the "DOWNLOAD" button), preview the sample output of the trained model.
+In this view, you can check the model configuration, download the model, and preview recommendation results:
 
-![trained-model-detail](./model-information.png)
+![Model detail](../../../ja/docs/user/trained-model-detail/trained-model-detail.png)
 
-Clicking on "Preview results" and then "Sample" will give you a preview of what items will be recommended to users with what behavioral history (which will be randomly selected):
+## Model Information
 
-![model-preview-raw](./model-preview-raw.png)
+You can review the model configuration (algorithm, parameters), training data, and evaluation scores.
 
-If you have uploaded the metadata of your items in the [data management screen](../data-list/), you can link the metadata with the action history and the recommendation results to understand the behavior of the model more intuitively:
+Click the **"DOWNLOAD"** button to download the model file.
 
-![model-preview-with-meta](./model-preview-with-metadata.png)
+## Previewing Recommendation Results
+
+Open the **"Preview results"** panel and click **"Sample"** to see recommendation results for a randomly selected user:
+
+![Recommendation preview (raw data)](../../../ja/docs/user/trained-model-detail/model-preview-raw.png)
+
+If you have uploaded item metadata in the [Data Management View](../data-list/), you can link the metadata for a more intuitive preview:
+
+![Recommendation preview (with metadata)](../../../ja/docs/user/trained-model-detail/model-preview-with-metadata.png)
