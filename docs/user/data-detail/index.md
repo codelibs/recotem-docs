@@ -1,11 +1,12 @@
 # Data Detail View
 
-In this view, you can
+In the data detail view, you can review statistics and details of uploaded data:
 
-1. view the details of data
-1. Delete the data
-1. display the list of tuning jobs associated with this data
+![Data detail](../../../ja/docs/user/data-detail/data-detail.png)
 
-You can also click "START NEW JOB" to [start tuning with this data specified](../start-tuning-with-data/).
-
-![data detail](./data-detail.png)
+The following information is displayed:
+- **File name** --- Name of the uploaded file
+- **Record count** --- Total number of interaction log entries
+- **User count** --- Number of unique users
+- **Item count** --- Number of unique items
+- **Upload date** --- Date and time the data was uploaded
