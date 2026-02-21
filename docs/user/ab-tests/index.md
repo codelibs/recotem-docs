@@ -24,6 +24,16 @@ Configuration options:
 - **Min Sample Size** --- Minimum sample count before statistical analysis is performed (default: 1000)
 - **Confidence Level** --- Significance level for statistical testing (default: 0.95 = 95% confidence)
 
+## Impression Tracking
+
+**Impressions are recorded automatically.** Every time the project-level recommendation API returns results, an `impression` event is recorded in the background. You do not need to track impressions manually.
+
+This behavior is enabled by default. To disable it, set the `INFERENCE_AUTO_RECORD_IMPRESSIONS` environment variable to `false`.
+
+::: tip
+Auto-recorded impressions include `{"source": "inference_auto"}` in the metadata, making them easy to distinguish from manually recorded events.
+:::
+
 ## Recording Conversion Events
 
 When a user takes an action (click, purchase, etc.) on a recommended item, record the conversion event using the following API:
@@ -31,6 +41,8 @@ When a user takes an action (click, purchase, etc.) on a recommended item, recor
 ```http
 POST /api/v1/conversion_event/
 ```
+
+Since impressions are tracked automatically, you only need to record click and purchase events here.
 
 ## Analyzing Results
 
