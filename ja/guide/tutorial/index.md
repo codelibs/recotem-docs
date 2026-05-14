@@ -1,117 +1,252 @@
+---
+title: チュートリアル
+description: 実際の購買ログデータセットから推薦システムを学習・配信し、10 分以内に予測を取得します。
+---
+
 # チュートリアル
 
-このチュートリアルでは、EC サイトの購買ログ（ダミーデータ）を用いて、Recotem の基本的なワークフローを学びます。データのアップロードからモデルのチューニング・学習、そして推薦 API の呼び出しまでを一通り体験します。
+このチュートリアルでは、Recotem の一連の操作を体験します。データの取得、モデルの学習、配信、そして `/predict` の呼び出しです。使用するデータセットは小さな公開購買ログ CSV (Recotem の統合テストでも使用しているファイル) で、ラップトップで約 1 分で学習が完了します。
 
-## 1. データの準備
+**前提条件:** Docker と Compose プラグイン、または Python 3.12 以上と Recotem がインストールされた環境が必要です。ディスクとネットワークアクセスは約 50 MB 程度 (`raw.githubusercontent.com` へのアクセスが必要です)。
 
-チュートリアルで使用する購買履歴データ `purchase_log.csv` を<a href="https://raw.githubusercontent.com/codelibs/recotem/refs/tags/v1.0.0/frontend/e2e/test_data/purchase_log.csv" download="purchase_log.csv">こちら</a>からダウンロードします。このデータは「どのユーザーがどの商品を購入したか」を記録するシンプルな履歴データです:
+実行方法を選んでください。
 
-| user_id | item_id |
-| ------- | ------- |
-| 1       | 49      |
-| 1       | 69      |
-| 2       | 21      |
-| 2       | 57      |
+- [パス A — Docker Compose](#パス-a-docker-compose) (推奨。Python のインストール不要)
+- [パス B — pip](#パス-b-pip)
 
-## 2. ログイン
+---
 
-[http://localhost:8000](http://localhost:8000) にアクセスすると、ログイン画面が表示されます。[インストール](../installation)直後は、以下の情報でログインできます。
+## チュートリアルのレシピ
 
-- ユーザー名: `admin`
-- パスワード: `very_bad_password`
+`examples/tutorial-purchase-log/recipe.yaml` のレシピがパイプライン全体を定義しています。
 
-ユーザー名とパスワードを入力し、「Login」ボタンをクリックします。
+```yaml
+name: purchase_log
 
-## 3. プロジェクトの作成
+source:
+  type: csv
+  path: https://raw.githubusercontent.com/codelibs/recotem/refs/tags/v1.0.0/frontend/e2e/test_data/purchase_log.csv
+  sha256: 945fc769205a5976d38c5783500ae473afbb04608043b703951a699993c8f8be
+  dtype:
+    user_id: str
+    item_id: str
 
-ログインするとプロジェクト選択画面が表示されます。右上の **"New Project"** ボタンをクリックして新しいプロジェクトを作成します。
+schema:
+  user_column: user_id
+  item_column: item_id
 
-Recotem では「プロジェクト」がデータ管理の基本単位です。同一プロジェクト内のデータは同じカラム構成である必要があります。
+cleansing:
+  drop_null_ids: true
+  dedup: keep_last
+  min_rows: 100
+  min_users: 10
+  min_items: 10
 
-今回のデータには `user_id` と `item_id` の 2 つのカラムがあるため、以下のように入力します:
+training:
+  algorithms: [IALS, TopPop]
+  metric: ndcg
+  cutoff: 10
+  n_trials: 10
+  split:
+    scheme: random
+    heldout_ratio: 0.2
+    seed: 42
 
-- **Project name**: 任意の名前（例: `fashion-ec`）
-- **User column**: `user_id`
-- **Item column**: `item_id`
-
-入力したら「Create new project」をクリックします。
-
-## 4. データのアップロード
-
-プロジェクト画面に移動したら、サイドバーからデータ管理ページに移動し、「Upload」ボタンをクリックします。ファイル選択欄で先ほどダウンロードした `purchase_log.csv` を選択し、アップロードします。
-
-## 5. チューニングウィザード
-
-データをアップロードしたら、チューニングを開始します。サイドバーからチューニングページに移動し、ウィザードに従って 4 ステップで設定します。
-
-### Step 1: データの選択
-
-チューニングに使用する学習データを選択します。先ほどアップロードした `purchase_log.csv` を選択して次へ進みます。
-
-### Step 2: 分割設定（Split Config）
-
-学習データの分割方法を設定します。デフォルト値のまま「Continue」をクリックします。
-
-### Step 3: 評価設定（Evaluation Config）
-
-評価指標や推薦件数を設定します。デフォルト値のまま「Continue」をクリックします。
-
-### Step 4: ジョブ設定
-
-探索するアルゴリズムの種類や試行回数を設定します。デフォルト値のまま「Start the job」をクリックします。
-
-## 6. チューニング結果の確認
-
-ジョブが開始されると、チューニングジョブ詳細画面に移動します。進行状況はログパネルで確認できます。
-
-ジョブが完了すると、探索されたアルゴリズムとパラメータの一覧が「Results」パネルに表示されます。各行には性能指標（NDCG 等）とパラメータが記載されています。最も性能の良いモデル設定は自動的に保存されます。
-
-## 7. モデルの学習
-
-チューニング結果から最適なモデル設定が自動的に作成されます。サイドバーからモデル学習ページに移動し、モデル設定を選択して「Train」をクリックすることで、全データを用いたモデルの学習が開始されます。
-
-学習が完了すると、学習済みモデルが一覧に追加されます。
-
-## 8. デプロイメントスロットの作成
-
-学習済みモデルを推薦 API として配信するには、デプロイメントスロットを作成します。
-
-サイドバーからデプロイメントスロットページに移動し、「Create Slot」をクリックします。スロット名を入力し、先ほど学習したモデルを選択して保存します。
-
-## 9. API キーの作成
-
-推薦 API を呼び出すには、`predict` スコープを持つ API キーが必要です。
-
-サイドバーから API キー管理ページに移動し、「Create API Key」をクリックします。名前を入力し、スコープから `predict` を選択して作成します。
-
-::: warning
-API キーは作成時にのみ表示されます。必ずコピーして安全な場所に保管してください。
-:::
-
-## 10. 推薦 API の呼び出し
-
-API キーとデプロイメントスロットが準備できたら、推薦 API を呼び出すことができます。
-
-### 単一ユーザーへの推薦
-
-```bash
-curl -X POST http://localhost:8000/inference/predict/project/{project_id} \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: {your_api_key}" \
-  -d '{"user_id": "1", "n_recommendations": 10}'
+output:
+  path: ./artifacts/purchase_log.recotem
+  versioning: append_sha
 ```
 
-`{project_id}` にはプロジェクトの ID を、`{your_api_key}` には先ほど作成した API キーを指定します。
+いくつか注目すべき点があります。
 
-レスポンスとして、推薦アイテムの ID リストが JSON 形式で返されます。
+- **`source.sha256`** は HTTP/HTTPS 経由でデータファイルを取得する場合に必須です。Recotem はダウンロード後に期待するチェックサムと照合します。これにより、ファイルが密かに差し替えられたり破損したりした状態で学習が始まるのを防ぎます。
+- **`training.algorithms`** には 2 つの候補を指定しています。IALS (暗黙的フィードバックの行列分解) と TopPop (人気ベースライン) です。Optuna が各アルゴリズムに対してトライアルを実行し、最も高いスコアの組み合わせを選択します。
+- **`output.versioning: append_sha`** は各学習実行でユニークなサフィックスを付けた新しいアーティファクトを書き出し、ポインタファイルをアトミックに更新します。サーバーはポインタを通じて読み込むため、古いモデルから新しいモデルへの切り替えは常にアトミックです。
+
+---
+
+## パス A — Docker Compose
+
+### ステップ 1 — 鍵の生成
+
+```bash
+docker run --rm ghcr.io/codelibs/recotem:latest keygen --type signing --kid dev
+```
+
+出力から `env_entry=` の行をコピーして設定します。
+
+```bash
+export RECOTEM_SIGNING_KEYS="dev:<出力の plaintext-hex>"
+```
+
+次に API キーを生成します。
+
+```bash
+docker run --rm ghcr.io/codelibs/recotem:latest keygen --type api --kid dev
+```
+
+`env_entry=` の行と `plaintext=` の行の両方をコピーします。
+
+```bash
+export RECOTEM_API_KEYS="dev:sha256:<出力の hash-hex>"
+export RECOTEM_API_PLAINTEXT="<出力の plaintext>"   # ステップ 4 (curl) で使用
+```
+
+### ステップ 2 — 学習
+
+リポジトリのルートから実行します。
+
+```bash
+docker compose run --rm train
+```
+
+これにより一回限りの学習コンテナが実行されます。GitHub から CSV を取得し、sha256 を検証して Optuna 探索を実行し、serve コンテナと共有する `artifacts` ボリュームに署名付きアーティファクトを書き出します。
+
+最後のログ行は次のようになるはずです。
+
+```json
+{"event":"train_done","name":"purchase_log","exit_code":0,
+ "artifact":"./artifacts/purchase_log....recotem","best_class":"IALSRecommender"}
+```
+
+### ステップ 3 — 配信
+
+```bash
+docker compose up -d serve
+```
+
+サーバーが起動してモデルを読み込んだか確認します。
+
+```bash
+curl http://localhost:8080/health
+```
+
+期待されるレスポンス:
+
+```json
+{"status":"ok","total":1,"loaded":1}
+```
+
+### ステップ 4 — 予測
+
+```bash
+curl -sX POST http://localhost:8080/predict/purchase_log \
+  -H "X-API-Key: $RECOTEM_API_PLAINTEXT" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "1", "cutoff": 5}' | python3 -m json.tool
+```
+
+期待されるレスポンスの形式 (スコアの値は学習の実行ごとに異なります):
 
 ```json
 {
-  "user_id": "1",
-  "recommendations": ["42", "15", "78", "3", "91", "27", "56", "8", "64", "33"],
-  "model_id": 1,
-  "slot_name": "default"
+  "items": [
+    {"item_id": "42", "score": 0.91},
+    {"item_id": "17", "score": 0.87}
+  ],
+  "model": {
+    "recipe": "purchase_log",
+    "best_class": "IALSRecommender",
+    "kid": "dev"
+  },
+  "request_id": "..."
 }
 ```
 
-これで Recotem の基本的なワークフロー --- データアップロード、チューニング、学習、デプロイ、API 呼び出し --- を一通り体験しました。
+### ステップ 5 — 後片付け
+
+```bash
+docker compose down -v
+```
+
+---
+
+## パス B — pip
+
+### ステップ 1 — インストールと確認
+
+```bash
+pip install recotem
+recotem --help
+```
+
+### ステップ 2 — 鍵の生成
+
+```bash
+recotem keygen --type signing --kid dev
+recotem keygen --type api     --kid dev
+```
+
+出力に表示された値をエクスポートします。
+
+```bash
+export RECOTEM_SIGNING_KEYS="dev:<署名の plaintext-hex>"
+export RECOTEM_API_KEYS="dev:sha256:<API の hash-hex>"
+export RECOTEM_API_PLAINTEXT="<API の plaintext>"
+```
+
+### ステップ 3 — レシピの検証 (任意だが推奨)
+
+```bash
+recotem validate examples/tutorial-purchase-log/recipe.yaml
+```
+
+これにより、ファイル全体をダウンロードせずにレシピを解析し、簡単な接続確認 (CSV URL への HTTP HEAD リクエスト) を実行します。フル学習を始める前に設定上の問題を早期に発見するのに役立ちます。
+
+### ステップ 4 — 学習
+
+`output.path` の相対パス (`./artifacts/...`) が正しく解決されるよう、リポジトリのルートから実行してください。
+
+```bash
+mkdir -p artifacts
+recotem train examples/tutorial-purchase-log/recipe.yaml
+```
+
+### ステップ 5 — 配信
+
+```bash
+recotem serve --recipes examples/tutorial-purchase-log/
+```
+
+### ステップ 6 — 予測
+
+別のターミナルで実行します。
+
+```bash
+curl -sX POST http://127.0.0.1:8080/predict/purchase_log \
+  -H "X-API-Key: $RECOTEM_API_PLAINTEXT" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "1", "cutoff": 5}' | python3 -m json.tool
+```
+
+---
+
+## 何が起きたのか
+
+- `recotem train` はレシピを解析し、HTTPS 経由で CSV を取得して sha256 を検証し、IALS と TopPop に対して Optuna によるハイパーパラメータ探索を実行し、署名鍵で署名したバイナリアーティファクトを書き出しました。
+- `recotem serve` はアーティファクトディレクトリを監視し、新しいファイルを検出して同じ署名鍵で HMAC 検証を行い、`/predict/purchase_log` エンドポイントとして登録しました。
+- `/predict` リクエストは API キーの許可リストで認証され、学習済みモデルでスコアリングされました。
+
+---
+
+## よくある問題
+
+| 症状 | 考えられる原因 | 対処方法 |
+|---|---|---|
+| `RecipeError: 'source.path' uses a network scheme … requires a 'sha256' integrity pin` | レシピから `sha256` フィールドが削除された | `sha256:` の行を再度追加する |
+| `DataSourceError: sha256 mismatch` | 上流のファイルが変更された | `curl -sL <url> \| shasum -a 256` で再計算してレシピを更新する |
+| `DataSourceError: HTTP 404 fetching ...` | URL が変更された | ブラウザで URL を確認し、`v1.0.0` タグがまだ存在するか確認する |
+| `ArtifactError: RECOTEM_SIGNING_KEYS not set` | ステップ 1 (鍵の生成) がエクスポートされていない | エクスポートを再実行して再試行する |
+| `/predict` で `401 Unauthorized` | API キーの値が間違っている | `keygen --type api` の `hash` ではなく `plaintext` の値を使用する |
+| 学習直後に `503 recipe_unavailable` | ウォッチャーがまだポーリングしていない | `RECOTEM_WATCH_INTERVAL` 秒 (デフォルト 5 秒、チュートリアルの compose では 10 秒) 待つ。`/health` を確認する |
+| パス B: アーティファクトが予期しないディレクトリに書き出される | レシピの `output.path` が作業ディレクトリからの相対パス | リポジトリのルートから `recotem train` を実行するか、`output.path` を絶対パスに変更する |
+| pip インストール後に `recotem: command not found` | 仮想環境がアクティベートされていない | 仮想環境をアクティベートするか、`python -m recotem ...` で実行する |
+
+---
+
+## 次のステップ
+
+- [レシピの基本](/ja/guide/recipe-basics) — レシピの各セクションを詳しく理解する
+- [CLI リファレンス](/ja/guide/cli) — `train`、`serve` などのコマンドの全フラグ
+- [レシピリファレンス](/docs/recipe-reference) — すべてのレシピフィールドの詳細ドキュメント
+- [バッチとスケジューリング](/ja/guide/batch) — cron スケジュールで学習を実行する
