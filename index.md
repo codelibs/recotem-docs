@@ -4,6 +4,7 @@ layout: home
 hero:
   name: Recotem
   text: Recommender system for non-experts
+  tagline: A small config file is all you need. No machine-learning expertise required.
   image:
     src: /recotem-logo.png
     alt: Recotem
@@ -11,12 +12,15 @@ hero:
     - theme: brand
       text: Getting Started
       link: /guide/
+    - theme: alt
+      text: View on GitHub
+      link: https://github.com/codelibs/recotem
 
 features:
-  - title: Easy to use
-    details: It comes with a simple web UI. With a Docker environment, you can run Recotem by a single command.
-  - title: Open source
-    details: Licensed under Apache 2 license and you can use & modify it freely.
-  - title: Performant
-    details: Built on top of modern technologies (like optuna and irspack), you can train an accurate model quickly and easily.
+  - title: Easy to set up
+    details: Describe your data and model in one small YAML file. The CLI handles fetching data, picking the best algorithm, training, and serving.
+  - title: Friendly defaults
+    details: Sensible defaults for splitting, evaluation, and hyperparameter tuning. Get from raw interactions to a working /predict endpoint in minutes.
+  - title: Production-ready
+    details: HMAC-signed model artifacts, automatic hot-swap on retrain, and ready-to-use Docker / Kubernetes / cron deployment patterns.
 ---

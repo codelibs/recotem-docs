@@ -76,6 +76,7 @@ function v2GuideSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
         { text: lang === 'ja' ? '概要' : 'Overview', link: `${prefix}/` },
         { text: lang === 'ja' ? 'インストール' : 'Installation', link: `${prefix}/installation` },
         { text: lang === 'ja' ? 'チュートリアル' : 'Tutorial', link: `${prefix}/tutorial/` },
+        { text: lang === 'ja' ? 'レシピの基本' : 'Recipe Basics', link: `${prefix}/recipe-basics` },
       ],
     },
     {
@@ -83,7 +84,7 @@ function v2GuideSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
       collapsed: false,
       items: [
         { text: 'CLI', link: `${prefix}/cli` },
-        { text: lang === 'ja' ? 'バッチ実行' : 'Batch', link: `${prefix}/batch` },
+        { text: lang === 'ja' ? '定期実行' : 'Batch & Scheduling', link: `${prefix}/batch` },
       ],
     },
   ]
@@ -91,37 +92,54 @@ function v2GuideSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
 
 function v2DocsSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
   const prefix = lang === 'ja' ? '/ja/docs' : '/docs'
-  const containerTitle = lang === 'ja' ? 'Dockerコンテナ' : 'Docker Container'
-  const userTitle = lang === 'ja' ? 'ユーザーページ' : "User's page"
+  const conceptsTitle = lang === 'ja' ? 'コンセプト' : 'Concepts'
+  const recipeTitle = lang === 'ja' ? 'レシピ' : 'Recipe'
+  const dataSourcesTitle = lang === 'ja' ? 'データソース' : 'Data Sources'
+  const deploymentTitle = lang === 'ja' ? 'デプロイ' : 'Deployment'
+  const opsTitle = lang === 'ja' ? '運用' : 'Operations'
   return [
     {
-      text: containerTitle,
+      text: conceptsTitle,
       collapsed: false,
       items: [
-        { text: lang === 'ja' ? '各コンテナの役割' : 'Role of Containers', link: `${prefix}/` },
+        { text: lang === 'ja' ? 'アーキテクチャ' : 'Architecture', link: `${prefix}/` },
       ],
     },
     {
-      text: userTitle,
+      text: recipeTitle,
       collapsed: false,
       items: [
-        { text: lang === 'ja' ? 'プロジェクト選択' : 'Project Selection', link: `${prefix}/user/project-list/` },
-        { text: lang === 'ja' ? 'ダッシュボード' : 'Dashboard', link: `${prefix}/user/dashboard/` },
-        { text: lang === 'ja' ? 'データ管理' : 'Data Management', link: `${prefix}/user/data-list/` },
-        { text: lang === 'ja' ? 'データ詳細' : 'Data Detail', link: `${prefix}/user/data-detail/` },
-        { text: lang === 'ja' ? 'チューニング設定' : 'Tuning Configuration', link: `${prefix}/user/start-tuning/` },
-        { text: lang === 'ja' ? 'チューニングジョブ一覧' : 'Tuning Job List', link: `${prefix}/user/tuning-job-list/` },
-        { text: lang === 'ja' ? 'チューニングジョブ詳細' : 'Tuning Job Detail', link: `${prefix}/user/tuning-job-detail/` },
-        { text: lang === 'ja' ? 'モデル設定' : 'Model Configuration', link: `${prefix}/user/model-config/` },
-        { text: lang === 'ja' ? 'モデル学習' : 'Start Training', link: `${prefix}/user/start-training/` },
-        { text: lang === 'ja' ? 'モデル一覧' : 'Model List', link: `${prefix}/user/trained-model-list/` },
-        { text: lang === 'ja' ? 'モデル詳細' : 'Model Detail', link: `${prefix}/user/trained-model-detail/` },
-        { text: lang === 'ja' ? 'モデル比較' : 'Model Comparison', link: `${prefix}/user/model-comparison/` },
-        { text: lang === 'ja' ? 'デプロイメントスロット' : 'Deployment Slots', link: `${prefix}/user/deployment-slots/` },
-        { text: lang === 'ja' ? 'APIキー管理' : 'API Keys', link: `${prefix}/user/api-keys/` },
-        { text: lang === 'ja' ? 'A/Bテスト' : 'A/B Tests', link: `${prefix}/user/ab-tests/` },
-        { text: lang === 'ja' ? '定期再学習' : 'Scheduled Retraining', link: `${prefix}/user/retraining/` },
-        { text: lang === 'ja' ? 'ユーザー管理' : 'User Management', link: `${prefix}/user/user-management/` },
+        { text: lang === 'ja' ? 'レシピ リファレンス' : 'Recipe Reference', link: `${prefix}/recipe-reference` },
+      ],
+    },
+    {
+      text: dataSourcesTitle,
+      collapsed: false,
+      items: [
+        { text: 'CSV / Parquet', link: `${prefix}/data-sources/csv` },
+        { text: 'BigQuery', link: `${prefix}/data-sources/bigquery` },
+        { text: lang === 'ja' ? 'プラグイン' : 'Plugins', link: `${prefix}/data-sources/plugins` },
+      ],
+    },
+    {
+      text: deploymentTitle,
+      collapsed: false,
+      items: [
+        { text: 'Docker', link: `${prefix}/deployment/docker` },
+        { text: 'Kubernetes', link: `${prefix}/deployment/kubernetes` },
+        { text: lang === 'ja' ? 'cron / systemd' : 'cron / systemd', link: `${prefix}/deployment/cron-systemd` },
+      ],
+    },
+    {
+      text: opsTitle,
+      collapsed: false,
+      items: [
+        { text: lang === 'ja' ? '予測API' : 'Serving API', link: `${prefix}/serving-api` },
+        { text: lang === 'ja' ? '運用ガイド' : 'Operations', link: `${prefix}/operations` },
+        { text: lang === 'ja' ? 'セキュリティ' : 'Security', link: `${prefix}/security` },
+        { text: lang === 'ja' ? '環境変数' : 'Environment Variables', link: `${prefix}/environment-variables` },
+        { text: lang === 'ja' ? '終了コード' : 'Exit Codes', link: `${prefix}/exit-codes` },
+        { text: lang === 'ja' ? 'プラグイン作成' : 'Plugin Authoring', link: `${prefix}/plugin-authoring` },
       ],
     },
   ]
