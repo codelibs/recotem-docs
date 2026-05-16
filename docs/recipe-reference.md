@@ -11,7 +11,7 @@ A recipe is a YAML file that defines what data to fetch, how to train, and where
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | yes | Endpoint name. Pattern: `^[A-Za-z0-9_-]{1,64}$`. Becomes `/predict/{name}`. |
-| `source` | object | yes | Data source config. `type` field is the discriminator (`csv`, `parquet`, `bigquery`, or any plugin). Validated in two stages: the rest of the recipe is parsed first, then the source dict is dispatched to the plugin's `Config` class. As a result, errors in `source.*` surface *after* errors elsewhere in the recipe; an unknown `source.type` raises a `DataSourceError` listing all registered type names. |
+| `source` | object | yes | Data source config. `type` field is the discriminator (`csv`, `parquet`, `bigquery`, `sql`, `ga4`, or any plugin). Validated in two stages: the rest of the recipe is parsed first, then the source dict is dispatched to the plugin's `Config` class. As a result, errors in `source.*` surface *after* errors elsewhere in the recipe; an unknown `source.type` raises a `DataSourceError` listing all registered type names. |
 | `schema` | object | yes | Column mapping. |
 | `cleansing` | object | no | Data quality gates. |
 | `item_metadata` | object | no | Metadata joined into predict responses. |
@@ -73,6 +73,63 @@ source:
 Install the extra: `pip install "recotem[bigquery]"`.
 
 Environment variable expansion is **never** performed inside `query` or `query_parameters`. Use `@param` placeholders to keep SQL injection foreclosed.
+
+### `source.type: sql`
+
+```yaml
+source:
+  type: sql
+  dsn_env: RECOTEM_RECIPE_DB_DSN
+  query: |
+    SELECT user_id, item_id, ts
+    FROM events
+    WHERE ts >= :since
+  query_parameters:
+    since: ${RECOTEM_RECIPE_SINCE}
+  connect_timeout_seconds: 10
+  statement_timeout_seconds: 300
+```
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `dsn_env` | string | required | Name of an env var matching `^RECOTEM_RECIPE_[A-Z0-9_]+$` containing the DSN. The DSN itself is never written to the recipe. |
+| `query` | string | required | Raw SQL. Trusted code — not env-expanded. Use `:name` for dynamic values. |
+| `query_parameters` | map | `{}` | Bound via SQLAlchemy `text().bindparams(...)`. Subject to `${RECOTEM_RECIPE_*}` expansion. |
+| `connect_timeout_seconds` | int | `10` | Valid range `[1, 60]`. |
+| `statement_timeout_seconds` | int | `300` | Valid range `[1, 1800]`. Per-dialect implementation — see [SQL source](./data-sources/sql#statement-timeouts). |
+
+Install one extra: `pip install "recotem[postgres]"`, `recotem[mysql]`, or `recotem[sqlite]`. Full reference: [SQL source](./data-sources/sql).
+
+### `source.type: ga4`
+
+```yaml
+source:
+  type: ga4
+  property_id: "123456789"
+  user_dimension: userPseudoId
+  item_dimension: itemId
+  time_dimension: date
+  event_names: [purchase, view_item, add_to_cart]
+  lookback_days: 90               # XOR with start_date + end_date
+  max_rows: 1_000_000
+  weight_column: event_count
+  api_timeout_seconds: 60
+```
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `property_id` | string | required | Numeric only (`^\d+$`). Not the `G-XXXX` measurement ID. |
+| `user_dimension` | string | required | `userId` or `userPseudoId`. |
+| `item_dimension` | string | `itemId` | Any GA4 item-scoped dimension. |
+| `time_dimension` | string | `date` | `date` / `dateHour` / `dateHourMinute`. |
+| `event_names` | list[string] | required | 1–50 names; each matches `^[A-Za-z_][A-Za-z0-9_]{0,39}$`. |
+| `lookback_days` | int | XOR | 1–3650. Rolling window ending yesterday. |
+| `start_date` / `end_date` | string (ISO) | XOR | Both required if either is set. |
+| `max_rows` | int | required | Valid range `[1, 50_000_000]`. |
+| `weight_column` | string | `event_count` | Must not collide with the dimension keys or the literal `eventName`. |
+| `api_timeout_seconds` | int | `60` | Valid range `[5, 600]`. |
+
+Install the extra: `pip install "recotem[ga4]"`. Full reference: [GA4 source](./data-sources/ga4).
 
 ---
 
