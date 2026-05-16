@@ -22,7 +22,7 @@ kind: CronJob
 metadata:
   name: recotem-train
 spec:
-  schedule: "0 3 * * *"
+  schedule: "0 2 * * *"
   concurrencyPolicy: Forbid          # skip if a previous run is still active
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -127,7 +127,7 @@ spec:
             - name: RECOTEM_LOG_FORMAT
               value: "json"
             - name: RECOTEM_WATCH_INTERVAL
-              value: "30"
+              value: "10"
             - name: RECOTEM_DRAIN_SECONDS
               value: "30"
             - name: RECOTEM_SIGNING_KEYS

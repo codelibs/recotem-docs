@@ -89,9 +89,9 @@ API キー認証は `X-API-Key` リクエストヘッダーを使用します。
 | コード | 条件 | レスポンスボディの `code` フィールド |
 |--------|------|-------------------------------------|
 | 200 | 成功 | — |
-| 401 | `X-API-Key` が欠落または不正 | — |
+| 401 | `X-API-Key` が欠落または不正 | `missing_api_key` または `invalid_api_key` |
 | 404 | `user_id` が学習データに存在しない | `user_not_found` |
-| 422 | リクエストボディのスキーマバリデーション失敗 (`user_id` の欠落、`cutoff` が範囲外) | — |
+| 422 | リクエストボディのスキーマバリデーション失敗 (`user_id` の欠落、`cutoff` が範囲外) | — (FastAPI デフォルトのバリデーション形式) |
 | 503 | レシピがロードされていないか異常 | `recipe_unavailable` |
 
 **curl の例:**
@@ -136,7 +136,7 @@ curl -s -X POST http://localhost:8080/predict/news_articles \
 | コード | 条件 |
 |--------|------|
 | 200 | 全登録レシピがロード済みかつエラーなし。 |
-| 503 | 1 件以上のレシピが未ロードまたは `last_load_error` を持つ。 |
+| 503 | 1 件以上のレシピが未ロードまたはロードエラーを持つ。 |
 
 ::: tip
 プローブのロジックには HTTP ステータスコードのみを使用してください。`status: degraded` のレスポンスは 503 を返し、Kubernetes の readiness プローブがその Pod を Service エンドポイントから除外します。これは意図的な動作です — 全ての predict 呼び出しが 503 を返す Pod にはトラフィックを送るべきではありません。
@@ -168,21 +168,17 @@ curl -s http://localhost:8080/health | jq .
       "loaded": true,
       "trained_at": "2026-05-07T01:23:45Z",
       "best_class": "IALSRecommender",
-      "kid": "prod-2026-q2",
-      "last_load_error": null
+      "kid": "prod-2026-q2"
     },
     "product_recs": {
       "loaded": false,
-      "trained_at": null,
-      "best_class": null,
-      "kid": null,
-      "last_load_error": "signature mismatch"
+      "error": "signature mismatch"
     }
   }
 }
 ```
 
-レシピディレクトリで見つかった全レシピは、アーティファクトがロードされたかどうかに関わらずここに表示されます。起動時に失敗したレシピは `loaded: false` と null でない `last_load_error` を持つスタブとして表示されます。
+レシピディレクトリで見つかった全レシピは、アーティファクトがロードされたかどうかに関わらずここに表示されます。起動時に失敗したレシピは `loaded: false` と `error` フィールドを持つスタブとして表示されます。オプションフィールド (`trained_at`、`best_class`、`kid`、`error`) は対応する値が設定されている場合のみ存在します。フィールドが存在しない場合、対応する値は未設定であることを意味します。
 
 **ステータスコード:** `GET /health` と同じ — いずれかのレシピが未ロードまたはロードエラーを持つ場合は 503。
 

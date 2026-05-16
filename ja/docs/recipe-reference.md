@@ -92,7 +92,7 @@ source:
 
 | フィールド | 型 | デフォルト | 備考 |
 |------------|-----|-----------|------|
-| `dsn_env` | string | required | DSN を保持する環境変数の名前。`^RECOTEM_RECIPE_[A-Z0-9_]+$` に一致する必要があります。DSN 自体はレシピに書き込まれません。 |
+| `dsn_env` | string | required | DSN を保持する環境変数の名前。`^RECOTEM_RECIPE_[A-Z0-9_]+$` に一致する必要があります。DSN 自体はレシピに書き込まれません。環境変数展開の対象外 — このフィールドは変数の*名前*を保持するものであり、値ではありません。 |
 | `query` | string | required | 生の SQL。信頼されたコード — 環境変数展開されません。動的な値には `:name` を使用してください。 |
 | `query_parameters` | map | `{}` | SQLAlchemy の `text().bindparams(...)` 経由でバインドされます。`${RECOTEM_RECIPE_*}` 展開の対象です。 |
 | `connect_timeout_seconds` | int | `10` | 有効範囲 `[1, 60]`。 |
@@ -300,7 +300,7 @@ output:
 
 構文: `${RECOTEM_RECIPE_VAR}`。プレフィックス `RECOTEM_RECIPE_*` に一致する変数のみ展開されます。マッチングは大文字小文字を区別しません (大文字に変換された名前がプレフィックスとブラックリストに対してチェックされます)。`recotem train --env-var KEY=VALUE` (繰り返し指定可能) を使用して、シェル環境にエクスポートせずに追加の値を注入できます。`KEY` は `RECOTEM_RECIPE_` で始まり、ブラックリストチェックをパスする必要があります。例: `recotem train recipe.yaml --env-var RECOTEM_RECIPE_DATE=20260501`。
 
-ブラックリスト (プレフィックスに関わらず展開されない): 正確な名前 `RECOTEM_SIGNING_KEYS` および `RECOTEM_API_KEYS`。`AWS_`、`GCP_`、`GOOGLE_`、`AZURE_` で始まる名前。`SECRET`、`PASSWORD`、`PASSWD`、`TOKEN`、`KEY`、`AUTH`、`BEARER`、`CRED`、`PRIVATE` という部分文字列を含む名前 (全て大文字小文字を区別しない比較)。
+ブラックリスト (プレフィックスに関わらず展開されない): 正確な名前 `RECOTEM_SIGNING_KEYS` および `RECOTEM_API_KEYS`。`AWS_`、`GCP_`、`GOOGLE_`、`AZURE_`、`ALIYUN_`、`ALICLOUD_`、`OCI_`、`IBM_`、`DO_`、`HCLOUD_`、`DIGITALOCEAN_` で始まる名前 (AWS、GCP、Azure、Alibaba Cloud、Oracle Cloud、IBM Cloud、DigitalOcean、Hetzner Cloud のクラウド認証情報プレフィックス)。`SECRET`、`PASSWORD`、`PASSWD`、`TOKEN`、`KEY`、`AUTH`、`BEARER`、`CRED`、`PRIVATE` という部分文字列を含む名前 (全て大文字小文字を区別しない比較)。
 
 `*KEY*` の部分文字列マッチは意図的に広く取られています — 大文字に変換した名前に部分文字列 `KEY` (アンダースコアの境界なし) が含まれる変数は拒否されます。これには `RECOTEM_RECIPE_PARTITION_KEY`、`RECOTEM_RECIPE_APIKEY`、`RECOTEM_RECIPE_KEYBOARD` が含まれます。`KEY` を含まない名前を使用してください (例: `RECOTEM_RECIPE_PARTITION_COLUMN`)。
 
