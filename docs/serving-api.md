@@ -89,9 +89,9 @@ The `items` array is ordered by descending `score`. Each item always contains `i
 | Code | Condition | Response body `code` field |
 |------|-----------|---------------------------|
 | 200 | Success | — |
-| 401 | Missing or invalid `X-API-Key` | — |
+| 401 | Missing or invalid `X-API-Key` | `missing_api_key` or `invalid_api_key` |
 | 404 | `user_id` was not present in training data | `user_not_found` |
-| 422 | Request body failed schema validation (missing `user_id`, `cutoff` out of range) | — |
+| 422 | Request body failed schema validation (missing `user_id`, `cutoff` out of range) | — (FastAPI default validation envelope) |
 | 503 | Recipe is not loaded or unhealthy | `recipe_unavailable` |
 
 **curl example:**
@@ -136,7 +136,7 @@ Overall health status. Safe for Kubernetes readiness and liveness probes.
 | Code | Condition |
 |------|-----------|
 | 200 | All registered recipes are loaded and error-free. |
-| 503 | One or more recipes are unloaded or carry a `last_load_error`. |
+| 503 | One or more recipes are unloaded or carry a load error. |
 
 ::: tip
 Use HTTP status code only for probe logic. A `status: degraded` response returns 503, which causes Kubernetes readiness probes to remove the pod from the Service endpoints. This is intentional — a pod where every predict call returns 503 should not receive traffic.
@@ -168,21 +168,17 @@ Per-recipe detail is behind authentication because it includes artifact key iden
       "loaded": true,
       "trained_at": "2026-05-07T01:23:45Z",
       "best_class": "IALSRecommender",
-      "kid": "prod-2026-q2",
-      "last_load_error": null
+      "kid": "prod-2026-q2"
     },
     "product_recs": {
       "loaded": false,
-      "trained_at": null,
-      "best_class": null,
-      "kid": null,
-      "last_load_error": "signature mismatch"
+      "error": "signature mismatch"
     }
   }
 }
 ```
 
-Every recipe found in the recipes directory appears here, regardless of whether its artifact loaded — startup-failed recipes appear as stubs with `loaded: false` and a non-null `last_load_error`.
+Every recipe found in the recipes directory appears here, regardless of whether its artifact loaded — startup-failed recipes appear as stubs with `loaded: false` and an `error` field. Optional fields (`trained_at`, `best_class`, `kid`, `error`) are present only when their underlying value is set; absent fields imply the corresponding value is unset.
 
 **Status codes:** Same as `GET /health` — 503 when any recipe is unloaded or carries a load error.
 

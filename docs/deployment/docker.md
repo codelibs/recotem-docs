@@ -73,7 +73,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 60s    # initial model load can take longer than 15s
     restart: unless-stopped
 
 volumes:

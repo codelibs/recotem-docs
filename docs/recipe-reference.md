@@ -92,7 +92,7 @@ source:
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `dsn_env` | string | required | Name of an env var matching `^RECOTEM_RECIPE_[A-Z0-9_]+$` containing the DSN. The DSN itself is never written to the recipe. |
+| `dsn_env` | string | required | Name of an env var matching `^RECOTEM_RECIPE_[A-Z0-9_]+$` containing the DSN. The DSN itself is never written to the recipe. Not env-expanded — the field holds the variable *name*, not a value. |
 | `query` | string | required | Raw SQL. Trusted code — not env-expanded. Use `:name` for dynamic values. |
 | `query_parameters` | map | `{}` | Bound via SQLAlchemy `text().bindparams(...)`. Subject to `${RECOTEM_RECIPE_*}` expansion. |
 | `connect_timeout_seconds` | int | `10` | Valid range `[1, 60]`. |
@@ -319,7 +319,7 @@ Local paths are resolved to absolute. If `RECOTEM_ARTIFACT_ROOT` is set,
 
 Syntax: `${RECOTEM_RECIPE_VAR}`. Only variables matching the prefix `RECOTEM_RECIPE_*` are expanded. Matching is case-insensitive (the *upper-cased* name is checked against the prefix and blacklist). Additional values can be injected without exporting to the shell environment using `recotem train --env-var KEY=VALUE` (repeatable). The `KEY` must still start with `RECOTEM_RECIPE_` and pass the blacklist check. Example: `recotem train recipe.yaml --env-var RECOTEM_RECIPE_DATE=20260501`.
 
-Blacklisted (never expanded regardless of prefix): exact names `RECOTEM_SIGNING_KEYS` and `RECOTEM_API_KEYS`; names starting with `AWS_`, `GCP_`, `GOOGLE_`, or `AZURE_`; and any name containing the substrings `SECRET`, `PASSWORD`, `PASSWD`, `TOKEN`, `KEY`, `AUTH`, `BEARER`, `CRED`, or `PRIVATE` (all comparisons case-insensitive).
+Blacklisted (never expanded regardless of prefix): exact names `RECOTEM_SIGNING_KEYS` and `RECOTEM_API_KEYS`; names starting with `AWS_`, `GCP_`, `GOOGLE_`, `AZURE_`, `ALIYUN_`, `ALICLOUD_`, `OCI_`, `IBM_`, `DO_`, `HCLOUD_`, or `DIGITALOCEAN_` (cloud credential prefixes for AWS, GCP, Azure, Alibaba Cloud, Oracle Cloud, IBM Cloud, DigitalOcean, and Hetzner Cloud); and any name containing the substrings `SECRET`, `PASSWORD`, `PASSWD`, `TOKEN`, `KEY`, `AUTH`, `BEARER`, `CRED`, or `PRIVATE` (all comparisons case-insensitive).
 
 The `*KEY*` substring match is intentionally broad — any variable whose uppercased name contains the substring `KEY` (no underscore boundary) is rejected. This includes `RECOTEM_RECIPE_PARTITION_KEY`, `RECOTEM_RECIPE_APIKEY`, and `RECOTEM_RECIPE_KEYBOARD`. Use a name that does not contain `KEY` (e.g. `RECOTEM_RECIPE_PARTITION_COLUMN`).
 

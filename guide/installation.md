@@ -28,6 +28,10 @@ The core package ships with CSV and Parquet data sources. Install extras for add
 | Extra | Command | What it adds |
 |---|---|---|
 | BigQuery data source | `pip install "recotem[bigquery]"` | Read interaction data from Google BigQuery |
+| PostgreSQL data source | `pip install "recotem[postgres]"` | Read interaction data from PostgreSQL via psycopg |
+| MySQL / MariaDB data source | `pip install "recotem[mysql]"` | Read interaction data from MySQL or MariaDB via PyMySQL |
+| SQLite data source | `pip install "recotem[sqlite]"` | Read interaction data from SQLite (uses stdlib `sqlite3`) |
+| Google Analytics 4 data source | `pip install "recotem[ga4]"` | Read interaction events from GA4 via the Data API |
 | Amazon S3 | `pip install "recotem[s3]"` | Read/write artifacts and data from S3 |
 | Google Cloud Storage | `pip install "recotem[gcs]"` | Read/write artifacts and data from GCS |
 | Azure Blob Storage | `pip install "recotem[azure]"` | Read/write artifacts and data from Azure |

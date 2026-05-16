@@ -73,7 +73,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 60s    # 初回のモデルロードは 15 秒以上かかる場合がある
     restart: unless-stopped
 
 volumes:
