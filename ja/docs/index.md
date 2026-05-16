@@ -44,7 +44,7 @@ Recotem はレシピ駆動の推薦システムです。単一の YAML ファイ
 ```
 
 レシピが記述する内容:
-- **データの取得先** (`source` ブロック — CSV、Parquet、BigQuery、またはプラグイン)
+- **データの取得先** (`source` ブロック — CSV、Parquet、BigQuery、SQL、GA4、またはプラグイン)
 - **カラムのマッピング** (`schema` ブロック — ユーザー ID、アイテム ID、任意のタイムスタンプ)
 - **データ品質ゲート** (`cleansing` ブロック — null 除去、重複除去、最低閾値)
 - **学習内容** (`training` ブロック — アルゴリズム、Optuna バジェット、分割方式)
@@ -148,6 +148,8 @@ artifacts/news_articles.<sha8>.recotem
 - [レシピリファレンス](./recipe-reference) — レシピの全フィールド、型、デフォルト値、バリデーションルール
 - [CSV / Parquet ソース](./data-sources/csv) — ローカル、オブジェクトストレージ、HTTP ソースのオプション
 - [BigQuery ソース](./data-sources/bigquery) — 認証、パラメータバインド、GA4 パターン
+- [SQL ソース](./data-sources/sql) — SQLAlchemy 2 経由の PostgreSQL / MySQL / MariaDB / SQLite
+- [GA4 ソース](./data-sources/ga4) — BigQuery Export を経由しない Google Analytics 4 Data API
 - [プラグインデータソース](./data-sources/plugins) — カスタムプラグインによる `source.type` の拡張
 - デプロイガイド — Docker、Kubernetes、cron スケジューリング
 - 運用ガイド — 鍵ローテーション、リカバリ、サイジング、トラブルシューティング

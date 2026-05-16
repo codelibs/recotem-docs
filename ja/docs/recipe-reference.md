@@ -11,7 +11,7 @@ title: レシピリファレンス
 | フィールド | 型 | 必須 | 説明 |
 |------------|-----|------|------|
 | `name` | string | yes | エンドポイント名。パターン: `^[A-Za-z0-9_-]{1,64}$`。`/predict/{name}` になります。 |
-| `source` | object | yes | データソース設定。`type` フィールドが識別子 (`csv`、`parquet`、`bigquery`、またはプラグイン)。バリデーションは 2 段階: まずレシピの残りの部分がパースされ、次にソースの dict がプラグインの `Config` クラスに振り分けられます。そのため `source.*` のエラーは他のフィールドのエラーの*後*に表示されます。不明な `source.type` は登録済みの全型名を列挙した `DataSourceError` を発生させます。 |
+| `source` | object | yes | データソース設定。`type` フィールドが識別子 (`csv`、`parquet`、`bigquery`、`sql`、`ga4`、またはプラグイン)。バリデーションは 2 段階: まずレシピの残りの部分がパースされ、次にソースの dict がプラグインの `Config` クラスに振り分けられます。そのため `source.*` のエラーは他のフィールドのエラーの*後*に表示されます。不明な `source.type` は登録済みの全型名を列挙した `DataSourceError` を発生させます。 |
 | `schema` | object | yes | カラムマッピング。 |
 | `cleansing` | object | no | データ品質ゲート。 |
 | `item_metadata` | object | no | predict レスポンスに結合するメタデータ。 |
@@ -73,6 +73,63 @@ source:
 エクストラのインストール: `pip install "recotem[bigquery]"`。
 
 `query` や `query_parameters` の内部では環境変数展開は**決して**行われません。SQL インジェクションを防ぐために `@param` プレースホルダーを使用してください。
+
+### `source.type: sql`
+
+```yaml
+source:
+  type: sql
+  dsn_env: RECOTEM_RECIPE_DB_DSN
+  query: |
+    SELECT user_id, item_id, ts
+    FROM events
+    WHERE ts >= :since
+  query_parameters:
+    since: ${RECOTEM_RECIPE_SINCE}
+  connect_timeout_seconds: 10
+  statement_timeout_seconds: 300
+```
+
+| フィールド | 型 | デフォルト | 備考 |
+|------------|-----|-----------|------|
+| `dsn_env` | string | required | DSN を保持する環境変数の名前。`^RECOTEM_RECIPE_[A-Z0-9_]+$` に一致する必要があります。DSN 自体はレシピに書き込まれません。 |
+| `query` | string | required | 生の SQL。信頼されたコード — 環境変数展開されません。動的な値には `:name` を使用してください。 |
+| `query_parameters` | map | `{}` | SQLAlchemy の `text().bindparams(...)` 経由でバインドされます。`${RECOTEM_RECIPE_*}` 展開の対象です。 |
+| `connect_timeout_seconds` | int | `10` | 有効範囲 `[1, 60]`。 |
+| `statement_timeout_seconds` | int | `300` | 有効範囲 `[1, 1800]`。ダイアレクトごとの実装は [SQL ソース](./data-sources/sql#ステートメントタイムアウト) を参照してください。 |
+
+エクストラを 1 つインストール: `pip install "recotem[postgres]"`、`recotem[mysql]`、または `recotem[sqlite]`。詳細リファレンス: [SQL ソース](./data-sources/sql)。
+
+### `source.type: ga4`
+
+```yaml
+source:
+  type: ga4
+  property_id: "123456789"
+  user_dimension: userPseudoId
+  item_dimension: itemId
+  time_dimension: date
+  event_names: [purchase, view_item, add_to_cart]
+  lookback_days: 90               # start_date + end_date とは排他
+  max_rows: 1_000_000
+  weight_column: event_count
+  api_timeout_seconds: 60
+```
+
+| フィールド | 型 | デフォルト | 備考 |
+|------------|-----|-----------|------|
+| `property_id` | string | required | 数値のみ (`^\d+$`)。`G-XXXX` 形式の測定 ID ではありません。 |
+| `user_dimension` | string | required | `userId` または `userPseudoId`。 |
+| `item_dimension` | string | `itemId` | GA4 のアイテムスコープのディメンション。 |
+| `time_dimension` | string | `date` | `date` / `dateHour` / `dateHourMinute`。 |
+| `event_names` | list[string] | required | 1〜50 個のイベント名。各値は `^[A-Za-z_][A-Za-z0-9_]{0,39}$` に一致。 |
+| `lookback_days` | int | XOR | 1〜3650 日。前日で終わるローリングウィンドウ。 |
+| `start_date` / `end_date` | string (ISO) | XOR | いずれかを設定する場合は両方必須。 |
+| `max_rows` | int | required | 有効範囲 `[1, 50_000_000]`。 |
+| `weight_column` | string | `event_count` | ディメンションキーや `eventName` という値と衝突してはいけません。 |
+| `api_timeout_seconds` | int | `60` | 有効範囲 `[5, 600]`。 |
+
+エクストラのインストール: `pip install "recotem[ga4]"`。詳細リファレンス: [GA4 ソース](./data-sources/ga4)。
 
 ---
 
