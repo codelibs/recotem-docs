@@ -54,16 +54,16 @@ Once all recipes have been retrained and hot-swapped, remove the old entry:
 RECOTEM_SIGNING_KEYS="prod-2026-q3:ddeeff..."
 ```
 
-Restart `recotem serve`. Any artifact still signed with the old kid will fail to load and will show up as `loaded: false` in `/health/details`. Retrain those recipes.
+Restart `recotem serve`. Any artifact still signed with the old kid will fail to load and will show up as `loaded: false` in `/v1/health/details`. Retrain those recipes.
 
-Confirm all recipes loaded successfully. Per-recipe state lives behind the authenticated `/health/details` endpoint — the public `/health` returns only `{status, total, loaded}` aggregates:
+Confirm all recipes loaded successfully. Per-recipe state lives behind the authenticated `/v1/health/details` endpoint — the public `/v1/health` returns only `{status, total, loaded}` aggregates:
 
 ```bash
 # -f / --fail returns exit 22 on 4xx/5xx, which would mask a 503.
 # Use -w to capture the status code instead.
 HTTP_STATUS=$(curl -s -o /tmp/health.json -w "%{http_code}" \
   -H "X-API-Key: $RECOTEM_API_PLAINTEXT" \
-  http://localhost:8080/health/details)
+  http://localhost:8080/v1/health/details)
 echo "HTTP $HTTP_STATUS"
 jq '.recipes | to_entries[] | select(.value.loaded == false)' /tmp/health.json
 ```
@@ -132,7 +132,7 @@ If an artifact is corrupt (truncated write, disk error, storage-side corruption)
 
 The `kid` field reads `"<unknown>"` only when the artifact is too short to hold a full kid (truncated writes, zero-byte files). For a tampered or wrong-magic file of the expected length, the parsed kid string is shown verbatim instead.
 
-The server continues running and returns 503 for that recipe's `/predict/{name}` endpoint.
+The server continues running and returns 503 for that recipe's recommendation endpoints.
 
 **Recovery steps:**
 
@@ -158,7 +158,7 @@ This writes a fresh, signed artifact. The server detects the new file at the nex
 
 ```bash
 curl -H "X-API-Key: $RECOTEM_API_PLAINTEXT" \
-  http://localhost:8080/health/details | jq '.recipes.my_recipe'
+  http://localhost:8080/v1/health/details | jq '.recipes.my_recipe'
 # {"loaded": true, "best_class": "IALSRecommender", ...}
 ```
 
@@ -229,8 +229,10 @@ A successful training run emits these structured events in order. Use them as th
 | `train_done` | end | `name`, `run_id`, `exit_code`, `artifact`, `best_class`, `best_score`, `trials`, `n_orphaned`, `trained_at`, `kid`, `recipe_hash`, `n_rows`, `n_users`, `n_items` |
 | `train_error` | failure | `error`, `code` (`internal_error` for non-domain exceptions), `recipe`, `run_id`, `exit_code`, `trained_at`; additionally `n_rows`, `n_users`, `n_items`, `min_rows`, `min_users`, `min_items` when `code=min_data_violation` |
 | `recipe_lock_contended_skipping` | start | `recipe`, `run_id` (default `--fail-on-busy=False` exits 0) |
-| `csv_source_redirect`, `csv_source_size_exceeded` | datasource | `path`, `status`, `cap` |
-| `metadata_source_redirect`, `metadata_source_size_exceeded` | datasource | `path`, `status`, `cap` |
+| `csv_source_redirect` | datasource | `from_`, `to`, `status` |
+| `csv_source_size_exceeded` | datasource | `path`, `bytes_read`, `cap` |
+| `metadata_source_redirect` | datasource | `from_`, `to`, `status` |
+| `metadata_source_size_exceeded` | datasource | `path`, `bytes_read`, `cap` |
 
 Operators alerting on `csv_source_redirect` / `csv_source_size_exceeded` should add equivalent alerts for `metadata_source_redirect` / `metadata_source_size_exceeded`. Both event families fire when an HTTP/HTTPS fetch hits a redirect cap or byte cap.
 
@@ -315,8 +317,8 @@ Recotem does not enforce SLOs internally. Recommended baseline targets for produ
 
 | Metric | Target |
 |--------|--------|
-| `/predict/{name}` p99 latency | < 50 ms (pure recommender, no metadata join) |
-| `/health` p99 latency | < 5 ms |
+| Recommendation endpoints p99 latency | < 50 ms (pure recommender, no metadata join) |
+| `/v1/health` p99 latency | < 5 ms |
 | Availability (per recipe) | Measure via `recotem_model_loaded{recipe}` Prometheus gauge |
 | Artifact hot-swap time | ≤ `RECOTEM_WATCH_INTERVAL` + model load time |
 | Train-to-serve lag | Schedule train; serve detects in ≤ `RECOTEM_WATCH_INTERVAL` seconds |
@@ -327,7 +329,7 @@ Enable Prometheus metrics:
 pip install "recotem[metrics]"
 ```
 
-Set `RECOTEM_METRICS_ENABLED=1` to activate the `/metrics` endpoint.
+Set `RECOTEM_METRICS_ENABLED=1` to activate the `/v1/metrics` endpoint.
 
 ---
 
@@ -339,11 +341,11 @@ Set `RECOTEM_METRICS_ENABLED=1` to activate the `/metrics` endpoint.
 - On `recotem serve` shutdown (SIGTERM), `ArtifactWatcher.stop()` calls `executor.shutdown(wait=False, cancel_futures=True)` so queued-but-not-started futures are discarded immediately.
 - A change is detected from the artifact pointer's mtime/size (local FS) or ETag/VersionId (object stores). When the marker changes the watcher reads the full bytes once, computes sha256, and **only reloads if the sha256 also changed** — so replacing a file with identical content bumps mtime but does not trigger an unnecessary swap.
 - Recipes directory is rescanned each tick: new `*.yaml` files trigger `recipe_discovered` + an immediate forced load; removed files trigger `recipe_removed` and the entry is dropped from the registry.
-- On any failure during reload (`artifact_load_failed`, `artifact_load_unexpected_error`), the existing entry remains served and its `last_load_error` field is set so `/health` shows the staleness while `/predict` continues to return the previous good model.
+- On any failure during reload (`artifact_load_failed`, `artifact_load_unexpected_error`), the existing entry remains served and its `last_load_error` field is set so `/v1/health` shows the staleness while the recommendation endpoints continue to return the previous good model.
 
 ### Initial load failure
 
-When an artifact fails to load at startup the recipe is still registered as a stub (`loaded=false`, `error=<reason>`). The server starts, `/health` reports `degraded`, and `/predict/{name}` returns 503. A partial outage is recoverable by retraining without restarting the process.
+When an artifact fails to load at startup the recipe is still registered as a stub (`loaded=false`, `error=<reason>`). The server starts, `/v1/health` reports `degraded`, and the recipe's recommendation endpoints return 503. A partial outage is recoverable by retraining without restarting the process.
 
 The startup-only event variants are:
 
@@ -380,8 +382,8 @@ The high-signal metrics for production alerting:
 | Artifact load failures since restart | `recotem_artifact_load_failures_total{recipe=...}` increase | warn |
 | Artifact stat failures (watcher poll) | `recotem_artifact_stat_failures_total{recipe=...}` increase | warn |
 | Watcher unhandled errors | `recotem_watcher_unhandled_errors_total` increase | warn |
-| Predict error rate | `rate(recotem_predict_total{status="error"}[5m]) / rate(recotem_predict_total[5m])` | warn at 1%, page at 10% |
-| Predict latency | `histogram_quantile(0.99, recotem_predict_latency_seconds_bucket)` | per-recipe SLO |
+| Predict error rate | `rate(recotem_v1_requests_total{status="error"}[5m]) / rate(recotem_v1_requests_total[5m])` | warn at 1%, page at 10% |
+| Predict latency | `histogram_quantile(0.99, recotem_v1_request_latency_seconds_bucket)` | per-recipe SLO |
 | Active recipes | `recotem_active_recipes` drop > 0 since last scrape | warn |
 | BigQuery Storage API fallback | `rate(recotem_bigquery_storage_fallback_total{reason="api_error"}[5m]) > 0` | warn |
 | Recipes-dir scan failures | `rate(recotem_recipes_dir_scan_failures_total[5m]) > 0` | warn |
@@ -408,7 +410,7 @@ For zero-downtime upgrade of the serve fleet, deploy new pods with both the old 
 
 ```bash
 curl -H "X-API-Key: $RECOTEM_API_PLAINTEXT" \
-  http://localhost:8080/health/details | jq '.recipes'
+  http://localhost:8080/v1/health/details | jq '.recipes'
 ```
 
 ```json
@@ -462,16 +464,16 @@ All Optuna trials scored 0.0. Common causes:
 - The split produced an empty test set (too few users or interactions). Try `split.scheme: random` or lower `split.heldout_ratio`.
 - The data after cleansing has too few items for the cutoff. Lower `training.cutoff`.
 
-### 401 on /predict
+### 401 on recommendation endpoints
 
 - Trailing or leading whitespace in the `X-API-Key` header is treated as part of the key and will not match. Trim client-side.
 - Confirm the hash in `RECOTEM_API_KEYS` was produced by `recotem keygen --type api` for the plaintext you are sending. The wire prefix is `sha256:` but the digest is scrypt — a plain `sha256(plaintext)` will not match.
 
-### 503 on /predict/{name}
+### 503 on /v1/recipes/{name}:recommend (and related verbs)
 
-The recipe is unhealthy (`loaded: false`). See `/health/details` for the error. Usually a signing mismatch or corrupt artifact.
+The recipe is unhealthy (`loaded: false`). See `/v1/health/details` for the error. Usually a signing mismatch or corrupt artifact.
 
-### 404 on /predict/{name}
+### 404 UNKNOWN_USER on /v1/recipes/{name}:recommend
 
 The `user_id` in the request was not present in training data. This is expected for new users. Handle it in your application layer (fall back to popularity-based recommendations, for example).
 

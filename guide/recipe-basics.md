@@ -5,7 +5,7 @@ description: Walk through every section of a Recotem recipe file, with annotated
 
 # Recipe Basics
 
-A recipe is the single configuration file for one recommender. It tells Recotem where the data is, which columns are user IDs and item IDs, what training options to use, and where to save the trained model. One recipe produces one model and one `/predict/{name}` HTTP endpoint.
+A recipe is the single configuration file for one recommender. It tells Recotem where the data is, which columns are user IDs and item IDs, what training options to use, and where to save the trained model. One recipe produces one model and a set of `/v1/recipes/{name}:<verb>` HTTP endpoints.
 
 You write a recipe once and then run `recotem train` as often as you like — on a schedule, after a data refresh, or whenever you want to try different settings. Every field has a sensible default; you only need to fill in what is specific to your data.
 
@@ -27,7 +27,7 @@ output: ...             # required: where to write the trained model file
 
 ## `name` — your endpoint name
 
-The `name` value becomes the URL path: `name: purchase_log` → `/predict/purchase_log`.
+The `name` value is used in the endpoint path: `name: purchase_log` → `/v1/recipes/purchase_log:recommend` (and the other verb endpoints: `:recommend-related`, `:batch-recommend`, `:batch-recommend-related`).
 
 ```yaml
 name: purchase_log
@@ -115,7 +115,7 @@ If the data falls below any `min_*` threshold, training exits with a clear error
 
 ## `item_metadata` — item details in predictions
 
-If you want `/predict` responses to include item details (titles, categories, image URLs), point this section to a metadata file. Only the columns listed in `fields` are joined and returned.
+If you want recommendation responses to include item details (titles, categories, image URLs), point this section to a metadata file. Only the columns listed in `fields` are joined and returned.
 
 ```yaml
 item_metadata:
@@ -125,7 +125,7 @@ item_metadata:
   on_field_missing: error   # fail at model load if a listed field is missing
 ```
 
-This section is optional. Without it, `/predict` returns only `item_id` and `score`.
+This section is optional. Without it, recommendation responses return only `item_id` and `score`.
 
 ---
 
@@ -184,7 +184,7 @@ The path can be local or a cloud storage URI (`s3://`, `gs://`, `az://`). With `
 
 ## Before you run
 
-Run `recotem validate` on any recipe before committing to a full training run. It checks the schema and probes the data source (for example, an HTTP HEAD request for a URL-based CSV) without downloading the full file:
+Run `recotem validate` on any recipe before committing to a full training run. It checks the schema and probes the data source (for HTTP/HTTPS paths the probe runs the SSRF host-publicity check; for BigQuery it runs a free dry-run query; for local or object-storage paths it confirms the file exists) without downloading the full dataset:
 
 ```bash
 recotem validate my_recipe.yaml

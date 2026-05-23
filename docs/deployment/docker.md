@@ -69,7 +69,7 @@ services:
     healthcheck:
       test:
         - "CMD-SHELL"
-        - "python -c \"import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=5).status == 200 else 1)\""
+        - "python -c \"import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/v1/health', timeout=5).status == 200 else 1)\""
       interval: 30s
       timeout: 10s
       retries: 3
@@ -122,7 +122,7 @@ Named Docker volumes (as in `compose.yaml`) are pre-created with the right owner
 
 ### Image-level HEALTHCHECK
 
-The Dockerfile declares its own `HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3` that probes the public `/health` endpoint with `urllib.request.urlopen(f'http://127.0.0.1:{RECOTEM_PORT}/health', timeout=3)` (so it picks up an overridden `RECOTEM_PORT`). For one-shot `train` containers this fires after the process has already exited and causes no spurious failures. The Compose-level healthcheck shown in the annotated example also targets `/health` and overrides the image default for the `serve` service — orchestrators should rely on the HTTP 200 response from `/health`.
+The Dockerfile declares its own `HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3` that probes `urllib.request.urlopen(f'http://127.0.0.1:{RECOTEM_PORT}/health', timeout=3)` (so it picks up an overridden `RECOTEM_PORT`). Note: the image-default probe targets `/health` (no `/v1` prefix); because the v1 router is mounted at `/v1` the public health endpoint is `/v1/health`. The Compose-level healthcheck shown in the annotated example overrides the image default for the `serve` service and targets `/v1/health`; orchestrators should rely on the HTTP 200 response from `/v1/health`. For one-shot `train` containers the image healthcheck fires after the process has already exited and causes no spurious failures.
 
 ### Reverse proxy binding
 
@@ -177,18 +177,18 @@ See [cron / systemd Deployment](./cron-systemd) for host-based scheduling patter
 | `RECOTEM_ENV` | no | `""` | `--insecure-no-auth` permitted when set to `development`, `dev`, or `test`; `--dev-allow-unsigned` permitted only when set to `development`. |
 | `RECOTEM_ARTIFACT_ROOT` | no | `""` | If set, local `output.path` must resolve under this directory (symlink-escape guard) |
 | `RECOTEM_LOCK_DIR` | no | `""` | Override directory for per-recipe training lock files. Needed when `output.path` is a remote URI (lock files must be host-local). Falls back to a temp dir under the system temp directory. |
-| `RECOTEM_METADATA_FIELD_DENY` | no | `""` | Comma-separated column names stripped from `/predict` responses after the metadata join |
-| `RECOTEM_METRICS_ENABLED` | no | `""` | Set to `1`/`true`/`yes`/`on` to enable the Prometheus `/metrics` endpoint. Requires `recotem[metrics]` extra. |
+| `RECOTEM_METADATA_FIELD_DENY` | no | `""` | Comma-separated column names stripped from `/v1/recipes/{name}:recommend` and `:recommend-related` responses after the metadata join |
+| `RECOTEM_METRICS_ENABLED` | no | `""` | Set to `1`/`true`/`yes`/`on` to enable the Prometheus `/v1/metrics` endpoint. Requires `recotem[metrics]` extra. |
 | `RECOTEM_STARTUP_PARALLELISM` | no | `""` (auto) | Number of parallel threads used to load artifacts at startup. Default is `min(len(recipes), 8)`. Clamped 1–32. Set to `1` for sequential loading (useful for memory-constrained environments or debugging). |
 
 *`auto` switches to `console` for an interactive TTY and `json` otherwise.
 
 ## Health check
 
-The `/health` endpoint is unauthenticated and safe for container probes:
+The `/v1/health` endpoint is unauthenticated and safe for container probes:
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8080/v1/health
 ```
 
 ```json
@@ -201,4 +201,4 @@ curl http://localhost:8080/health
 
 `status` is `degraded` (HTTP 503) if any recipe failed to load. Use a Kubernetes readiness probe or Docker HEALTHCHECK targeting this endpoint — see [Serving API](../serving-api) for the full response contract.
 
-For per-recipe detail including `kid`, `trained_at`, and `best_class`, use the authenticated `/health/details` endpoint.
+For per-recipe detail including `kid`, `trained_at`, and `best_class`, use the authenticated `/v1/health/details` endpoint.

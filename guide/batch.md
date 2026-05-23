@@ -168,7 +168,7 @@ Set `concurrencyPolicy: Forbid` so overlapping runs are skipped rather than runn
 | 2 | Recipe error (bad YAML, schema violation) | Do not retry — fix the ConfigMap |
 | 3 | Data source error | Usually do not retry (persistent issue) |
 | 4 | Training error | Retry up to `backoffLimit` |
-| 5 | Artifact error (signing key issue) | Do not retry — fix the Secret |
+| 5 | Artifact error (corrupt file, HMAC verification failed) | Do not retry — investigate the artifact file or the signing key used to produce it |
 | 6 | Lock contested (`--fail-on-busy` set) | Retry or route elsewhere |
 | 7 | HTTP fetch error (transient) | Retry |
 | 8 | Configuration error (missing env vars) | Do not retry — fix the Secret |
@@ -189,14 +189,14 @@ Once `recotem serve` is running, it polls for new artifacts every `RECOTEM_WATCH
 2. Reads the full artifact bytes.
 3. Verifies the HMAC signature against the configured signing keys.
 4. If verification passes, atomically swaps the in-memory model.
-5. If verification fails (wrong key, corrupt file), keeps the previous good model and logs the error to `/health`.
+5. If verification fails (wrong key, corrupt file), keeps the previous good model and records the error in the structured log and on `/v1/health/details` (per-recipe `last_load_error`).
 
 No requests are dropped during the swap. The previous model continues to serve until the new one is ready.
 
 You can check current model state at any time:
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8080/v1/health
 # {"status":"ok","total":1,"loaded":1}
 ```
 

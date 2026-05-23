@@ -72,9 +72,9 @@ title: 環境変数
 
 | 変数 | デフォルト | スコープ | クランプ | 説明 |
 |---|---|---|---|---|
-| `RECOTEM_ENV` | (空) | serve | — | デプロイメント環境タグ。`--insecure-no-auth` は `development`、`dev`、または `test` に設定した場合のみ許可される。`--dev-allow-unsigned` は `development` に設定した場合のみ許可される。`production`、`prod`、または `staging` に設定すると `/docs`、`/redoc`、`/openapi.json` エンドポイントが無効化される (リクエストは 404 を返す)。 |
+| `RECOTEM_ENV` | (空) | serve | — | デプロイメント環境タグ。`--insecure-no-auth` は `development`、`dev`、または `test` に設定した場合のみ許可される。`--dev-allow-unsigned` は `development` に設定した場合のみ許可される。`/docs`、`/redoc`、`/openapi.json` エンドポイントはフェールセキュアで、この変数が `development`、`dev`、または `test` のときのみ有効になる。それ以外の値 (未設定、`production`、`prod`、`staging`、またはカスタムタグ) の場合、これらのパスは 404 を返す。 |
 | `RECOTEM_DRAIN_SECONDS` | `30` | serve | [1, 300] | SIGTERM グレースフルドレインウィンドウ (秒)。進行中のリクエストはこのウィンドウが完了するまで待機でき、その後 uvicorn は残りの接続を閉じる。Kubernetes では `terminationGracePeriodSeconds` を少なくとも `RECOTEM_DRAIN_SECONDS + 5` に設定すること。 |
-| `RECOTEM_LOG_FORMAT` | `auto` | both | — | ログ出力フォーマット。`auto` は stdout が TTY でない場合は JSON、それ以外はコンソール形式を使用する。`json` は構造化 JSON を強制する。`console` は人間が読める出力を強制する。 |
+| `RECOTEM_LOG_FORMAT` | `auto` | both | — | ログ出力フォーマット。`auto` は stderr が TTY でない場合は JSON、それ以外はコンソール形式を使用する。`json` は構造化 JSON を強制する。`console` は人間が読める出力を強制する。 |
 
 ## 運用
 
@@ -84,8 +84,8 @@ title: 環境変数
 |---|---|---|---|---|
 | `RECOTEM_ARTIFACT_ROOT` | (空) | train | — | 設定した場合、レシピのローカル `output.path` の値はこのディレクトリ配下に存在しなければならない。シンボリックリンクエスケープは拒否される。ホスト上で train プロセスがアーティファクトを書き込める場所を制限するために使用する。 |
 | `RECOTEM_LOCK_DIR` | (空) | train | — | レシピごとの学習ロックファイルのディレクトリを上書きする。ローカルの `output.path` 値は常に `<output_path>.lock` でロックされる。リモートの `output.path` 値 (`s3://`、`gs://` など) はホストローカルのロックファイルを必要とする。`RECOTEM_LOCK_DIR` が未設定の場合は `<tempdir>/recotem-locks/` にフォールバックする。注意: `flock` はホストローカル — ホスト間のシングルライター保証にはスケジューラーレベルのミューテックスを使用すること (Kubernetes の `concurrencyPolicy: Forbid` など)。 |
-| `RECOTEM_METADATA_FIELD_DENY` | (空) | serve | — | アイテムメタデータ結合後に `/predict` レスポンスから除外する列名のカンマ区切りリスト。マッチングは大文字小文字を区別しない — メタデータの `"Internal_ID"` は拒否リストに `"internal_id"` があればストリップされる。PII 列を API レスポンスから除外するために使用する。 |
-| `RECOTEM_METRICS_ENABLED` | (未設定) | serve | — | 真値: `1`、`true`、`yes`、`on`。Prometheus `/metrics` エンドポイントを有効化する。`recotem[metrics]` エクストラが必要 (`pip install "recotem[metrics]"`)。エンドポイントはオプトインでデフォルトでは無効。 |
+| `RECOTEM_METADATA_FIELD_DENY` | (空) | serve | — | アイテムメタデータインデックスのロード時に除外する列名のカンマ区切りリスト。除外された列はすべての推薦エンドポイント (`:recommend`、`:recommend-related`、および `include_metadata=true` の `:batch-recommend*`) のレスポンスに含まれない。マッチングは大文字小文字を区別しない — メタデータの `"Internal_ID"` は拒否リストに `"internal_id"` があればストリップされる。PII 列を API レスポンスから除外するために使用する。 |
+| `RECOTEM_METRICS_ENABLED` | (未設定) | serve | — | 真値: `1`、`true`、`yes`、`on`。Prometheus `/v1/metrics` エンドポイントを有効化する。`recotem[metrics]` エクストラが必要 (`pip install "recotem[metrics]"`)。エンドポイントはオプトインでデフォルトでは無効。 |
 
 ## データソース
 

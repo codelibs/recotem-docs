@@ -9,7 +9,7 @@ Recotem trains and serves a recommender model from a single small YAML configura
 
 You describe your data source, a few training preferences, and where to save the result. Recotem handles the rest: fetching the data, finding the best algorithm, training the model, and answering recommendation requests over HTTP.
 
-We call that configuration file a **recipe** — it describes what data to use, how to train, and where to serve. One recipe produces one model and one API endpoint.
+We call that configuration file a **recipe** — it describes what data to use, how to train, and where to serve. One recipe produces one model exposed through a small set of HTTP endpoints (single and batch, item-to-user and item-to-item).
 
 No database, no message broker, no administration interface. A recipe file, two commands, and an HTTP endpoint.
 
@@ -19,7 +19,7 @@ Recotem is built around two processes that communicate only through a signed bin
 
 1. **`recotem train`** reads your recipe, fetches the interaction data (purchases, clicks, reads), searches for the best algorithm and settings, trains the final model, and writes a signed artifact to disk or cloud storage.
 
-2. **`recotem serve`** watches the artifact directory and loads each model as a REST endpoint at `/predict/{name}`. When `recotem train` produces a new artifact, the server picks it up automatically — no restart needed.
+2. **`recotem serve`** watches the artifact directory and loads each model as REST endpoints at `/v1/recipes/{name}:recommend` (and the related verb endpoints). When `recotem train` produces a new artifact, the server picks it up automatically — no restart needed.
 
 Because the two processes share nothing except the artifact file, they can run on different machines. A nightly batch job can write to an S3 bucket while a long-running server reads from the same bucket, hot-swapping the model as soon as a fresh one appears.
 
@@ -27,7 +27,10 @@ Because the two processes share nothing except the artifact file, they can run o
 recipe.yaml  →  recotem train  →  artifact.recotem  →  recotem serve
                 (batch job)        (HMAC-signed)        (FastAPI, hot-swap)
 
-any scheduler      local FS / S3 / GCS          POST /predict/{name}
+any scheduler      local FS / S3 / GCS          POST /v1/recipes/{name}:recommend
+                                                 POST /v1/recipes/{name}:recommend-related
+                                                 POST /v1/recipes/{name}:batch-recommend
+                                                 POST /v1/recipes/{name}:batch-recommend-related
 ```
 
 The artifact is protected by an HMAC signature (a tamper-detection code). The serving process verifies the signature before loading any model, so a corrupt or altered file is rejected rather than used.
@@ -49,7 +52,7 @@ It is a good fit when:
 
 2. **Run `recotem train`.** One command fetches data, searches for the best algorithm and settings, trains the final model, and writes a signed artifact.
 
-3. **Run `recotem serve`.** One command starts an HTTP server that loads the artifact and answers `POST /predict/{name}` requests. Retrain and the server updates itself.
+3. **Run `recotem serve`.** One command starts an HTTP server that loads the artifact and answers `POST /v1/recipes/{name}:recommend` (and the related verb endpoints). Retrain and the server updates itself.
 
 ## Next steps
 

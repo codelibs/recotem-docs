@@ -16,8 +16,16 @@ title: Security
                         │          recotem serve                     │
                         │  binds to RECOTEM_HOST:RECOTEM_PORT        │
   API clients           │                                            │
-  (authenticated) ─────►│  POST /predict/{name}  X-API-Key header   │
-                        │  GET  /health                              │
+  (authenticated) ─────►│  POST /v1/recipes/{name}:recommend         │
+                        │  POST /v1/recipes/{name}:recommend-related │
+                        │  POST /v1/recipes/{name}:batch-recommend   │
+                        │  POST /v1/recipes/{name}:batch-recommend-related │
+                        │  GET  /v1/recipes                          │
+                        │  GET  /v1/recipes/{name}                   │
+                        │  GET  /v1/health/details                   │
+                        │  GET  /v1/metrics  (opt-in; auth required) │
+                        │  GET  /v1/health   (no auth required)      │
+                        │  X-API-Key header (all other endpoints)    │
                         └──────────────┬────────────────────────────┘
                                        │ reads (signed)
                         ┌──────────────▼────────────────────────────┐
@@ -48,7 +56,7 @@ When `source.path` uses `s3://`, `gs://`, `az://`, or `abfs(s)://`, the Pod's am
 | Stat-then-read TOCTOU on artifact | Read-once protocol: bytes read into memory once, sha256 computed, then HMAC-verified from the same buffer |
 | Key material in logs | structlog redaction processor runs first in chain; unit test asserts no key material at any log level |
 | API key brute-force / timing attack | `hmac.compare_digest` constant-time compare; no logging of plaintext or hash |
-| Credential injection via recipe env expansion | `RECOTEM_SIGNING_KEYS`, `RECOTEM_API_KEYS`, `*_SECRET*`, `*_PASSWORD*`, `*_TOKEN*`, `*_KEY*`, `AWS_*`, `GOOGLE_*`, `GCP_*` are blacklisted from `${...}` expansion |
+| Credential injection via recipe env expansion | `RECOTEM_SIGNING_KEYS`, `RECOTEM_API_KEYS`, `*_SECRET*`, `*_PASSWORD*`, `*_TOKEN*`, `*_KEY*`, and cloud prefixes (`AWS_*`, `GCP_*`, `GOOGLE_*`, `AZURE_*`, `ALIYUN_*`, `ALICLOUD_*`, `OCI_*`, `IBM_*`, `DO_*`, `HCLOUD_*`, `DIGITALOCEAN_*`) are blacklisted from `${...}` expansion |
 | SQL injection via recipe | Env expansion never performed inside `source.query`; dynamic values must use `@param` BigQuery placeholders |
 | Path traversal via recipe | `name` validated with `^[A-Za-z0-9_-]{1,64}$` at load and before every filesystem use; artifact root confinement via `RECOTEM_ARTIFACT_ROOT` |
 | Tampered or rotated network-fetched data | `sha256` integrity pin is **mandatory** on `source.path` / `item_metadata.path` when the scheme is `http://` or `https://`; mismatch raises `DataSourceError` (exit 3) before the bytes reach the parser |
@@ -318,7 +326,7 @@ Only variables matching `RECOTEM_RECIPE_*` are candidates for `${...}` expansion
 | Rule | Patterns (case-insensitive) |
 |------|----------------------------|
 | Exact match | `RECOTEM_SIGNING_KEYS`, `RECOTEM_API_KEYS` |
-| Prefix match | `AWS_*`, `GCP_*`, `GOOGLE_*`, `AZURE_*` |
+| Prefix match | `AWS_*`, `GCP_*`, `GOOGLE_*`, `AZURE_*`, `ALIYUN_*`, `ALICLOUD_*`, `OCI_*`, `IBM_*`, `DO_*`, `HCLOUD_*`, `DIGITALOCEAN_*` |
 | Substring match | `*SECRET*`, `*PASSWORD*`, `*PASSWD*`, `*TOKEN*`, `*KEY*`, `*AUTH*`, `*BEARER*`, `*CRED*`, `*PRIVATE*` |
 
 The `*KEY*` substring is intentionally broad. Any `RECOTEM_RECIPE_*` variable whose uppercased name contains the substring `KEY` (no underscore boundary required) is rejected — this includes `RECOTEM_RECIPE_PARTITION_KEY`, `RECOTEM_RECIPE_APIKEY`, and `RECOTEM_RECIPE_KEYBOARD`. Use a name that does not contain `KEY` (e.g. `RECOTEM_RECIPE_PARTITION_COLUMN`). A blacklisted reference raises `RecipeError` (exit 2) and the error message names the variable but never includes its value.
@@ -353,7 +361,7 @@ Never commit signing keys, API key hashes, or API key plaintexts to version cont
 
 ## API key minimum length
 
-Recotem enforces a 32-character minimum on the `X-API-Key` header value. Plaintext keys shorter than 32 chars are rejected with a 401 (`invalid_api_key`) before any digest comparison is attempted. The error message does not reveal the minimum threshold to the caller.
+Recotem enforces a 32-character minimum on the `X-API-Key` header value. Plaintext keys shorter than 32 chars are rejected with a 401 (`INVALID_API_KEY`) before any digest comparison is attempted. The error message does not reveal the minimum threshold to the caller.
 
 The recommended workflow is `recotem keygen --type api`, which generates a 43-char base64url plaintext (32 raw bytes of `os.urandom`). Operator-chosen passphrases or passwords must be at least 32 chars; shorter values will silently fail authentication at runtime with no configuration error at startup.
 
@@ -460,7 +468,7 @@ Two unsafe flags exist and are gated by `RECOTEM_ENV`:
 | `--dev-allow-unsigned` | `RECOTEM_ENV=development` AND `--i-understand-this-loads-arbitrary-code` | Skips HMAC verify; never use outside controlled testing |
 
 ::: warning OpenAPI schema in production
-When `RECOTEM_ENV` is set to `production`, `prod`, or `staging`, the `/docs`, `/redoc`, and `/openapi.json` endpoints are disabled at app construction time. Requests to those paths return 404. Development and test environments keep the endpoints enabled for developer ergonomics.
+The `/docs`, `/redoc`, and `/openapi.json` endpoints are fail-secure: they are enabled only when `RECOTEM_ENV` is one of `development`, `dev`, or `test`. Any other value — including an unset variable, `production`, `prod`, `staging`, or a custom tag — disables them at app construction time, and requests to those paths return 404.
 :::
 
 Both flags are rejected at startup in any environment not matching the requirement, with an explicit error message.
@@ -476,8 +484,8 @@ environment.
 
 | Event | Level | Trigger | Status |
 |-------|-------|---------|--------|
-| `auth_missing_header` | WARN | Request with no `X-API-Key` header (and `RECOTEM_API_KEYS` is non-empty) | 401, code `missing_api_key` |
-| `auth_invalid_key` | WARN | Header present but no kid hashes match | 401, code `invalid_api_key` |
+| `auth_missing_header` | WARN | Request with no `X-API-Key` header (and `RECOTEM_API_KEYS` is non-empty) | 401, code `MISSING_API_KEY` |
+| `auth_invalid_key` | WARN | Header present but no kid hashes match | 401, code `INVALID_API_KEY` |
 | `auth_anonymous_bypass` | DEBUG | Every request when `RECOTEM_API_KEYS` is empty (no-auth mode) | — |
 | `auth_anonymous_bypass_first_seen` | INFO | First request from a given `client_host` in no-auth mode | — |
 
@@ -487,21 +495,21 @@ When `RECOTEM_API_KEYS` is empty, `auth_anonymous_bypass` fires on **every** req
 
 ## Predict response: information leakage
 
-`POST /predict/{name}` returns:
+`POST /v1/recipes/{name}:recommend` (and the related verb endpoints) returns:
 
-- 503 (`recipe_unavailable`) — recipe stub or stale entry; visible without auth context only at `/health`.
-- 404 (`user_not_found`) — `user_id` was not in training data. This response distinguishes "known user, no recommendations" from "unknown user". If user-existence is sensitive in your application, mask 404 responses at your reverse proxy and return a generic empty-recommendation body.
+- 503 (`RECIPE_UNAVAILABLE`) — recipe stub or stale entry; aggregate status is visible without auth at `/v1/health`.
+- 404 (`UNKNOWN_USER`) — `user_id` was not in training data. This response distinguishes "known user, no recommendations" from "unknown user". If user-existence is sensitive in your application, mask 404 responses at your reverse proxy and return a generic empty-recommendation body.
 - 200 — recommendations, optionally joined with item metadata. Field stripping is configured via `RECOTEM_METADATA_FIELD_DENY` (case-**insensitive** column names — `"Internal_ID"` in metadata is stripped if `"internal_id"` is in the deny list). Use this to keep PII columns out of API responses even when they are present in the metadata file.
 
-`cutoff` is bounded at `[1, 1000]` by the request schema; oversized requests
-receive a 422 from FastAPI before reaching the recommender.
+`limit` is bounded at `[1, 1000]` by the request schema; oversized requests
+receive a 422 (`VALIDATION_ERROR`) from FastAPI before reaching the recommender.
 
 ## Rate limiting and DoS
 
 Recotem itself does not implement request-rate limiting. Operators **must**
 front `recotem serve` with a reverse proxy (nginx `limit_req`, Caddy
 `rate_limit`, ALB / Cloud Armor) and apply per-IP or per-API-key quotas on
-`/predict/*`. This is not optional in production.
+`/v1/recipes/`. This is not optional in production.
 
 **Why the proxy layer is responsible — scrypt amplification.** Every
 authentication attempt (valid or not) runs a scrypt key-derivation check
@@ -511,7 +519,7 @@ therefore trigger CPU-bound scrypt work on every failed authentication, at a
 rate bounded only by the network rather than by the application. Recotem does
 not implement its own rate limiter; that is the proxy's responsibility.
 
-`/predict` is also CPU-bound for recommendation inference; sustained request
+The recommendation endpoints (`/v1/recipes/`) are also CPU-bound for recommendation inference; sustained request
 rates above the recommender's inference throughput will queue under uvicorn
 and cause request latency to climb. Measure and cap at the proxy.
 
@@ -524,7 +532,7 @@ limit_req_zone $binary_remote_addr zone=recotem_predict:10m rate=20r/s;
 server {
     # ... TLS and upstream configuration ...
 
-    location /predict/ {
+    location /v1/recipes/ {
         limit_req zone=recotem_predict burst=40 nodelay;
         limit_req_status 429;
         proxy_pass http://recotem_backend;

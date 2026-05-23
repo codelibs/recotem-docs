@@ -4,7 +4,7 @@ title: アーキテクチャ
 
 # アーキテクチャ
 
-Recotem はレシピ駆動の推薦システムです。単一の YAML ファイル (_レシピ_) がデータソース、学習設定、アーティファクトの出力先を定義します。1 つのレシピが 1 つの学習済みモデルと 1 つの `/predict/{name}` HTTP エンドポイントを生成します。
+Recotem はレシピ駆動の推薦システムです。単一の YAML ファイル (_レシピ_) がデータソース、学習設定、アーティファクトの出力先を定義します。1 つのレシピが 1 つの学習済みモデルと `/v1/recipes/{name}:<verb>` HTTP エンドポイント群を生成します。
 
 ## システム概要
 
@@ -26,10 +26,10 @@ Recotem はレシピ駆動の推薦システムです。単一の YAML ファイ
   │       │                             │
   │       ├── HMAC verify               │
   │       ├── deserialize payload       │
-  │       └── FastAPI /predict/{name}   │
-  │                  │                  │
-  │                  ▼                  │
-  │          API client request         │
+  │       └── FastAPI /v1/recipes/{name}:recommend   │
+  │                  │                               │
+  │                  ▼                               │
+  │          API client request                      │
   └─────────────────────────────────────┘
 ```
 
@@ -40,7 +40,10 @@ Recotem はレシピ駆動の推薦システムです。単一の YAML ファイ
 レシピはモデルの唯一の情報源です。
 
 ```
-1 recipe YAML  →  1 trained artifact  →  1 /predict/{name} endpoint
+1 recipe YAML  →  1 trained artifact  →  /v1/recipes/{name}:recommend
+                                         /v1/recipes/{name}:recommend-related
+                                         /v1/recipes/{name}:batch-recommend
+                                         /v1/recipes/{name}:batch-recommend-related
 ```
 
 レシピが記述する内容:
@@ -75,8 +78,8 @@ magic | version | reserved | kid | hmac | header_json | payload
 |----------|----------|------------|
 | オペレーター | レシピ YAML、署名鍵、環境変数、`RECOTEM_SIGNING_KEYS` | 完全に信頼 |
 | 学習ホスト | ソースデータの読み取り、署名済みアーティファクトの書き出し | 信頼 (オペレーター管理) |
-| 配信ホスト | アーティファクトディレクトリの読み取り、`/predict` の配信 | 信頼 (オペレーター管理) |
-| API クライアント | API キーを使って `/predict` リクエストを送信 | 信頼しないユーザー入力 |
+| 配信ホスト | アーティファクトディレクトリの読み取り、`/v1/recipes/{name}:<verb>` の配信 | 信頼 (オペレーター管理) |
+| API クライアント | API キーを使って `/v1/recipes/{name}:<verb>` リクエストを送信 | 信頼しないユーザー入力 |
 | アーティファクトファイル | 変更不可の署名済みバイナリ。改ざんがあれば HMAC が失敗 | HMAC で認証済み |
 
 レシピは動的な値のために環境変数を参照できます (`${RECOTEM_RECIPE_*}` 展開)。展開メカニズムはそのプレフィックスに限定されており、SQL インジェクションを防ぐために `source.query` や `source.query_parameters` の内部では決して適用されません。
@@ -90,7 +93,7 @@ magic | version | reserved | kid | hmac | header_json | payload
 3. インメモリのモデル参照をアトミックに置き換えます。
 4. 旧モデルは破棄され、以降のすべてのリクエストは新しいモデルを使用します。
 
-ホットスワップは**レシピスコープ**です。アーティファクト `A` を更新しても、レシピ `B` の処理中モデルには影響しません。配信プロセスは再起動しません。新しいアーティファクトの HMAC 検証またはデシリアライズが失敗した場合、旧モデルが引き続き配信され、障害は `/health` および `recotem_artifact_load_failures_total` Prometheus メトリクス (メトリクスが有効な場合) に記録されます。
+ホットスワップは**レシピスコープ**です。アーティファクト `A` を更新しても、レシピ `B` の処理中モデルには影響しません。配信プロセスは再起動しません。新しいアーティファクトの HMAC 検証またはデシリアライズが失敗した場合、旧モデルが引き続き配信され、障害は `/v1/health` および `recotem_artifact_load_failures_total` Prometheus メトリクス (メトリクスが有効な場合) に記録されます。
 
 ウォッチャーのポーリング間隔は `RECOTEM_WATCH_INTERVAL` で設定します (デフォルト 5 秒、1〜30 秒にクランプ)。
 
@@ -123,7 +126,7 @@ artifacts/news_articles.<sha8>.recotem
 | コマンド | 用途 |
 |----------|------|
 | `recotem train <recipe.yaml>` | データ取得、Optuna 探索、最良モデルの学習、アーティファクト署名 |
-| `recotem serve --recipes <dir>` | ホットスワップ付き FastAPI `/predict` サーバーの起動 |
+| `recotem serve --recipes <dir>` | ホットスワップ付き FastAPI `/v1/recipes` サーバーの起動 |
 | `recotem inspect <artifact>` | アーティファクトヘッダーの読み取りと検証 (ペイロードのデシリアライズなし) |
 | `recotem validate <recipe.yaml>` | レシピスキーマの検証とデータソース接続確認 |
 | `recotem schema` | レシピモデルの JSON Schema を出力 (IDE 連携) |

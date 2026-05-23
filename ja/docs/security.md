@@ -16,8 +16,16 @@ title: セキュリティ
                         │          recotem serve                     │
                         │  binds to RECOTEM_HOST:RECOTEM_PORT        │
   API clients           │                                            │
-  (authenticated) ─────►│  POST /predict/{name}  X-API-Key header   │
-                        │  GET  /health                              │
+  (authenticated) ─────►│  POST /v1/recipes/{name}:recommend         │
+                        │  POST /v1/recipes/{name}:recommend-related │
+                        │  POST /v1/recipes/{name}:batch-recommend   │
+                        │  POST /v1/recipes/{name}:batch-recommend-related │
+                        │  GET  /v1/recipes                          │
+                        │  GET  /v1/recipes/{name}                   │
+                        │  GET  /v1/health/details                   │
+                        │  GET  /v1/metrics  (opt-in; auth required) │
+                        │  GET  /v1/health   (no auth required)      │
+                        │  X-API-Key header (all other endpoints)    │
                         └──────────────┬────────────────────────────┘
                                        │ reads (signed)
                         ┌──────────────▼────────────────────────────┐
@@ -48,7 +56,7 @@ title: セキュリティ
 | アーティファクトの Stat-then-read TOCTOU | 読み取り一回プロトコル: バイトを一度メモリに読み込み、sha256 を計算し、同じバッファから HMAC を検証 |
 | ログへの鍵情報流出 | structlog リダクションプロセッサーがチェーンの先頭で実行される; ユニットテストがすべてのログレベルで鍵情報がないことを確認 |
 | API キーのブルートフォース / タイミング攻撃 | `hmac.compare_digest` 定数時間比較; プレーンテキストやハッシュをログに記録しない |
-| レシピの環境変数展開を通じた認証情報注入 | `RECOTEM_SIGNING_KEYS`、`RECOTEM_API_KEYS`、`*_SECRET*`、`*_PASSWORD*`、`*_TOKEN*`、`*_KEY*`、`AWS_*`、`GOOGLE_*`、`GCP_*` は `${...}` 展開のブラックリストに登録済み |
+| レシピの環境変数展開を通じた認証情報注入 | `RECOTEM_SIGNING_KEYS`、`RECOTEM_API_KEYS`、`*_SECRET*`、`*_PASSWORD*`、`*_TOKEN*`、`*_KEY*` およびクラウドプレフィックス (`AWS_*`、`GCP_*`、`GOOGLE_*`、`AZURE_*`、`ALIYUN_*`、`ALICLOUD_*`、`OCI_*`、`IBM_*`、`DO_*`、`HCLOUD_*`、`DIGITALOCEAN_*`) は `${...}` 展開のブラックリストに登録済み |
 | レシピを通じた SQL インジェクション | 環境変数展開は `source.query` 内では実行されない; 動的な値は BigQuery の `@param` プレースホルダーを使用すること |
 | レシピを通じたパストラバーサル | `name` は読み込み時およびすべてのファイルシステム使用前に `^[A-Za-z0-9_-]{1,64}$` で検証される; `RECOTEM_ARTIFACT_ROOT` によるアーティファクトルート制限 |
 | ネットワークフェッチデータの改ざんまたはローテーション | スキームが `http://` または `https://` の場合、`source.path` / `item_metadata.path` に sha256 整合性ピンが**必須**; 不一致はバイトがパーサーに到達する前に `DataSourceError` (終了コード 3) を発生させる |
@@ -235,7 +243,7 @@ S3 の場合:
 | ルール | パターン (大文字小文字を区別しない) |
 |------|----------------------------|
 | 完全一致 | `RECOTEM_SIGNING_KEYS`, `RECOTEM_API_KEYS` |
-| プレフィックス一致 | `AWS_*`, `GCP_*`, `GOOGLE_*`, `AZURE_*` |
+| プレフィックス一致 | `AWS_*`, `GCP_*`, `GOOGLE_*`, `AZURE_*`, `ALIYUN_*`, `ALICLOUD_*`, `OCI_*`, `IBM_*`, `DO_*`, `HCLOUD_*`, `DIGITALOCEAN_*` |
 | 部分文字列一致 | `*SECRET*`, `*PASSWORD*`, `*PASSWD*`, `*TOKEN*`, `*KEY*`, `*AUTH*`, `*BEARER*`, `*CRED*`, `*PRIVATE*` |
 
 `*KEY*` 部分文字列は意図的に広く設定されています。大文字化した名前に部分文字列 `KEY` を含む任意の `RECOTEM_RECIPE_*` 変数は拒否されます — これには `RECOTEM_RECIPE_PARTITION_KEY`、`RECOTEM_RECIPE_APIKEY`、`RECOTEM_RECIPE_KEYBOARD` が含まれます。`KEY` を含まない名前を使用してください (例: `RECOTEM_RECIPE_PARTITION_COLUMN`)。ブラックリストに登録された参照は `RecipeError` (終了コード 2) を発生させます。
@@ -253,7 +261,7 @@ S3 の場合:
 **秘密にしなければならないもの:**
 
 - `RECOTEM_SIGNING_KEYS` — アーティファクトの署名と検証のための HMAC 鍵。
-- `RECOTEM_API_KEYS` — API キープレーンテキストの scrypt ダイジェストを含む (`hashlib.scrypt` でソルト `b"recotem.api-key.v1"`、n=2、r=8、p=1、dklen=32)。ダイジェストの露出はオフラインの pre-image 攻撃を可能にします。シークレットとして扱ってください。
+- `RECOTEM_API_KEYS` — API キープレーンテキストの scrypt ダイジェストを含む (`hashlib.scrypt` でソルト `b"recotem.api-key.v1"`、n=2、r=8、p=1、dklen=32 — `recotem.serving.auth._hash_api_key` を参照)。ワイヤープレフィックス `sha256:` はダイジェストファミリーラベルであり、アルゴリズム名ではありません。ダイジェストの露出はオフラインの pre-image 攻撃を可能にします。シークレットとして扱ってください。
 - API キープレーンテキスト — `recotem keygen` 時に一度だけ表示されます。パスワードマネージャーまたはシークレットマネージャーに保管してください。
 
 **保管の推奨事項:**
@@ -270,9 +278,9 @@ S3 の場合:
 
 ## API キーの最小長
 
-Recotem は `X-API-Key` ヘッダー値に 32 文字の最小長を強制します。32 文字未満のプレーンテキストキーは、ダイジスト比較が試みられる前に 401 (`invalid_api_key`) で拒否されます。
+Recotem は `X-API-Key` ヘッダー値に 32 文字の最小長を強制します。32 文字未満のプレーンテキストキーは、ダイジェスト比較が試みられる前に 401 (`INVALID_API_KEY`) で拒否されます。エラーメッセージは最小文字数を呼び出し側に開示しません。
 
-推奨されるワークフローは `recotem keygen --type api` です。これは 43 文字の base64url プレーンテキスト (`os.urandom` の 32 生バイト) を生成します。
+推奨されるワークフローは `recotem keygen --type api` です。これは 43 文字の base64url プレーンテキスト (`os.urandom` の 32 生バイト) を生成します。オペレーターが選択したパスフレーズやパスワードは最低 32 文字必要です。それより短い値は起動時に設定エラーとはならず、実行時に認証が暗黙のうちに失敗します。
 
 ## `recotem keygen` 出力フォーマット
 
@@ -288,6 +296,7 @@ env_entry=RECOTEM_SIGNING_KEYS=prod-2026-q3:<64 hex chars>
 ```
 
 - `env_entry=` の値を `RECOTEM_SIGNING_KEYS` にコピーしてください。
+- `fingerprint=` の値は `sha256(key_bytes)[:8]` です。起動時に出力される `security.posture` ログ行の `fingerprint` フィールドと一致します。正しい鍵がロードされていることを確認するために使用できます — 鍵の内容を露出しません。
 - `fingerprint=` 行は情報提供のみです。`RECOTEM_SIGNING_KEYS` や任意の設定値に使用**してはいけません**。
 
 **API キー** (`--type api`):
@@ -376,7 +385,7 @@ azure_*
 | `--dev-allow-unsigned` | `RECOTEM_ENV=development` かつ `--i-understand-this-loads-arbitrary-code` | HMAC 検証をスキップする; 管理されたテスト環境以外では絶対に使用しないこと |
 
 ::: warning 注意 — 本番環境の OpenAPI スキーマ
-`RECOTEM_ENV` が `production`、`prod`、または `staging` に設定されている場合、`/docs`、`/redoc`、`/openapi.json` エンドポイントはアプリ構築時に無効化されます。これらのパスへのリクエストは 404 を返します。
+`/docs`、`/redoc`、`/openapi.json` エンドポイントはフェールセキュアです: `RECOTEM_ENV` が `development`、`dev`、または `test` のときのみ有効です。それ以外の値 (未設定、`production`、`prod`、`staging`、またはカスタムタグを含む) ではアプリ構築時に無効化され、これらのパスへのリクエストは 404 を返します。
 :::
 
 両フラグとも、要件に一致しない環境では起動時に明示的なエラーメッセージとともに拒否されます。
@@ -387,26 +396,28 @@ azure_*
 
 | イベント | レベル | トリガー | ステータス |
 |-------|-------|---------|--------|
-| `auth_missing_header` | WARN | `X-API-Key` ヘッダーのないリクエスト (`RECOTEM_API_KEYS` が非空) | 401、コード `missing_api_key` |
-| `auth_invalid_key` | WARN | ヘッダーが存在するが kid ハッシュが一致しない | 401、コード `invalid_api_key` |
+| `auth_missing_header` | WARN | `X-API-Key` ヘッダーのないリクエスト (`RECOTEM_API_KEYS` が非空) | 401、コード `MISSING_API_KEY` |
+| `auth_invalid_key` | WARN | ヘッダーが存在するが kid ハッシュが一致しない | 401、コード `INVALID_API_KEY` |
 | `auth_anonymous_bypass` | DEBUG | `RECOTEM_API_KEYS` が空 (no-auth モード) のときのすべてのリクエスト | — |
 | `auth_anonymous_bypass_first_seen` | INFO | no-auth モードでの特定の `client_host` からの最初のリクエスト | — |
 
 ## predict レスポンスの情報漏洩
 
-`POST /predict/{name}` は以下を返します:
+`POST /v1/recipes/{name}:recommend` (および関連動詞エンドポイント) は以下を返します:
 
-- 503 (`recipe_unavailable`) — レシピスタブまたは陳腐化したエントリ。
-- 404 (`user_not_found`) — `user_id` が学習データにいなかった。ユーザーの存在がアプリケーションで機密な場合、リバースプロキシで 404 レスポンスをマスクしてください。
-- 200 — レコメンデーション、オプションでアイテムメタデータと結合。`RECOTEM_METADATA_FIELD_DENY` で PII 列を除外できます。
+- 503 (`RECIPE_UNAVAILABLE`) — レシピスタブまたは陳腐化したエントリ。集計ステータスは `/v1/health` で認証なしに確認できます。
+- 404 (`UNKNOWN_USER`) — `user_id` が学習データにいなかった。このレスポンスは「既知ユーザーだが推薦なし」と「不明なユーザー」を区別します。ユーザーの存在がアプリケーションで機密な場合、リバースプロキシで 404 レスポンスをマスクし、汎用の空推薦ボディを返してください。
+- 200 — レコメンデーション、オプションでアイテムメタデータと結合。`RECOTEM_METADATA_FIELD_DENY` で PII 列を除外できます (大文字小文字を区別しない列名)。
 
-`cutoff` はリクエストスキーマによって `[1, 1000]` に制限されます。
+`limit` はリクエストスキーマによって `[1, 1000]` に制限されます。サイズ超過のリクエストはレコメンダーに到達する前に FastAPI から 422 (`VALIDATION_ERROR`) を受け取ります。
 
 ## レート制限と DoS
 
-Recotem 自体はリクエストレート制限を実装していません。オペレーターは**必ず** `recotem serve` の前段にリバースプロキシを配置し、`/predict/*` にクォータを適用してください。本番環境ではこれは任意ではありません。
+Recotem 自体はリクエストレート制限を実装していません。オペレーターは**必ず** `recotem serve` の前段にリバースプロキシを配置し、`/v1/recipes/` にクォータを適用してください。本番環境ではこれは任意ではありません。
 
-すべての認証試行は保存されている API キーごとに scrypt 鍵導出チェックを実行します。未認証の攻撃者は CPU バインドの scrypt 処理をトリガーできます。Recotem は独自のレートリミッターを実装しません。それはプロキシの責任です。
+**scrypt 増幅の理由 — プロキシ層が責任を持つ理由。** すべての認証試行は保存されている API キーごとに scrypt 鍵導出チェック (`hashlib.scrypt`、n=2、r=8、p=1、dklen=32) を実行します。未認証の攻撃者はネットワーク層からリクエストを送信するだけで CPU バインドの scrypt 処理をトリガーできます。Recotem は独自のレートリミッターを実装しません。それはプロキシの責任です。
+
+推薦エンドポイント (`/v1/recipes/`) もレコメンダー推論において CPU バインドです。レコメンダーの推論スループットを超えた持続的なリクエストレートは uvicorn のキューに積み重なり、リクエストレイテンシが上昇します。プロキシで測定し上限を設けてください。
 
 **推奨される nginx 設定:**
 
@@ -417,13 +428,15 @@ limit_req_zone $binary_remote_addr zone=recotem_predict:10m rate=20r/s;
 server {
     # ... TLS とアップストリームの設定 ...
 
-    location /predict/ {
+    location /v1/recipes/ {
         limit_req zone=recotem_predict burst=40 nodelay;
         limit_req_status 429;
         proxy_pass http://recotem_backend;
     }
 }
 ```
+
+API キーごとのレート制限には、`$http_x_api_key` 変数をキーとするか、ヘッダー値ごとにクォータを適用できる WAF (AWS WAF、GCP Cloud Armor、Cloudflare) を使用してください。
 
 ## 署名鍵のエントロピーと保管
 
