@@ -47,7 +47,7 @@ A recipe is the single source of truth for a model:
 ```
 
 The recipe captures:
-- **Where to get data** (`source` block — CSV, Parquet, BigQuery, SQL, GA4, or plugin)
+- **Where to get data** (`source` block — CSV, Parquet, BigQuery, SQL, or plugin)
 - **How to map columns** (`schema` block — user ID, item ID, optional timestamp)
 - **Data quality gates** (`cleansing` block — null-drop, dedup, minimum thresholds)
 - **What to train** (`training` block — algorithms, Optuna budget, split scheme)
@@ -152,7 +152,6 @@ This separation means:
 - [CSV / Parquet Source](./data-sources/csv) — local, object-storage, and HTTP source options
 - [BigQuery Source](./data-sources/bigquery) — authentication, parameter binding, GA4 patterns
 - [SQL Source](./data-sources/sql) — PostgreSQL / MySQL / MariaDB / SQLite via SQLAlchemy 2
-- [GA4 Source](./data-sources/ga4) — Google Analytics 4 Data API, skipping the BigQuery Export hop
 - [Plugin Data Sources](./data-sources/plugins) — extend `source.type` with custom plugins
 - Deployment guides — Docker, Kubernetes, cron scheduling
 - Operations — key rotation, recovery, sizing, troubleshooting

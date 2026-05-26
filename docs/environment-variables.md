@@ -89,14 +89,13 @@ These variables configure storage paths, locking, metadata field filtering, and 
 
 ## Data source
 
-These variables tune behaviour of specific data sources. They are read only by `recotem train` and only when the corresponding source is used. See the [Data sources](./data-sources/) reference for full context.
+These variables tune behaviour of specific data sources. They are read only by `recotem train` and only when the corresponding source is used. See the [Data sources](./recipe-reference#source) reference for full context.
 
 | Variable | Default | Scope | Clamping | Description |
 |---|---|---|---|---|
 | `RECOTEM_BQ_REQUIRE_STORAGE_API` | (unset) | train | — | Truthy values: `1`, `true`, `yes`, `on`. When set, the BigQuery source raises `DataSourceError` (exit 3) instead of silently falling back to the slower REST API when the BigQuery Storage Read API fails (e.g. missing `bigquery.readSessions.create` IAM permission). Use this to surface IAM gaps rather than accepting degraded throughput. |
 | `RECOTEM_MAX_SQL_ROWS` | `50_000_000` | train | [1_000, 500_000_000] | Hard cap on the number of rows returned by the SQL data source. Exceeding the cap raises `DataSourceError` (exit 3). Caps **row count**, not DataFrame resident memory — see [SQL source — memory bound caveat](./data-sources/sql#memory-bound-caveat). |
 | `RECOTEM_SQL_ALLOW_PRIVATE` | (unset) | train | — | Truthy values: `1`, `true`, `yes`, `on`. Opts the SQL source into accepting private/loopback DSN hosts (default deny, for SSRF). Covers every driver-routing form — netloc, `?host=`, `?hostaddr=`, `?service=`, `?unix_socket=`, absolute-path host, and network DSNs with no host info — all default-deny without this flag. Also disables the DNS-rebinding re-check before each probe/fetch — opting in means trusting the host end-to-end. |
-| `RECOTEM_GA4_MAX_PAGES` | `500` | train | [1, 10_000] | Hard ceiling on GA4 Data API pagination loops. Reached when a property is too large for the default; raise after confirming quota. |
 
 ## Recipe expansion
 

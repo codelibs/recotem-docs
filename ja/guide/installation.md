@@ -31,7 +31,6 @@ recotem --help
 | PostgreSQL データソース | `pip install "recotem[postgres]"` | psycopg 経由で PostgreSQL からインタラクションデータを読み込む |
 | MySQL / MariaDB データソース | `pip install "recotem[mysql]"` | PyMySQL 経由で MySQL または MariaDB からインタラクションデータを読み込む |
 | SQLite データソース | `pip install "recotem[sqlite]"` | SQLite からインタラクションデータを読み込む (標準ライブラリの `sqlite3` を使用) |
-| Google Analytics 4 データソース | `pip install "recotem[ga4]"` | Data API 経由で GA4 からインタラクションイベントを読み込む |
 | Amazon S3 | `pip install "recotem[s3]"` | S3 からアーティファクトとデータを読み書きする |
 | Google Cloud Storage | `pip install "recotem[gcs]"` | GCS からアーティファクトとデータを読み書きする |
 | Azure Blob Storage | `pip install "recotem[azure]"` | Azure からアーティファクトとデータを読み書きする |
