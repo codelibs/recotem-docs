@@ -116,6 +116,7 @@ function v2DocsSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
       text: dataSourcesTitle,
       collapsed: false,
       items: [
+        { text: lang === 'ja' ? '概要' : 'Overview', link: `${prefix}/data-sources/` },
         { text: 'CSV / Parquet', link: `${prefix}/data-sources/csv` },
         { text: 'BigQuery', link: `${prefix}/data-sources/bigquery` },
         { text: 'SQL', link: `${prefix}/data-sources/sql` },
