@@ -10,10 +10,11 @@ title: BigQuery ソース
 pip install "recotem[bigquery]"
 ```
 
-このエクストラなしで `recotem train` を実行すると、以下のメッセージで終了します:
+このエクストラなしで `recotem train` を実行すると、欠けているパッケージに応じて以下のいずれかのメッセージで終了します:
 
 ```
-DataSourceError: BigQuery source requires 'recotem[bigquery]'. Install with: pip install "recotem[bigquery]"
+DataSourceError: google-cloud-bigquery is required for BigQuerySource. Install it with: pip install recotem[bigquery]
+DataSourceError: db-dtypes is required for BigQuerySource. Install it with: pip install recotem[bigquery]
 ```
 
 ## 認証
@@ -139,7 +140,7 @@ schema:
 | データセットへのアクセス拒否 | 3 | `DataSourceError: Access Denied: Dataset my-project:analytics_123456789` |
 | クエリ構文エラー | 3 | `DataSourceError: Syntax error: ...` |
 | クエリ後にカラム不在 | 2 | `RecipeError: column 'item_id' not found in query result` |
-| エクストラ未インストール | 3 | `DataSourceError: BigQuery source requires 'recotem[bigquery]'` |
+| エクストラ未インストール | 3 | `DataSourceError: google-cloud-bigquery is required for BigQuerySource`（または `db-dtypes is required for BigQuerySource`） |
 
 すべての BigQuery 例外は `DataSourceError` にラップされて終了コード 3 になります。BigQuery の完全なエラーメッセージは stderr の JSON 行に含まれます。
 
