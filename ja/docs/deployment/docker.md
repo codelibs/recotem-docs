@@ -69,7 +69,7 @@ services:
     healthcheck:
       test:
         - "CMD-SHELL"
-        - "python -c \"import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=5).status == 200 else 1)\""
+        - "python -c \"import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/v1/health', timeout=5).status == 200 else 1)\""
       interval: 30s
       timeout: 10s
       retries: 3
@@ -122,7 +122,7 @@ mkdir -p ./artifacts && chown 1000:1000 ./artifacts
 
 ### イメージレベルの HEALTHCHECK
 
-Dockerfile は独自の `HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3` を宣言しており、`urllib.request.urlopen(f'http://127.0.0.1:{RECOTEM_PORT}/health', timeout=3)` でパブリックな `/health` エンドポイントをプローブします (これにより上書きされた `RECOTEM_PORT` も反映されます)。ワンショットの `train` コンテナでは、プロセスがすでに終了した後にこれが実行されますが、誤った失敗は発生しません。アノテーション付き例の Compose レベルのヘルスチェックも `/health` を対象とし、`serve` サービスのイメージデフォルトを上書きします — オーケストレーターは `/health` からの HTTP 200 レスポンスに依存してください。
+Dockerfile は独自の `HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3` を宣言しており、`urllib.request.urlopen(f'http://127.0.0.1:{RECOTEM_PORT}/health', timeout=3)` をプローブします (これにより上書きされた `RECOTEM_PORT` も反映されます)。注意: イメージデフォルトのプローブは `/health` (`/v1` プレフィックスなし) を対象としています。v1 ルーターは `/v1` にマウントされているため、パブリックなヘルスエンドポイントは `/v1/health` です。アノテーション付き例の Compose レベルのヘルスチェックは `serve` サービスのイメージデフォルトを上書きして `/v1/health` を対象とします — オーケストレーターは `/v1/health` からの HTTP 200 レスポンスに依存してください。ワンショットの `train` コンテナでは、プロセスがすでに終了した後にイメージのヘルスチェックが実行されますが、誤った失敗は発生しません。
 
 ### リバースプロキシバインディング
 
@@ -177,18 +177,18 @@ docker run --rm \
 | `RECOTEM_ENV` | いいえ | `""` | `development`、`dev`、または `test` に設定した場合のみ `--insecure-no-auth` が許可される。`--dev-allow-unsigned` は `development` に設定した場合のみ許可される。 |
 | `RECOTEM_ARTIFACT_ROOT` | いいえ | `""` | 設定した場合、ローカルの `output.path` はこのディレクトリ配下に解決されなければならない (シンボリックリンク回避ガード) |
 | `RECOTEM_LOCK_DIR` | いいえ | `""` | レシピごとの学習ロックファイルのディレクトリを上書き。`output.path` がリモート URI の場合に必要。未設定の場合はシステムの一時ディレクトリ配下にフォールバック。 |
-| `RECOTEM_METADATA_FIELD_DENY` | いいえ | `""` | メタデータ結合後に `/predict` レスポンスから除外するカンマ区切りの列名 |
-| `RECOTEM_METRICS_ENABLED` | いいえ | `""` | `1`/`true`/`yes`/`on` に設定すると Prometheus `/metrics` エンドポイントを有効化。`recotem[metrics]` エクストラが必要。 |
+| `RECOTEM_METADATA_FIELD_DENY` | いいえ | `""` | メタデータ結合後に `/v1/recipes/{name}:recommend` および `:recommend-related` レスポンスから除外するカンマ区切りの列名 |
+| `RECOTEM_METRICS_ENABLED` | いいえ | `""` | `1`/`true`/`yes`/`on` に設定すると Prometheus `/v1/metrics` エンドポイントを有効化。`recotem[metrics]` エクストラが必要。 |
 | `RECOTEM_STARTUP_PARALLELISM` | いいえ | `""` (自動) | 起動時にアーティファクトを並列ロードするスレッド数。デフォルトは `min(len(recipes), 8)`。1〜32 にクランプ。デバッグ時は `1` に設定して逐次ロードを強制。 |
 
 *`auto` は TTY の場合は `console`、それ以外は `json` に切り替わります。
 
 ## ヘルスチェック
 
-`/health` エンドポイントは認証不要でコンテナプローブに安全です。
+`/v1/health` エンドポイントは認証不要でコンテナプローブに安全です。
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8080/v1/health
 ```
 
 ```json
@@ -201,4 +201,4 @@ curl http://localhost:8080/health
 
 いずれかのレシピのロードに失敗した場合、`status` は `degraded` (HTTP 503) になります。このエンドポイントを対象に Kubernetes の readiness probe または Docker の HEALTHCHECK を設定してください。完全なレスポンス仕様については [Serving API](../serving-api) を参照してください。
 
-`kid`、`trained_at`、`best_class` などレシピごとの詳細については、認証が必要な `/health/details` エンドポイントを使用してください。
+`kid`、`trained_at`、`best_class` などレシピごとの詳細については、認証が必要な `/v1/health/details` エンドポイントを使用してください。

@@ -102,7 +102,11 @@ What it does:
 
 1. Parses the YAML and checks all fields against the recipe schema.
 2. Instantiates the data source plugin (catches missing extras like `recotem[bigquery]`).
-3. Runs the source's optional `probe()` method — for HTTP/HTTPS sources this is an HTTP HEAD request; for BigQuery this verifies credentials.
+3. Runs the source's optional `probe()` method:
+   - **Local / object-storage paths** (`file`, `s3://`, `gs://`, `az://`) — confirms the file exists.
+   - **HTTP / HTTPS paths** — runs the SSRF host-publicity check (the full byte cap, redirect-scheme policy, and `sha256` verification only fire at fetch time).
+   - **BigQuery** — issues a free dry-run query that validates ADC, project access, and SQL/parameter syntax.
+   - **SQL** — opens a connection and runs a trivial liveness query.
 
 **Example:**
 
@@ -141,7 +145,7 @@ recotem keygen --type api     --kid <name>
 | Flag | Default | Description |
 |---|---|---|
 | `--type` | `signing` | `signing` for an HMAC artifact key; `api` for a client authentication key. |
-| `--kid <name>` | auto-generated (UUID prefix) | A short identifier for the key. Used in logs, the authenticated `/health/details` and `/models` endpoints, and rotation procedures. |
+| `--kid <name>` | auto-generated (UUID prefix) | A short identifier for the key. Used in structured logs (server access logs include the matching `kid` for every authenticated request), in the per-recipe `kid` field of `/v1/health/details`, and during key-rotation procedures. |
 
 The plaintext is shown only once. Store it in a secrets manager immediately — there is no way to recover it later. If lost, generate a new key.
 

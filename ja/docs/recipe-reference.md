@@ -4,17 +4,17 @@ title: レシピリファレンス
 
 # レシピリファレンス
 
-レシピは、取得するデータ、学習方法、アーティファクトの書き出し先を定義する YAML ファイルです。1 つのレシピが 1 つのモデルと 1 つの `/predict/{name}` エンドポイントを生成します。
+レシピは、取得するデータ、学習方法、アーティファクトの書き出し先を定義する YAML ファイルです。1 つのレシピが 1 つのモデルと `/v1/recipes/{name}:recommend` (および関連) エンドポイント群を生成します。
 
 ## トップレベルフィールド
 
 | フィールド | 型 | 必須 | 説明 |
 |------------|-----|------|------|
-| `name` | string | yes | エンドポイント名。パターン: `^[A-Za-z0-9_-]{1,64}$`。`/predict/{name}` になります。 |
-| `source` | object | yes | データソース設定。`type` フィールドが識別子 (`csv`、`parquet`、`bigquery`、`sql`、`ga4`、またはプラグイン)。バリデーションは 2 段階: まずレシピの残りの部分がパースされ、次にソースの dict がプラグインの `Config` クラスに振り分けられます。そのため `source.*` のエラーは他のフィールドのエラーの*後*に表示されます。不明な `source.type` は登録済みの全型名を列挙した `DataSourceError` を発生させます。 |
+| `name` | string | yes | エンドポイント名。パターン: `^[A-Za-z0-9_-]{1,64}$`。`/v1/recipes/{name}:recommend` などのエンドポイントパスで使用されます。 |
+| `source` | object | yes | データソース設定。`type` フィールドが識別子 (`csv`、`parquet`、`bigquery`、`sql`、またはプラグイン)。バリデーションは 2 段階: まずレシピの残りの部分がパースされ、次にソースの dict がプラグインの `Config` クラスに振り分けられます。そのため `source.*` のエラーは他のフィールドのエラーの*後*に表示されます。不明な `source.type` は登録済みの全型名を列挙した `DataSourceError` を発生させます。 |
 | `schema` | object | yes | カラムマッピング。 |
 | `cleansing` | object | no | データ品質ゲート。 |
-| `item_metadata` | object | no | predict レスポンスに結合するメタデータ。 |
+| `item_metadata` | object | no | 推薦レスポンスに結合するメタデータ。 |
 | `training` | object | yes | アルゴリズムとチューニングの設定。 |
 | `output` | object | yes | アーティファクトのパスとバージョニング。 |
 
@@ -100,37 +100,6 @@ source:
 
 エクストラを 1 つインストール: `pip install "recotem[postgres]"`、`recotem[mysql]`、または `recotem[sqlite]`。詳細リファレンス: [SQL ソース](./data-sources/sql)。
 
-### `source.type: ga4`
-
-```yaml
-source:
-  type: ga4
-  property_id: "123456789"
-  user_dimension: userPseudoId
-  item_dimension: itemId
-  time_dimension: date
-  event_names: [purchase, view_item, add_to_cart]
-  lookback_days: 90               # start_date + end_date とは排他
-  max_rows: 1_000_000
-  weight_column: event_count
-  api_timeout_seconds: 60
-```
-
-| フィールド | 型 | デフォルト | 備考 |
-|------------|-----|-----------|------|
-| `property_id` | string | required | 数値のみ (`^\d+$`)。`G-XXXX` 形式の測定 ID ではありません。 |
-| `user_dimension` | string | required | `userId` または `userPseudoId`。 |
-| `item_dimension` | string | `itemId` | GA4 のアイテムスコープのディメンション。 |
-| `time_dimension` | string | `date` | `date` / `dateHour` / `dateHourMinute`。 |
-| `event_names` | list[string] | required | 1〜50 個のイベント名。各値は `^[A-Za-z_][A-Za-z0-9_]{0,39}$` に一致。 |
-| `lookback_days` | int | XOR | 1〜3650 日。前日で終わるローリングウィンドウ。 |
-| `start_date` / `end_date` | string (ISO) | XOR | いずれかを設定する場合は両方必須。 |
-| `max_rows` | int | required | 有効範囲 `[1, 50_000_000]`。 |
-| `weight_column` | string | `event_count` | ディメンションキーや `eventName` という値と衝突してはいけません。 |
-| `api_timeout_seconds` | int | `60` | 有効範囲 `[5, 600]`。 |
-
-エクストラのインストール: `pip install "recotem[ga4]"`。詳細リファレンス: [GA4 ソース](./data-sources/ga4)。
-
 ---
 
 ## `schema`
@@ -198,12 +167,12 @@ item_metadata:
 |------------|-----|-----------|------|
 | `type` | string | required | `csv` または `parquet`。 |
 | `path` | string | required | [パスルール](#パスルール) を参照してください。 |
-| `fields` | list[string] | required | 空不可。列挙されたフィールドのみ predict レスポンスで返されます。 |
-| `on_field_missing` | string | `error` | `fields` に指定したエントリがファイルに存在しない場合の動作。`error` はモデルのロードを失敗させます (起動時はレシピが `loaded=false` と `last_load_error` 付きで登録され、ホットスワップ時は旧モデルが引き続き配信され、障害は `/health` および `recotem_artifact_load_failures_total` メトリクスで公開されます)。`null` はカラムを `null` で埋めます。 |
+| `fields` | list[string] | required | 空不可。列挙されたフィールドのみ推薦レスポンスで返されます。 |
+| `on_field_missing` | string | `error` | `fields` に指定したエントリがファイルに存在しない場合の動作。`error` はモデルのロードを失敗させます (起動時はレシピが `loaded=false` と `last_load_error` 付きで登録され、ホットスワップ時は旧モデルが引き続き配信され、障害は `/v1/health` および `recotem_artifact_load_failures_total` メトリクスで公開されます)。`null` はカラムを `null` で埋めます。 |
 | `sha256` | string | 任意 (`path` が `http://` または `https://` の場合は必須) | 64 文字の小文字 hex。取得したバイト列に対して検証され、不一致は `DataSourceError` を発生させます。 |
 | `item_id_column` | string | `"item_id"` | メタデータファイルでアイテム識別子を保持するカラム名。メタデータファイルが異なるカラム名 (例: `product_id`) を使用している場合に上書きします。空でない、空白でない文字列である必要があります。 |
 
-サーバーサイドのフィールド抑制は `RECOTEM_METADATA_FIELD_DENY` (カンマ区切りのカラム名) でも可能で、結合後のカラム除去として適用されます。
+サーバーサイドのフィールド抑制は `RECOTEM_METADATA_FIELD_DENY` (カンマ区切りのカラム名) でも可能です。指定されたカラムはメタデータインデックスのロード時に除外されるため、どの推薦エンドポイントのレスポンスにも含まれません。
 
 ---
 

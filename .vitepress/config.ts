@@ -120,7 +120,6 @@ function v2DocsSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
         { text: 'CSV / Parquet', link: `${prefix}/data-sources/csv` },
         { text: 'BigQuery', link: `${prefix}/data-sources/bigquery` },
         { text: 'SQL', link: `${prefix}/data-sources/sql` },
-        { text: 'GA4', link: `${prefix}/data-sources/ga4` },
         { text: lang === 'ja' ? 'プラグイン' : 'Plugins', link: `${prefix}/data-sources/plugins` },
       ],
     },

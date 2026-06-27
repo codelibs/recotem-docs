@@ -72,9 +72,9 @@ These variables control the runtime environment, graceful shutdown, and log outp
 
 | Variable | Default | Scope | Clamping | Description |
 |---|---|---|---|---|
-| `RECOTEM_ENV` | (empty) | serve | — | Deployment environment tag. `--insecure-no-auth` is permitted only when set to `development`, `dev`, or `test`. `--dev-allow-unsigned` is permitted only when set to `development`. When set to `production`, `prod`, or `staging`, the `/docs`, `/redoc`, and `/openapi.json` endpoints are disabled (requests return 404). |
+| `RECOTEM_ENV` | (empty) | serve | — | Deployment environment tag. `--insecure-no-auth` is permitted only when set to `development`, `dev`, or `test`. `--dev-allow-unsigned` is permitted only when set to `development`. The `/docs`, `/redoc`, and `/openapi.json` endpoints are fail-secure: they are enabled only when this variable is one of `development`, `dev`, or `test`; for any other value (including unset, `production`, `prod`, `staging`, or a custom tag) those paths return 404. |
 | `RECOTEM_DRAIN_SECONDS` | `30` | serve | [1, 300] | SIGTERM graceful drain window in seconds. In-flight requests are given this window to complete before uvicorn closes remaining connections. For Kubernetes, set `terminationGracePeriodSeconds` to at least `RECOTEM_DRAIN_SECONDS + 5`. |
-| `RECOTEM_LOG_FORMAT` | `auto` | both | — | Log output format. `auto` uses JSON when stdout is not a TTY, console otherwise. `json` forces structured JSON. `console` forces human-readable output. |
+| `RECOTEM_LOG_FORMAT` | `auto` | both | — | Log output format. `auto` uses JSON when `stderr` is not a TTY, console otherwise. `json` forces structured JSON. `console` forces human-readable output. |
 
 ## Operational
 
@@ -84,19 +84,18 @@ These variables configure storage paths, locking, metadata field filtering, and 
 |---|---|---|---|---|
 | `RECOTEM_ARTIFACT_ROOT` | (empty) | train | — | If set, local `output.path` values in recipes must lie under this directory. Symlink escapes are rejected. Use this to confine where train processes can write artifacts on the host. |
 | `RECOTEM_LOCK_DIR` | (empty) | train | — | Override directory for per-recipe training lock files. Local `output.path` values always lock at `<output_path>.lock`. Remote `output.path` values (`s3://`, `gs://`, etc.) require a host-local lock file; if `RECOTEM_LOCK_DIR` is unset they fall back to `<tempdir>/recotem-locks/`. Note: `flock` is host-local — for cross-host single-writer guarantees use scheduler-level mutex (Kubernetes `concurrencyPolicy: Forbid`, etc.). |
-| `RECOTEM_METADATA_FIELD_DENY` | (empty) | serve | — | Comma-separated list of column names stripped from `/predict` responses after the item-metadata join. Matching is case-insensitive — `"Internal_ID"` in the metadata is stripped if `"internal_id"` is in the deny list. Use this to keep PII columns out of API responses. |
-| `RECOTEM_METRICS_ENABLED` | (unset) | serve | — | Truthy values: `1`, `true`, `yes`, `on`. Enables the Prometheus `/metrics` endpoint. Requires the `recotem[metrics]` extra (`pip install "recotem[metrics]"`). The endpoint is opt-in and off by default. |
+| `RECOTEM_METADATA_FIELD_DENY` | (empty) | serve | — | Comma-separated list of column names dropped from the item-metadata index at load time, so they never appear on any recommendation response (`:recommend`, `:recommend-related`, and `:batch-recommend*` when `include_metadata=true`). Matching is case-insensitive — `"Internal_ID"` in the metadata is stripped if `"internal_id"` is in the deny list. Use this to keep PII columns out of API responses. |
+| `RECOTEM_METRICS_ENABLED` | (unset) | serve | — | Truthy values: `1`, `true`, `yes`, `on`. Enables the Prometheus `/v1/metrics` endpoint. Requires the `recotem[metrics]` extra (`pip install "recotem[metrics]"`). The endpoint is opt-in and off by default. |
 
 ## Data source
 
-These variables tune behaviour of specific data sources. They are read only by `recotem train` and only when the corresponding source is used. See the [Data sources](./data-sources/) reference for full context.
+These variables tune behaviour of specific data sources. They are read only by `recotem train` and only when the corresponding source is used. See the [Data sources](./recipe-reference#source) reference for full context.
 
 | Variable | Default | Scope | Clamping | Description |
 |---|---|---|---|---|
 | `RECOTEM_BQ_REQUIRE_STORAGE_API` | (unset) | train | — | Truthy values: `1`, `true`, `yes`, `on`. When set, the BigQuery source raises `DataSourceError` (exit 3) instead of silently falling back to the slower REST API when the BigQuery Storage Read API fails (e.g. missing `bigquery.readSessions.create` IAM permission). Use this to surface IAM gaps rather than accepting degraded throughput. |
 | `RECOTEM_MAX_SQL_ROWS` | `50_000_000` | train | [1_000, 500_000_000] | Hard cap on the number of rows returned by the SQL data source. Exceeding the cap raises `DataSourceError` (exit 3). Caps **row count**, not DataFrame resident memory — see [SQL source — memory bound caveat](./data-sources/sql#memory-bound-caveat). |
 | `RECOTEM_SQL_ALLOW_PRIVATE` | (unset) | train | — | Truthy values: `1`, `true`, `yes`, `on`. Opts the SQL source into accepting private/loopback DSN hosts (default deny, for SSRF). Covers every driver-routing form — netloc, `?host=`, `?hostaddr=`, `?service=`, `?unix_socket=`, absolute-path host, and network DSNs with no host info — all default-deny without this flag. Also disables the DNS-rebinding re-check before each probe/fetch — opting in means trusting the host end-to-end. |
-| `RECOTEM_GA4_MAX_PAGES` | `500` | train | [1, 10_000] | Hard ceiling on GA4 Data API pagination loops. Reached when a property is too large for the default; raise after confirming quota. |
 
 ## Recipe expansion
 

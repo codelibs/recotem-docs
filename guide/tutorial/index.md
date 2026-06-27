@@ -5,7 +5,7 @@ description: Train a recommender from a real purchase log dataset and serve pred
 
 # Tutorial
 
-This tutorial walks you through a complete Recotem run: fetch data, train a model, serve it, and call `/predict`. The dataset is a small public purchase log CSV (the same file used by Recotem's own integration tests) and training takes about a minute on a laptop.
+This tutorial walks you through a complete Recotem run: fetch data, train a model, serve it, and call the recommendation endpoint. The dataset is a small public purchase log CSV (the same file used by Recotem's own integration tests) and training takes about a minute on a laptop.
 
 **Prerequisites:** either Docker with the Compose plugin, or Python 3.12+ with Recotem installed. About 50 MB of disk and network access to `raw.githubusercontent.com`.
 
@@ -118,7 +118,7 @@ docker compose up -d serve
 Check that the server started and loaded the model:
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8080/v1/health
 ```
 
 Expected response:
@@ -130,28 +130,27 @@ Expected response:
 ### Step 4 — Predict
 
 ```bash
-curl -sX POST http://localhost:8080/predict/purchase_log \
+curl -sX POST http://localhost:8080/v1/recipes/purchase_log:recommend \
   -H "X-API-Key: $RECOTEM_API_PLAINTEXT" \
   -H "Content-Type: application/json" \
-  -d '{"user_id": "1", "cutoff": 5}' | python3 -m json.tool
+  -d '{"user_id": "1", "limit": 5}' | python3 -m json.tool
 ```
 
-Expected response shape (exact scores vary by training run):
+Expected response shape (exact scores and digest vary by training run):
 
 ```json
 {
+  "request_id": "...",
+  "recipe": "purchase_log",
+  "model_version": "sha256:7f9c2ba4e88f827d616045507605853ed73b8093a07ef41c995c66e94c4eaa1d",
   "items": [
     {"item_id": "42", "score": 0.91},
     {"item_id": "17", "score": 0.87}
-  ],
-  "model": {
-    "recipe": "purchase_log",
-    "best_class": "IALSRecommender",
-    "kid": "dev"
-  },
-  "request_id": "..."
+  ]
 }
 ```
+
+`model_version` is `sha256:` followed by the 64-character hex SHA-256 of the loaded artifact — the same digest is also returned in the `X-Recotem-Model-Version` response header so clients can record exactly which model version produced each prediction.
 
 ### Step 5 — Tear down
 
@@ -191,7 +190,7 @@ export RECOTEM_API_PLAINTEXT="<plaintext-from-api>"
 recotem validate examples/tutorial-purchase-log/recipe.yaml
 ```
 
-This parses the recipe and runs a quick connectivity check (an HTTP HEAD request to the CSV URL) without downloading the full file. Useful for catching configuration problems before committing to a full training run.
+This parses the recipe and runs the data source's `probe()` method without downloading the full file. For HTTP/HTTPS sources, the probe runs the SSRF host-publicity check; the full byte cap, redirect-scheme policy, and `sha256` verification still fire at fetch time. Useful for catching configuration problems before committing to a full training run.
 
 ### Step 4 — Train
 
@@ -213,10 +212,10 @@ recotem serve --recipes examples/tutorial-purchase-log/
 In a separate terminal:
 
 ```bash
-curl -sX POST http://127.0.0.1:8080/predict/purchase_log \
+curl -sX POST http://127.0.0.1:8080/v1/recipes/purchase_log:recommend \
   -H "X-API-Key: $RECOTEM_API_PLAINTEXT" \
   -H "Content-Type: application/json" \
-  -d '{"user_id": "1", "cutoff": 5}' | python3 -m json.tool
+  -d '{"user_id": "1", "limit": 5}' | python3 -m json.tool
 ```
 
 ---
@@ -224,8 +223,8 @@ curl -sX POST http://127.0.0.1:8080/predict/purchase_log \
 ## What just happened
 
 - `recotem train` parsed the recipe, fetched the CSV over HTTPS, verified the sha256, ran an Optuna hyperparameter search across IALS and TopPop, and wrote a binary artifact signed with your signing key.
-- `recotem serve` watched the artifact directory, found the new file, HMAC-verified it against the same signing key, and registered the `/predict/purchase_log` endpoint.
-- The `/predict` request was authenticated by the API key allow-list and scored using the trained model.
+- `recotem serve` watched the artifact directory, found the new file, HMAC-verified it against the same signing key, and registered the `/v1/recipes/purchase_log:recommend` (and related verb) endpoints.
+- The request was authenticated by the API key allow-list and scored using the trained model.
 
 ---
 
@@ -237,8 +236,8 @@ curl -sX POST http://127.0.0.1:8080/predict/purchase_log \
 | `DataSourceError: sha256 mismatch` | The upstream file changed | Re-compute with `curl -sL <url> \| shasum -a 256` and update the recipe |
 | `DataSourceError: HTTP 404 fetching ...` | The URL changed | Verify the URL in a browser; check the `v1.0.0` tag is still present |
 | `ArtifactError: RECOTEM_SIGNING_KEYS not set` | Step 1 (key generation) was not exported | Re-run the export and try again |
-| `401 Unauthorized` on `/predict` | Wrong API key value | Use the `plaintext` line from `keygen --type api`, not the `hash` line |
-| `503 recipe_unavailable` immediately after training | The watcher has not polled yet | Wait up to `RECOTEM_WATCH_INTERVAL` seconds (default 5 s; the tutorial compose sets 10 s). Check `/health`. |
+| `401 Unauthorized` on `/v1/recipes/...` | Wrong API key value | Use the `plaintext` line from `keygen --type api`, not the `hash` line |
+| `503 RECIPE_UNAVAILABLE` immediately after training | The watcher has not polled yet | Wait up to `RECOTEM_WATCH_INTERVAL` seconds (default 5 s; the tutorial compose sets 10 s). Check `/v1/health`. |
 | Path B: artifact written to the wrong directory | The recipe's `output.path` is relative to the working directory | Run `recotem train` from the repository root, or change `output.path` to an absolute path |
 | `recotem: command not found` after pip install | The venv is not activated | Activate the venv, or run `python -m recotem ...` |
 

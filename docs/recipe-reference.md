@@ -4,14 +4,14 @@ title: Recipe Reference
 
 # Recipe Reference
 
-A recipe is a YAML file that defines what data to fetch, how to train, and where to write the artifact. One recipe produces one model and one `/predict/{name}` endpoint.
+A recipe is a YAML file that defines what data to fetch, how to train, and where to write the artifact. One recipe produces one model and one `/v1/recipes/{name}:recommend` (and related) endpoint.
 
 ## Top-level fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | yes | Endpoint name. Pattern: `^[A-Za-z0-9_-]{1,64}$`. Becomes `/predict/{name}`. |
-| `source` | object | yes | Data source config. `type` field is the discriminator (`csv`, `parquet`, `bigquery`, `sql`, `ga4`, or any plugin). Validated in two stages: the rest of the recipe is parsed first, then the source dict is dispatched to the plugin's `Config` class. As a result, errors in `source.*` surface *after* errors elsewhere in the recipe; an unknown `source.type` raises a `DataSourceError` listing all registered type names. |
+| `name` | string | yes | Endpoint name. Pattern: `^[A-Za-z0-9_-]{1,64}$`. Used in endpoint paths such as `/v1/recipes/{name}:recommend`. |
+| `source` | object | yes | Data source config. `type` field is the discriminator (`csv`, `parquet`, `bigquery`, `sql`, or any plugin). Validated in two stages: the rest of the recipe is parsed first, then the source dict is dispatched to the plugin's `Config` class. As a result, errors in `source.*` surface *after* errors elsewhere in the recipe; an unknown `source.type` raises a `DataSourceError` listing all registered type names. |
 | `schema` | object | yes | Column mapping. |
 | `cleansing` | object | no | Data quality gates. |
 | `item_metadata` | object | no | Metadata joined into predict responses. |
@@ -100,37 +100,6 @@ source:
 
 Install one extra: `pip install "recotem[postgres]"`, `recotem[mysql]`, or `recotem[sqlite]`. Full reference: [SQL source](./data-sources/sql).
 
-### `source.type: ga4`
-
-```yaml
-source:
-  type: ga4
-  property_id: "123456789"
-  user_dimension: userPseudoId
-  item_dimension: itemId
-  time_dimension: date
-  event_names: [purchase, view_item, add_to_cart]
-  lookback_days: 90               # XOR with start_date + end_date
-  max_rows: 1_000_000
-  weight_column: event_count
-  api_timeout_seconds: 60
-```
-
-| Field | Type | Default | Notes |
-|-------|------|---------|-------|
-| `property_id` | string | required | Numeric only (`^\d+$`). Not the `G-XXXX` measurement ID. |
-| `user_dimension` | string | required | `userId` or `userPseudoId`. |
-| `item_dimension` | string | `itemId` | Any GA4 item-scoped dimension. |
-| `time_dimension` | string | `date` | `date` / `dateHour` / `dateHourMinute`. |
-| `event_names` | list[string] | required | 1–50 names; each matches `^[A-Za-z_][A-Za-z0-9_]{0,39}$`. |
-| `lookback_days` | int | XOR | 1–3650. Rolling window ending yesterday. |
-| `start_date` / `end_date` | string (ISO) | XOR | Both required if either is set. |
-| `max_rows` | int | required | Valid range `[1, 50_000_000]`. |
-| `weight_column` | string | `event_count` | Must not collide with the dimension keys or the literal `eventName`. |
-| `api_timeout_seconds` | int | `60` | Valid range `[5, 600]`. |
-
-Install the extra: `pip install "recotem[ga4]"`. Full reference: [GA4 source](./data-sources/ga4).
-
 ---
 
 ## `schema`
@@ -198,12 +167,12 @@ item_metadata:
 |-------|------|---------|-------|
 | `type` | string | required | `csv` or `parquet`. |
 | `path` | string | required | See [Path rules](#path-rules). |
-| `fields` | list[string] | required | Non-empty. Only listed fields are returned in predict responses. |
-| `on_field_missing` | string | `error` | What to do if a `fields` entry is absent in the file. `error` fails the model load (at startup the recipe registers as `loaded=false` with `last_load_error` set; on hot-swap the previous model keeps serving and the failure is surfaced via `/health` and the `recotem_artifact_load_failures_total` metric); `null` fills the column with `null`. |
+| `fields` | list[string] | required | Non-empty. Only listed fields are returned in recommendation responses. |
+| `on_field_missing` | string | `error` | What to do if a `fields` entry is absent in the file. `error` fails the model load (at startup the recipe registers as `loaded=false` with `last_load_error` set; on hot-swap the previous model keeps serving and the failure is surfaced via `/v1/health` and the `recotem_artifact_load_failures_total` metric); `null` fills the column with `null`. |
 | `sha256` | string | optional (required when `path` is `http://` or `https://`) | 64-char lowercase hex; verified against the fetched bytes; mismatch raises `DataSourceError` |
 | `item_id_column` | string | `"item_id"` | Column name in the metadata file that holds item identifiers. Override when your metadata file uses a different column name (e.g. `product_id`). Must be a non-empty, non-whitespace string. |
 
-Server-side field suppression is also available via `RECOTEM_METADATA_FIELD_DENY` (comma-separated column names), applied as a post-join column drop.
+Server-side field suppression is also available via `RECOTEM_METADATA_FIELD_DENY` (comma-separated column names). Listed columns are dropped from the metadata index at load time, so they never appear on any recommendation response.
 
 ---
 

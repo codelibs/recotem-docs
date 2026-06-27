@@ -4,7 +4,7 @@ title: Architecture
 
 # Architecture
 
-Recotem is a recipe-driven recommender system: a single YAML file (the _recipe_) defines the data source, training configuration, and artifact destination. One recipe produces one trained model and one `/predict/{name}` HTTP endpoint.
+Recotem is a recipe-driven recommender system: a single YAML file (the _recipe_) defines the data source, training configuration, and artifact destination. One recipe produces one trained model and a set of `/v1/recipes/{name}:<verb>` HTTP endpoints.
 
 ## System overview
 
@@ -26,10 +26,10 @@ Recotem is a recipe-driven recommender system: a single YAML file (the _recipe_)
   │       │                             │
   │       ├── HMAC verify               │
   │       ├── deserialize payload       │
-  │       └── FastAPI /predict/{name}   │
-  │                  │                  │
-  │                  ▼                  │
-  │          API client request         │
+  │       └── FastAPI /v1/recipes/{name}:recommend   │
+  │                  │                               │
+  │                  ▼                               │
+  │          API client request                      │
   └─────────────────────────────────────┘
 ```
 
@@ -40,11 +40,14 @@ Recotem is a recipe-driven recommender system: a single YAML file (the _recipe_)
 A recipe is the single source of truth for a model:
 
 ```
-1 recipe YAML  →  1 trained artifact  →  1 /predict/{name} endpoint
+1 recipe YAML  →  1 trained artifact  →  /v1/recipes/{name}:recommend
+                                         /v1/recipes/{name}:recommend-related
+                                         /v1/recipes/{name}:batch-recommend
+                                         /v1/recipes/{name}:batch-recommend-related
 ```
 
 The recipe captures:
-- **Where to get data** (`source` block — CSV, Parquet, BigQuery, SQL, GA4, or plugin)
+- **Where to get data** (`source` block — CSV, Parquet, BigQuery, SQL, or plugin)
 - **How to map columns** (`schema` block — user ID, item ID, optional timestamp)
 - **Data quality gates** (`cleansing` block — null-drop, dedup, minimum thresholds)
 - **What to train** (`training` block — algorithms, Optuna budget, split scheme)
@@ -75,8 +78,8 @@ magic | version | reserved | kid | hmac | header_json | payload
 |-------|------------------|-------------|
 | Operator | Recipe YAML, signing keys, env vars, `RECOTEM_SIGNING_KEYS` | Fully trusted |
 | Training host | Reads source data, writes signed artifact | Trusted (operator-controlled) |
-| Serving host | Reads artifact directory, serves `/predict` | Trusted (operator-controlled) |
-| API client | Sends `/predict` requests with an API key | Untrusted user input |
+| Serving host | Reads artifact directory, serves `/v1/recipes/{name}:<verb>` | Trusted (operator-controlled) |
+| API client | Sends `/v1/recipes/{name}:<verb>` requests with an API key | Untrusted user input |
 | Artifact file | Immutable signed binary; any tamper fails HMAC | Authenticated by HMAC |
 
 Recipes can reference environment variables for dynamic values (via `${RECOTEM_RECIPE_*}` expansion). The expansion mechanism is restricted to that prefix and never applied inside `source.query` or `source.query_parameters` to foreclose SQL injection.
@@ -90,7 +93,7 @@ The serving process polls the recipes directory for artifact file changes. When 
 3. Atomically replace the in-memory model reference.
 4. The previous model is evicted; all subsequent requests use the new model.
 
-Hot-swap is **recipe-scoped**: updating artifact `A` does not affect the in-flight model for recipe `B`. The serving process never restarts. If HMAC verification or deserialization of the new artifact fails, the previous model continues serving and the failure is recorded in `/health` and in the `recotem_artifact_load_failures_total` Prometheus metric (when metrics are enabled).
+Hot-swap is **recipe-scoped**: updating artifact `A` does not affect the in-flight model for recipe `B`. The serving process never restarts. If HMAC verification or deserialization of the new artifact fails, the previous model continues serving and the failure is recorded in `/v1/health` and in the `recotem_artifact_load_failures_total` Prometheus metric (when metrics are enabled).
 
 The watcher poll interval is configured by `RECOTEM_WATCH_INTERVAL` (default 5 s, clamped to 1–30 s).
 
@@ -123,7 +126,7 @@ This separation means:
 | Command | Purpose |
 |---------|---------|
 | `recotem train <recipe.yaml>` | Fetch data, run Optuna search, train best model, sign artifact |
-| `recotem serve --recipes <dir>` | Start FastAPI `/predict` server with hot-swap |
+| `recotem serve --recipes <dir>` | Start FastAPI `/v1/recipes` server with hot-swap |
 | `recotem inspect <artifact>` | Read and verify artifact header (no payload deserialization) |
 | `recotem validate <recipe.yaml>` | Validate recipe schema and probe data-source connectivity |
 | `recotem schema` | Emit JSON Schema for the Recipe model (IDE integration) |
@@ -149,7 +152,6 @@ This separation means:
 - [CSV / Parquet Source](./data-sources/csv) — local, object-storage, and HTTP source options
 - [BigQuery Source](./data-sources/bigquery) — authentication, parameter binding, GA4 patterns
 - [SQL Source](./data-sources/sql) — PostgreSQL / MySQL / MariaDB / SQLite via SQLAlchemy 2
-- [GA4 Source](./data-sources/ga4) — Google Analytics 4 Data API, skipping the BigQuery Export hop
 - [Plugin Data Sources](./data-sources/plugins) — extend `source.type` with custom plugins
 - Deployment guides — Docker, Kubernetes, cron scheduling
 - Operations — key rotation, recovery, sizing, troubleshooting

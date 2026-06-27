@@ -72,9 +72,9 @@ title: 環境変数
 
 | 変数 | デフォルト | スコープ | クランプ | 説明 |
 |---|---|---|---|---|
-| `RECOTEM_ENV` | (空) | serve | — | デプロイメント環境タグ。`--insecure-no-auth` は `development`、`dev`、または `test` に設定した場合のみ許可される。`--dev-allow-unsigned` は `development` に設定した場合のみ許可される。`production`、`prod`、または `staging` に設定すると `/docs`、`/redoc`、`/openapi.json` エンドポイントが無効化される (リクエストは 404 を返す)。 |
+| `RECOTEM_ENV` | (空) | serve | — | デプロイメント環境タグ。`--insecure-no-auth` は `development`、`dev`、または `test` に設定した場合のみ許可される。`--dev-allow-unsigned` は `development` に設定した場合のみ許可される。`/docs`、`/redoc`、`/openapi.json` エンドポイントはフェールセキュアで、この変数が `development`、`dev`、または `test` のときのみ有効になる。それ以外の値 (未設定、`production`、`prod`、`staging`、またはカスタムタグ) の場合、これらのパスは 404 を返す。 |
 | `RECOTEM_DRAIN_SECONDS` | `30` | serve | [1, 300] | SIGTERM グレースフルドレインウィンドウ (秒)。進行中のリクエストはこのウィンドウが完了するまで待機でき、その後 uvicorn は残りの接続を閉じる。Kubernetes では `terminationGracePeriodSeconds` を少なくとも `RECOTEM_DRAIN_SECONDS + 5` に設定すること。 |
-| `RECOTEM_LOG_FORMAT` | `auto` | both | — | ログ出力フォーマット。`auto` は stdout が TTY でない場合は JSON、それ以外はコンソール形式を使用する。`json` は構造化 JSON を強制する。`console` は人間が読める出力を強制する。 |
+| `RECOTEM_LOG_FORMAT` | `auto` | both | — | ログ出力フォーマット。`auto` は stderr が TTY でない場合は JSON、それ以外はコンソール形式を使用する。`json` は構造化 JSON を強制する。`console` は人間が読める出力を強制する。 |
 
 ## 運用
 
@@ -84,19 +84,18 @@ title: 環境変数
 |---|---|---|---|---|
 | `RECOTEM_ARTIFACT_ROOT` | (空) | train | — | 設定した場合、レシピのローカル `output.path` の値はこのディレクトリ配下に存在しなければならない。シンボリックリンクエスケープは拒否される。ホスト上で train プロセスがアーティファクトを書き込める場所を制限するために使用する。 |
 | `RECOTEM_LOCK_DIR` | (空) | train | — | レシピごとの学習ロックファイルのディレクトリを上書きする。ローカルの `output.path` 値は常に `<output_path>.lock` でロックされる。リモートの `output.path` 値 (`s3://`、`gs://` など) はホストローカルのロックファイルを必要とする。`RECOTEM_LOCK_DIR` が未設定の場合は `<tempdir>/recotem-locks/` にフォールバックする。注意: `flock` はホストローカル — ホスト間のシングルライター保証にはスケジューラーレベルのミューテックスを使用すること (Kubernetes の `concurrencyPolicy: Forbid` など)。 |
-| `RECOTEM_METADATA_FIELD_DENY` | (空) | serve | — | アイテムメタデータ結合後に `/predict` レスポンスから除外する列名のカンマ区切りリスト。マッチングは大文字小文字を区別しない — メタデータの `"Internal_ID"` は拒否リストに `"internal_id"` があればストリップされる。PII 列を API レスポンスから除外するために使用する。 |
-| `RECOTEM_METRICS_ENABLED` | (未設定) | serve | — | 真値: `1`、`true`、`yes`、`on`。Prometheus `/metrics` エンドポイントを有効化する。`recotem[metrics]` エクストラが必要 (`pip install "recotem[metrics]"`)。エンドポイントはオプトインでデフォルトでは無効。 |
+| `RECOTEM_METADATA_FIELD_DENY` | (空) | serve | — | アイテムメタデータインデックスのロード時に除外する列名のカンマ区切りリスト。除外された列はすべての推薦エンドポイント (`:recommend`、`:recommend-related`、および `include_metadata=true` の `:batch-recommend*`) のレスポンスに含まれない。マッチングは大文字小文字を区別しない — メタデータの `"Internal_ID"` は拒否リストに `"internal_id"` があればストリップされる。PII 列を API レスポンスから除外するために使用する。 |
+| `RECOTEM_METRICS_ENABLED` | (未設定) | serve | — | 真値: `1`、`true`、`yes`、`on`。Prometheus `/v1/metrics` エンドポイントを有効化する。`recotem[metrics]` エクストラが必要 (`pip install "recotem[metrics]"`)。エンドポイントはオプトインでデフォルトでは無効。 |
 
 ## データソース
 
-これらの変数は特定のデータソースの動作を調整します。`recotem train` のみが、対応するソースが使用されたときのみ読み取ります。詳細は [データソース](./data-sources/) リファレンスを参照してください。
+これらの変数は特定のデータソースの動作を調整します。`recotem train` のみが、対応するソースが使用されたときのみ読み取ります。詳細は [データソース](./recipe-reference#source) リファレンスを参照してください。
 
 | 変数 | デフォルト | スコープ | クランプ | 説明 |
 |---|---|---|---|---|
 | `RECOTEM_BQ_REQUIRE_STORAGE_API` | (未設定) | train | — | 真値: `1`、`true`、`yes`、`on`。設定すると、BigQuery Storage Read API が失敗した場合 (例: `bigquery.readSessions.create` IAM 権限の欠落) に BigQuery ソースがより遅い REST API にサイレントフォールバックするのではなく、`DataSourceError` (終了コード 3) を発生させる。スループット低下を受け入れるのではなく IAM のギャップを表面化させるために使用する。 |
 | `RECOTEM_MAX_SQL_ROWS` | `50_000_000` | train | [1_000, 500_000_000] | SQL データソースが返す行数のハードキャップ。上限を超えると `DataSourceError` (終了コード 3) を発生させる。**行数**をキャップするのであって、DataFrame の常駐メモリではない — [SQL ソース — メモリバウンドの注意点](./data-sources/sql#memory-bound-caveat) を参照。 |
 | `RECOTEM_SQL_ALLOW_PRIVATE` | (未設定) | train | — | 真値: `1`、`true`、`yes`、`on`。SQL ソースがプライベート / ループバックの DSN ホストを受け入れるオプトイン (デフォルトは SSRF 対策のため拒否)。あらゆるドライバルーティング形式 (netloc、`?host=`、`?hostaddr=`、`?service=`、`?unix_socket=`、絶対パスホスト、ホスト情報のないネットワーク DSN) をカバー — このフラグなしでは全てデフォルトで拒否される。各プローブ / フェッチ前の DNS リバインディング再チェックも無効化される — オプトインはホストをエンドツーエンドで信頼することを意味する。 |
-| `RECOTEM_GA4_MAX_PAGES` | `500` | train | [1, 10_000] | GA4 Data API ページネーションループのハード上限。デフォルト上限ではプロパティが大きすぎる場合に到達する。クォータを確認してから引き上げること。 |
 
 ## レシピ展開
 

@@ -16,7 +16,6 @@ source plus the plugin mechanism for adding your own.
 | [CSV / Parquet](./csv) | `csv`, `parquet` | Tabular files on local disk or cloud storage (`s3://`, `gs://`, `az://`). No extra install for local files. |
 | [BigQuery](./bigquery) | `bigquery` | Reading interactions straight from a BigQuery table or query. Requires the `recotem[bigquery]` extra. |
 | [SQL](./sql) | `sql` | Relational databases via SQLAlchemy 2 (PostgreSQL, MySQL/MariaDB, SQLite). |
-| [GA4](./ga4) | `ga4` | Google Analytics 4 Data API directly, skipping the BigQuery Export hop. |
 
 ## Extending Recotem
 
