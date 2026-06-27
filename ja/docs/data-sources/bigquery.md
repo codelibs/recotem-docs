@@ -95,9 +95,67 @@ YAML のクォートは重要です: `lookback_days: 30` は `INT64`、`lookback
 
 GA4 は `events_YYYYMMDD` という名前の日付シャードテーブルを使って BigQuery にエクスポートします。`_TABLE_SUFFIX` を使うと、フルテーブルスキャンなしで日付範囲でフィルタリングできます。
 
+### `item_id` はどこから来るのか
+
+Recotem はクエリが返した DataFrame を読み込み、`schema` で指定したカラムが**そのままの名前で**存在することを前提とします — 正規表現・式・導出カラムを指定するレシピフィールドは**ありません**（`schema` で指定できるのは `user_column`、`item_column`、`time_column`、`time_unit` のみ）。さらに BigQuery ソースは、それらのカラムが結果に含まれているかどうかを**事前検証しません**。したがって抽出や整形はすべて `REGEXP_EXTRACT` などの BigQuery 関数を使って **SQL クエリの中**で行う必要があり、`SELECT` のエイリアスは `schema` で参照する名前と一致させる必要があります。
+
+### 推奨: `page_location` から `item_id` を導出する
+
+`page_location`（ページ URL）は、どの GA4 エクスポートでも `page_view` イベントごとに記録され、**追加のタグ設定や GTM 設定は不要**です。そのため、生のアクセスログだけから「この記事を見た人はこの記事も見ています」型のレコメンダーを構築するのに最も汎用性の高いシグナルになります。最もシンプルで汎用的な選択は、URL の**パス**をアイテムとして使うことです:
+
 ```yaml
 source:
   type: bigquery
+  project: my-project
+  query: |
+    SELECT
+      user_pseudo_id                                                    AS user_id,
+      REGEXP_EXTRACT(
+        (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location'),
+        r'^https?://[^/]+([^?#]*)'                       -- path only; drop host, query, fragment
+      )                                                                 AS item_id,
+      TIMESTAMP_MICROS(event_timestamp)                                 AS ts
+    FROM
+      `my-project.analytics_123456789.events_*`
+    WHERE
+      _TABLE_SUFFIX BETWEEN
+        FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY))
+        AND FORMAT_DATE('%Y%m%d', CURRENT_DATE())
+      AND event_name = 'page_view'
+```
+
+```yaml
+schema:
+  user_column: user_id
+  item_column: item_id
+  time_column: ts
+cleansing:
+  drop_null_ids: true   # REGEXP_EXTRACT はマッチしないと NULL を返す — その行を除去する
+```
+
+これはパラメータバインドなしでローリング 30 日間のウィンドウをカバーし（日付は SQL で計算）、個々のパスを 1 つのアイテムとして扱います。`drop_null_ids` のデフォルトは `true` です。[レシピリファレンス → cleansing](../recipe-reference#cleansing) を参照してください。
+
+URL に**安定した識別子**（商品 / 記事 / コンテンツ ID）が含まれている場合は、その ID だけを抽出することで、スラッグに依存しないより厳密なアイテム空間を得られます。URL 中の無関係な数字（例: `/2026/04/12/` の日付パスにある `2026`）を拾わないよう、区切り文字でマッチさせます:
+
+```sql
+-- .../articles/12345-some-title       -> "12345"  (パスセグメント後の数値 ID)
+REGEXP_EXTRACT(page_location, r'/articles/(\d+)')
+
+-- .../some-title-(A12B)/              -> "A12B"   (括弧内の 4 文字英数字 ID。
+--                                                  全角の （ ） にもマッチ)
+REGEXP_EXTRACT(page_location, r'[（(]([0-9A-Z]{4})[）)]')
+```
+
+パターンは自分の URL スキームに合わせて調整してください。RE2（BigQuery の正規表現エンジン）は `\d`、文字クラス、全角括弧などの UTF-8 リテラルをサポートします。
+
+### 代替: カスタムイベントパラメータ
+
+専用の識別子をカスタムイベントパラメータとして既に送信している場合（サイト側の GA4 / GTM 設定が必要）は、`event_params` から読み取ります。パラメータの送信方法に合わせて型アクセサ（`value.int_value` / `value.string_value`）を置き換えてください:
+
+```yaml
+source:
+  type: bigquery
+  project: my-project
   query: |
     SELECT
       user_pseudo_id                                                   AS user_id,
@@ -115,22 +173,26 @@ source:
       AND (SELECT value.int_value
              FROM UNNEST(event_params)
             WHERE key = 'article_id') IS NOT NULL
-  project: my-project
 ```
 
-このクエリの特徴:
-- パラメータバインドなしでローリング 30 日間のウィンドウをカバーします (日付は SQL で計算されます)。
-- `article_id` が null でない `select_content` イベントにフィルタリングします。
-- 3 つのカラムを生成します: `user_id`、`item_id`、`ts`。
+出力カラムは上記の `page_location` の例と同じように `schema` でマッピングします。
 
-出力カラムを `schema` でマッピングします:
+## サービングとレコメンド
 
-```yaml
-schema:
-  user_column: user_id
-  item_column: item_id
-  time_column: ts
+`recotem train` が署名済みアーティファクトを書き出したら、`recotem serve` をレシピのディレクトリに向けて起動し、レシピの `:recommend` エンドポイントを呼び出します。レシピ `name` はレシピ YAML ファイル名のステム（拡張子を除いた部分）です:
+
+```bash
+curl -X POST http://localhost:8080/v1/recipes/{name}:recommend \
+     -H "X-API-Key: <plaintext-api-key>" \
+     -H "Content-Type: application/json" \
+     -d '{"user_id": "<a user value seen during training>", "limit": 10}'
 ```
+
+- `user_id` は `schema.user_column` でマッピングした値です（GA4 では一般に `user_pseudo_id`）。学習時に出現しなかったユーザーは `404 UNKNOWN_USER` を返します。
+- ユーザーなしでアイテム間レコメンドを得るには、既知の `item_id` のリストを `seed_items` に指定して `:recommend-related` を呼び出します。
+- `RECOTEM_API_KEYS` を設定しない場合、サーバーはループバック（`127.0.0.1`）にバインドし、認証なしのリクエストを受け付けます。
+
+リクエスト / レスポンスの完全な形式は [Serving API](../serving-api) リファレンスを、API キーの設定は [運用](../operations) ガイドを参照してください。
 
 ## エラーと終了コード
 
@@ -139,7 +201,7 @@ schema:
 | ADC 認証情報が見つからない | 3 | `DataSourceError: Could not obtain credentials. Run 'gcloud auth application-default login' or set GOOGLE_APPLICATION_CREDENTIALS.` |
 | データセットへのアクセス拒否 | 3 | `DataSourceError: Access Denied: Dataset my-project:analytics_123456789` |
 | クエリ構文エラー | 3 | `DataSourceError: Syntax error: ...` |
-| クエリ後にカラム不在 | 2 | `RecipeError: column 'item_id' not found in query result` |
+| `schema` のカラムがクエリ結果に存在しない | 1 | 未処理エラー（`code: internal_error`）。BigQuery ソースはカラムを検証しないため、`schema` と一致しない `SELECT` エイリアスは `RecipeError` ではなく後段のクレンジング処理で表面化します。 |
 | エクストラ未インストール | 3 | `DataSourceError: google-cloud-bigquery is required for BigQuerySource`（または `db-dtypes is required for BigQuerySource`） |
 
 すべての BigQuery 例外は `DataSourceError` にラップされて終了コード 3 になります。BigQuery の完全なエラーメッセージは stderr の JSON 行に含まれます。
