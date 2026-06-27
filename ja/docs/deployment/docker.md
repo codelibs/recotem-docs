@@ -18,7 +18,7 @@ Recotem は単一の Docker イメージとして提供されます。`recotem t
 | `main` (ブランチ参照) | 可変、`main` の最新 | スモークテストのみ |
 | `sha-<short>` | 不変 | 特定コミットの再現 |
 
-`:latest` は `main` へのプッシュごとに更新されます。チュートリアルの `compose.yaml` は `:latest` を参照していますが、本番環境では常に semver タグ (例: `2.0.0`) にピン留めしてください。Helm チャートと `examples/k8s/` はすでに `2.0.0a0` にピン留めされています。
+`:latest` は `main` へのプッシュごとに更新されます。チュートリアルの `compose.yaml` は `:latest` を参照していますが、本番環境では常に semver タグ (例: `2.0.0`) にピン留めしてください。Helm チャートと `examples/k8s/` はすでに `2.0.0` にピン留めされています。
 
 イメージはマルチアーキテクチャ (`linux/amd64`, `linux/arm64`) です。SBOM と SLSA プロベナンス証明はプッシュ時に添付されます (`provenance: mode=max`, `sbom: true`)。サプライチェーンポリシーで必要な場合は `cosign verify-attestation` で検証してください。
 
