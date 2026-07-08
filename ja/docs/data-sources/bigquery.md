@@ -1,5 +1,6 @@
 ---
 title: BigQuery ソース
+description: "Recotem の BigQuery レコメンドデータソース設定。ADC 認証、名前付きパラメータバインド、GA4 events_* からのアイテム抽出パターンを解説します。"
 ---
 
 # BigQuery ソース

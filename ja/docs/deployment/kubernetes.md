@@ -1,5 +1,6 @@
 ---
 title: Kubernetes デプロイメント
+description: "Recotem の Kubernetes デプロイガイド。学習用 CronJob と配信用 Deployment、レシピ配布、Helm チャート、Pod セキュリティ、鍵ローテーションを解説します。"
 ---
 
 # Kubernetes デプロイメント

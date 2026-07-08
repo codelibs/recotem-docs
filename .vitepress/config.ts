@@ -2,6 +2,91 @@ import { defineConfig } from 'vitepress'
 import type { DefaultTheme } from 'vitepress'
 
 // ---------------------------------------------------------------------------
+// SEO helpers (canonical, hreflang, Open Graph / Twitter, JSON-LD)
+// ---------------------------------------------------------------------------
+
+const SITE = 'https://recotem.org'
+const SITE_NAME = 'Recotem'
+const SITE_DESC_EN =
+  'Recipe-driven recommender training and serving on irspack. One YAML recipe = one model = one recommendation API — self-hosted, hot-swap, no database.'
+const SITE_DESC_JA =
+  'irspack ベースのレシピ駆動レコメンダーの学習・配信。1つのYAMLレシピ = 1モデル = 1レコメンドAPI。セルフホストでホットスワップ対応、データベース不要。'
+const OG_IMAGE = `${SITE}/og-image.png`
+
+// Map a VitePress page relativePath (e.g. "ja/docs/security.md") to its served
+// URL, matching the default (cleanUrls: false) scheme so canonical / hreflang /
+// og:url all agree with the generated sitemap.
+function pathToUrl(rel: string): string {
+  let p = '/' + rel.replace(/\.md$/, '')
+  p = p.replace(/\/index$/, '/')
+  if (!p.endsWith('/')) p += '.html'
+  return p
+}
+
+// EN counterpart of a /ja/... URL.
+function stripJa(url: string): string {
+  return url.replace(/^\/ja(\/|$)/, '/')
+}
+
+function orgNode() {
+  return {
+    '@type': 'Organization',
+    '@id': `${SITE}/#organization`,
+    name: 'CodeLibs, Inc.',
+    url: 'https://codelibs.co',
+    logo: `${SITE}/recotem-logo.png`,
+  }
+}
+
+function homeJsonLd(isJa: boolean) {
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      orgNode(),
+      {
+        '@type': 'WebSite',
+        '@id': `${SITE}/#website`,
+        url: SITE,
+        name: SITE_NAME,
+        inLanguage: isJa ? 'ja-JP' : 'en-US',
+        publisher: { '@id': `${SITE}/#organization` },
+      },
+      {
+        '@type': 'SoftwareApplication',
+        name: SITE_NAME,
+        applicationCategory: 'DeveloperApplication',
+        operatingSystem: 'Linux, macOS, Docker',
+        url: SITE,
+        downloadUrl: 'https://pypi.org/project/recotem/',
+        description: isJa ? SITE_DESC_JA : SITE_DESC_EN,
+        license: 'https://www.apache.org/licenses/LICENSE-2.0',
+        author: { '@id': `${SITE}/#organization` },
+        offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+      },
+    ],
+  }
+}
+
+function articleJsonLd(o: {
+  title: string
+  desc: string
+  url: string
+  isJa: boolean
+}) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'TechArticle',
+    headline: o.title,
+    description: o.desc,
+    inLanguage: o.isJa ? 'ja-JP' : 'en-US',
+    url: o.url,
+    image: OG_IMAGE,
+    author: orgNode(),
+    publisher: orgNode(),
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Sidebar helpers
 // ---------------------------------------------------------------------------
 
@@ -168,11 +253,72 @@ export default defineConfig({
 
   sitemap: { hostname: 'https://recotem.org' },
 
+  // Design/spec docs and asset scripts live in the repo but must not be
+  // published as site pages.
+  srcExclude: ['specs/**', 'scripts/**'],
+
+  // Per-page SEO: canonical + EN/JA hreflang alternates + Open Graph /
+  // Twitter cards + JSON-LD, generated for every page from its relativePath.
+  transformPageData(pageData) {
+    const rel = pageData.relativePath
+    const url = pathToUrl(rel)
+    const head = (pageData.frontmatter.head ??= [])
+
+    // v1 archive: self-canonical only, no bilingual pairing.
+    if (rel.startsWith('1.0/')) {
+      head.push(['link', { rel: 'canonical', href: SITE + url }])
+      return
+    }
+
+    const isJa = rel.startsWith('ja/')
+    const isHome = rel === 'index.md' || rel === 'ja/index.md'
+    const enUrl = isJa ? stripJa(url) : url
+    const jaUrl = isJa ? url : '/ja' + url
+    const desc =
+      (pageData.frontmatter.description as string) ||
+      (isJa ? SITE_DESC_JA : SITE_DESC_EN)
+    const title = pageData.title ? `${pageData.title} | ${SITE_NAME}` : SITE_NAME
+
+    head.push(
+      ['link', { rel: 'canonical', href: SITE + url }],
+      ['link', { rel: 'alternate', hreflang: 'en', href: SITE + enUrl }],
+      ['link', { rel: 'alternate', hreflang: 'ja', href: SITE + jaUrl }],
+      ['link', { rel: 'alternate', hreflang: 'x-default', href: SITE + enUrl }],
+      ['meta', { property: 'og:site_name', content: SITE_NAME }],
+      ['meta', { property: 'og:type', content: isHome ? 'website' : 'article' }],
+      ['meta', { property: 'og:title', content: title }],
+      ['meta', { property: 'og:description', content: desc }],
+      ['meta', { property: 'og:url', content: SITE + url }],
+      ['meta', { property: 'og:image', content: OG_IMAGE }],
+      ['meta', { property: 'og:locale', content: isJa ? 'ja_JP' : 'en_US' }],
+      ['meta', { property: 'og:locale:alternate', content: isJa ? 'en_US' : 'ja_JP' }],
+      ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+      ['meta', { name: 'twitter:title', content: title }],
+      ['meta', { name: 'twitter:description', content: desc }],
+      ['meta', { name: 'twitter:image', content: OG_IMAGE }],
+      [
+        'script',
+        { type: 'application/ld+json' },
+        JSON.stringify(
+          isHome
+            ? homeJsonLd(isJa)
+            : articleJsonLd({
+                title: pageData.title || SITE_NAME,
+                desc,
+                url: SITE + url,
+                isJa,
+              }),
+        ),
+      ],
+    )
+  },
+
   // i18n – v2 pages only; v1 lives under root locale at /1.0/
   locales: {
     root: {
       lang: 'en-US',
       label: 'English',
+      description: SITE_DESC_EN,
       themeConfig: {
         nav: [
           { text: 'Guide', link: '/guide/' },
@@ -196,6 +342,7 @@ export default defineConfig({
     ja: {
       lang: 'ja-JP',
       label: '日本語',
+      description: SITE_DESC_JA,
       themeConfig: {
         nav: [
           { text: 'ガイド', link: '/ja/guide/' },

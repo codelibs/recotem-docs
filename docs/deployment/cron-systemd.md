@@ -1,5 +1,6 @@
 ---
 title: cron / systemd Deployment
+description: "Schedule Recotem recommender training with Linux cron or systemd timers using the recotem train exit-code contract for reliable batch jobs."
 ---
 
 # cron / systemd Deployment

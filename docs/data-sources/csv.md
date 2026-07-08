@@ -1,5 +1,6 @@
 ---
 title: CSV / Parquet Source
+description: "Use the Recotem CSV and Parquet data source to train recommenders from tabular interaction files on local disk or cloud storage."
 ---
 
 # CSV / Parquet Source

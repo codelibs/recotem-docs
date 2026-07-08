@@ -1,5 +1,6 @@
 ---
 title: Data Sources
+description: "Overview of Recotem data sources for recommender training: CSV, Parquet, BigQuery, SQL, and custom plugins selected by the recipe source.type."
 ---
 
 # Data Sources

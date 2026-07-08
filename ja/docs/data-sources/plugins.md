@@ -1,5 +1,6 @@
 ---
 title: プラグインデータソース
+description: "Recotem のプラグインデータソース。recotem.datasources エントリポイントにカスタムソースを登録し、組み込みの CSV や BigQuery を超えた独自ソースを追加できます。"
 ---
 
 # プラグインデータソース

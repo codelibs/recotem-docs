@@ -1,5 +1,6 @@
 ---
 title: Environment Variables
+description: "Authoritative reference for every RECOTEM_* environment variable controlling Recotem recommender training, serving, signing keys, and API authentication."
 ---
 
 # Environment Variables

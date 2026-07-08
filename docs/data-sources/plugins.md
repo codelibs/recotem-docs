@@ -1,5 +1,6 @@
 ---
 title: Plugin Data Sources
+description: "Extend Recotem with plugin data sources: register a custom source.type in the recotem.datasources entry-point group, discovered automatically at startup."
 ---
 
 # Plugin Data Sources

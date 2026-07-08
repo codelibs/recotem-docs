@@ -1,5 +1,6 @@
 ---
 title: SQL Source
+description: "Train Recotem recommenders directly from PostgreSQL, MySQL, or SQLite using the SQL data source built on SQLAlchemy 2."
 ---
 
 # SQL Source

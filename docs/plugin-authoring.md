@@ -1,5 +1,6 @@
 ---
 title: Plugin Authoring
+description: "Guide to authoring Recotem DataSource plugins: the class contract, FetchContext, testing, and packaging a custom recommendation data source via entry points."
 ---
 
 # Plugin Authoring

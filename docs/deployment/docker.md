@@ -1,5 +1,6 @@
 ---
 title: Docker Deployment
+description: "Deploy Recotem with Docker: image tags, a compose walkthrough, and running recotem train and recotem serve from one recommender image."
 ---
 
 # Docker Deployment

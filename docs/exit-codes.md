@@ -1,5 +1,6 @@
 ---
 title: Exit Codes & Errors
+description: "Reference for Recotem CLI exit codes and error classes from recotem train and serve, for use in CI, cron wrappers, and Kubernetes restart logic."
 ---
 
 # Exit Codes & Errors

@@ -1,5 +1,6 @@
 ---
 title: 終了コードとエラー
+description: "Recotem の終了コードとエラーのリファレンス。recotem train / serve が返す 0〜8 のコードとエラークラス、原因、CI や cron での推奨リトライ方針を解説します。"
 ---
 
 # 終了コードとエラー
