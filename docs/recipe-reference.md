@@ -1,5 +1,6 @@
 ---
 title: Recipe Reference
+description: "Complete Recotem recipe reference: every YAML field for defining a recommender's data source, cleansing, training, tuning, and artifact output."
 ---
 
 # Recipe Reference

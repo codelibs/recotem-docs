@@ -1,5 +1,6 @@
 ---
 title: データソース
+description: "Recotem のデータソース一覧。CSV / Parquet、BigQuery、SQL の組み込みソースとプラグイン機構で、レコメンダー学習用のインタラクションデータを読み込みます。"
 ---
 
 # データソース

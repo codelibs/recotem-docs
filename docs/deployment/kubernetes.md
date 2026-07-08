@@ -1,5 +1,6 @@
 ---
 title: Kubernetes Deployment
+description: "Deploy Recotem on Kubernetes with a CronJob for recotem train and a Deployment for recotem serve, sharing signed recommendation artifacts."
 ---
 
 # Kubernetes Deployment

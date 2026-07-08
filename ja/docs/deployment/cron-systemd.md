@@ -1,5 +1,6 @@
 ---
 title: cron / systemd デプロイメント
+description: "Recotem の cron / systemd デプロイガイド。recotem train のスケジュール実行、シークレット管理、ラッパースクリプト、systemd タイマー、ロック競合を解説します。"
 ---
 
 # cron / systemd デプロイメント

@@ -1,5 +1,6 @@
 ---
 title: BigQuery Source
+description: "Configure the Recotem BigQuery recommendation data source to train models directly from BigQuery tables or queries using Application Default Credentials."
 ---
 
 # BigQuery Source

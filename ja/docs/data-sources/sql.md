@@ -1,5 +1,6 @@
 ---
 title: SQL ソース
+description: "Recotem の SQL データソース設定。SQLAlchemy 2 経由で PostgreSQL / MySQL / SQLite に接続し、DSN 注入、読み取り専用の強制、SSRF ガードを解説します。"
 ---
 
 # SQL ソース

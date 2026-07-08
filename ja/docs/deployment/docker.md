@@ -1,5 +1,6 @@
 ---
 title: Docker デプロイメント
+description: "Recotem の Docker デプロイガイド。単一イメージでの train / serve 実行、compose.yaml の設定、イメージタグ、共有アーティファクトボリューム、環境変数を解説します。"
 ---
 
 # Docker デプロイメント

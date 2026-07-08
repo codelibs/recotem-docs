@@ -1,5 +1,6 @@
 ---
 title: Security
+description: "Recotem security model: trust boundaries, HMAC-signed artifacts, FQCN allow-list, authentication, and the threat model for the recommender serving API."
 ---
 
 # Security

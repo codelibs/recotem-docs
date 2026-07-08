@@ -1,5 +1,6 @@
 ---
 title: Operations Runbook
+description: "Recotem operations runbook: signing key rotation, artifact recovery, memory sizing, monitoring, and troubleshooting for production recommender deployments."
 ---
 
 # Operations Runbook

@@ -1,5 +1,6 @@
 ---
 title: Architecture
+description: "Recotem architecture: a recipe-driven recommender system where one YAML recipe defines the data source, training, and a signed-artifact serving API."
 ---
 
 # Architecture

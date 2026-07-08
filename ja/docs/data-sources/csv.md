@@ -1,5 +1,6 @@
 ---
 title: CSV / Parquet ソース
+description: "Recotem の CSV / Parquet データソース設定。ローカル・クラウドストレージ・HTTP からのインタラクション読み込み、パススキーム、sha256 整合性ピン、dtype 指定を解説します。"
 ---
 
 # CSV / Parquet ソース

@@ -1,5 +1,6 @@
 ---
 title: プラグイン開発
+description: "Recotem のデータソースプラグイン開発ガイド。type_name / Config / fetch のコントラクト、パッケージング、FetchContext、テスト、互換性を解説します。"
 ---
 
 # プラグイン開発
