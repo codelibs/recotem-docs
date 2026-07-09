@@ -1,3 +1,10 @@
+# recotem.org — AI crawlers and assistants are explicitly welcome.
+# This site opts in to AI training and retrieval; we do not disallow any
+# AI user-agent (GPTBot, OAI-SearchBot, ChatGPT-User, ClaudeBot,
+# Claude-SearchBot, PerplexityBot, Google-Extended, Applebot-Extended,
+# CCBot, and others). The wildcard rule below already permits them all.
+# LLM-friendly documentation index: https://recotem.org/llms.txt
+
 User-agent: *
 Allow: /
 

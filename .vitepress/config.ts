@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitepress'
 import type { DefaultTheme } from 'vitepress'
+import llmstxt from 'vitepress-plugin-llms'
 
 // ---------------------------------------------------------------------------
 // SEO helpers (canonical, hreflang, Open Graph / Twitter, JSON-LD)
@@ -83,6 +84,23 @@ function articleJsonLd(o: {
     image: OG_IMAGE,
     author: orgNode(),
     publisher: orgNode(),
+  }
+}
+
+// FAQPage from a page's `faq` frontmatter (array of { q, a }). The questions
+// and answers must also be visible on the page (Google's FAQ requirement), so
+// pages that set this frontmatter render a matching FAQ section in Markdown.
+type FaqEntry = { q: string; a: string }
+
+function faqJsonLd(faq: FaqEntry[]) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faq.map((f) => ({
+      '@type': 'Question',
+      name: f.q,
+      acceptedAnswer: { '@type': 'Answer', text: f.a },
+    })),
   }
 }
 
@@ -303,9 +321,10 @@ export default defineConfig({
 
   sitemap: { hostname: 'https://recotem.org' },
 
-  // Design/spec docs and asset scripts live in the repo but must not be
-  // published as site pages.
-  srcExclude: ['specs/**', 'scripts/**'],
+  // Design/spec docs, asset scripts, and repo-internal instruction files live
+  // in the repo but must not be published as site pages (nor surface in
+  // llms.txt / the generated .md set).
+  srcExclude: ['specs/**', 'scripts/**', 'CLAUDE.md', 'README.md'],
 
   // Per-page SEO: canonical + EN/JA hreflang alternates + Open Graph /
   // Twitter cards + JSON-LD, generated for every page from its relativePath.
@@ -361,6 +380,30 @@ export default defineConfig({
         ),
       ],
     )
+
+    // Optional FAQPage for pages that declare a `faq` frontmatter array.
+    const faq = pageData.frontmatter.faq as FaqEntry[] | undefined
+    if (Array.isArray(faq) && faq.length) {
+      head.push([
+        'script',
+        { type: 'application/ld+json' },
+        JSON.stringify(faqJsonLd(faq)),
+      ])
+    }
+  },
+
+  // Emit /llms.txt, /llms-full.txt and per-page .md for AI assistants and
+  // documentation tools that ingest docs as context. The v1 archive is
+  // excluded to keep the index focused on the current release.
+  vite: {
+    plugins: [
+      llmstxt({
+        domain: SITE,
+        title: SITE_NAME,
+        description: SITE_DESC_EN,
+        ignoreFiles: ['1.0/**'],
+      }),
+    ],
   },
 
   // i18n – v2 pages only; v1 lives under root locale at /1.0/

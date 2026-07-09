@@ -1,6 +1,19 @@
 ---
 title: Recotem を学ぶ
 description: Recotem でレコメンドシステムを構築するための実践ガイド。GA4 や購買ログからの構築、AWS Personalize や Python レコメンドライブラリとの比較まで。
+faq:
+  - q: "Recotem とは何ですか？"
+    a: "Recotem は、レシピ駆動のオープンソース・レコメンドシステム（Python）です。1つの YAML レシピにデータ・学習探索・出力を記述し、recotem train が署名付きモデルアーティファクトを生成、recotem serve がそれを /v1/recipes/{name}:recommend の HTTP API として公開します。レコメンダーライブラリ irspack を基盤としています。"
+  - q: "Recotem は無料・オープンソースですか？"
+    a: "はい。Recotem は Apache 2.0 ライセンスで公開され、すべて自前のインフラ上で動作します。リクエスト課金やマネージドサービスの月額料金はありません。"
+  - q: "Recotem はどんなレコメンドアルゴリズムに対応していますか？"
+    a: "IALS、RP3beta、CosineKNN、DenseSLIM、TruncatedSVD、BPRFM、および人気度ベースラインの TopPop に対応します。レシピに試したいアルゴリズムを列挙すると、Optuna のハイパーパラメータ探索が最良スコアのモデルを選びます。"
+  - q: "Recotem にデータベースやメッセージブローカーは必要ですか？"
+    a: "いいえ。学習と配信は署名付きアーティファクトファイルのみでやり取りするため、データベース・メッセージキュー・管理UIは不要です。recotem serve は新しいアーティファクトが現れると自動でホットスワップします。"
+  - q: "モデルの学習には何のデータが必要ですか？"
+    a: "相互作用の行 — (ユーザー, アイテム) のイベント1件につき1行、任意でタイムスタンプ — です。Recotem はクリック・再生・購買などの暗黙的フィードバックをモデル化し、星評価は不要です。データは CSV・Parquet・BigQuery・SQL データベースから取り込めます。"
+  - q: "Recotem は AWS Personalize の代替になりますか？"
+    a: "はい。Recotem は AWS Personalize のようなマネージドのレコメンドサービスに対する、セルフホスト可能なオープンソースの代替です。データもモデルも手元に保持でき、リクエスト課金もありません。"
 ---
 
 # Recotem を学ぶ
@@ -56,6 +69,50 @@ Recotem で実際のレコメンドシステムを構築するための、タス
   フレームワークとライブラリの違い。
 - [OSS レコメンドエンジン比較](/ja/learn/compare/open-source) —
   Gorse、RecBole、Merlin、そして Recotem。
+
+## よくある質問
+
+### Recotem とは何ですか？
+
+Recotem は、レシピ駆動のオープンソース・レコメンドシステム（Python）です。1つの
+YAML レシピにデータ・学習探索・出力を記述し、`recotem train` が署名付きモデル
+アーティファクトを生成、`recotem serve` がそれを `/v1/recipes/{name}:recommend`
+の HTTP API として公開します。レコメンダーライブラリ
+[irspack](https://github.com/tohtsky/irspack) を基盤としています。
+
+### Recotem は無料・オープンソースですか？
+
+はい。Recotem は Apache 2.0 ライセンスで公開され、すべて自前のインフラ上で動作
+します。リクエスト課金やマネージドサービスの月額料金はありません。
+
+### Recotem はどんなレコメンドアルゴリズムに対応していますか？
+
+IALS、RP3beta、CosineKNN、DenseSLIM、TruncatedSVD、BPRFM、および人気度ベース
+ラインの TopPop に対応します。レシピに試したいアルゴリズムを列挙すると、
+[Optuna](/ja/docs/recipe-reference#training) のハイパーパラメータ探索が最良スコアの
+モデルを選びます。
+
+### Recotem にデータベースやメッセージブローカーは必要ですか？
+
+いいえ。学習と配信は署名付きアーティファクトファイルのみでやり取りするため、
+データベース・メッセージキュー・管理UIは不要です。`recotem serve` は新しい
+アーティファクトが現れると自動でホットスワップします。
+
+### モデルの学習には何のデータが必要ですか？
+
+相互作用の行 — (ユーザー, アイテム) のイベント1件につき1行、任意でタイム
+スタンプ — です。Recotem はクリック・再生・購買などの
+[暗黙的フィードバック](/ja/learn/concepts/implicit-explicit-feedback) をモデル化し、
+星評価は不要です。データは CSV・Parquet・BigQuery・SQL データベースから
+取り込めます。
+
+### Recotem は AWS Personalize の代替になりますか？
+
+はい。Recotem は AWS Personalize のようなマネージドのレコメンドサービスに対する、
+セルフホスト可能なオープンソースの代替です。データもモデルも手元に保持でき、
+リクエスト課金もありません。詳しくは
+[AWS Personalize の代替](/ja/learn/compare/aws-personalize-alternative)
+を参照してください。
 
 ## 次のステップ
 
