@@ -232,6 +232,35 @@ function v2DocsSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
   ]
 }
 
+function learnSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
+  const prefix = lang === 'ja' ? '/ja/learn' : '/learn'
+  const useCases = lang === 'ja' ? 'ユースケース' : 'Use cases'
+  const compare = lang === 'ja' ? '比較' : 'Compare'
+  const overview = lang === 'ja' ? '概要' : 'Overview'
+  return [
+    {
+      text: useCases,
+      collapsed: false,
+      items: [
+        { text: overview, link: `${prefix}/` },
+        { text: lang === 'ja' ? 'GA4 × BigQuery' : 'GA4 + BigQuery', link: `${prefix}/use-cases/ga4-bigquery` },
+        { text: lang === 'ja' ? '購買ログ' : 'Purchase Logs', link: `${prefix}/use-cases/purchase-logs` },
+        { text: lang === 'ja' ? 'SQL データベース' : 'SQL Database', link: `${prefix}/use-cases/sql-database` },
+        { text: lang === 'ja' ? 'レコメンド API' : 'Recommendation API', link: `${prefix}/use-cases/recommendation-api` },
+      ],
+    },
+    {
+      text: compare,
+      collapsed: false,
+      items: [
+        { text: lang === 'ja' ? 'AWS Personalize の代替' : 'AWS Personalize Alternative', link: `${prefix}/compare/aws-personalize-alternative` },
+        { text: lang === 'ja' ? 'Python ライブラリ比較' : 'vs Python Libraries', link: `${prefix}/compare/python-libraries` },
+        { text: lang === 'ja' ? 'OSS 比較' : 'Open-Source Compared', link: `${prefix}/compare/open-source` },
+      ],
+    },
+  ]
+}
+
 // ---------------------------------------------------------------------------
 // Main config
 // ---------------------------------------------------------------------------
@@ -323,6 +352,7 @@ export default defineConfig({
         nav: [
           { text: 'Guide', link: '/guide/' },
           { text: 'Docs', link: '/docs/' },
+          { text: 'Learn', link: '/learn/' },
           { text: 'Forum', link: 'https://discuss.codelibs.org/c/recotemen/' },
           { text: 'Commercial Support', link: 'https://codelibs.co/' },
         ],
@@ -330,6 +360,7 @@ export default defineConfig({
           // v2 EN
           '/guide/': v2GuideSidebar('en'),
           '/docs/': v2DocsSidebar('en'),
+          '/learn/': learnSidebar('en'),
           // v1 EN
           '/1.0/guide/': v1GuideSidebar('en'),
           '/1.0/docs/': v1DocsSidebar('en'),
@@ -347,12 +378,14 @@ export default defineConfig({
         nav: [
           { text: 'ガイド', link: '/ja/guide/' },
           { text: 'ドキュメント', link: '/ja/docs/' },
+          { text: '学習', link: '/ja/learn/' },
           { text: 'フォーラム', link: 'https://discuss.codelibs.org/c/recotemja/' },
           { text: '商用サポート', link: 'https://codelibs.co/ja/' },
         ],
         sidebar: {
           '/ja/guide/': v2GuideSidebar('ja'),
           '/ja/docs/': v2DocsSidebar('ja'),
+          '/ja/learn/': learnSidebar('ja'),
         },
       },
     },
