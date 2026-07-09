@@ -9,6 +9,30 @@ Recotem で実際のレコメンドシステムを構築するための、タス
 各ガイドは単独で完結し、実行可能なレシピに基づいています。手元のデータや、
 検討中の意思決定に合ったものを選んでください。
 
+## コンセプト
+
+レコメンドシステムの背景にある考え方を理解します。
+
+- [レコメンドシステムとは](/ja/learn/concepts/recommendation-system) —
+  全体像と、レコメンダーが使われる場面。
+- [協調フィルタリングとは](/ja/learn/concepts/collaborative-filtering) —
+  「あなたに似た人」を支える定番手法。
+- [暗黙的・明示的フィードバック](/ja/learn/concepts/implicit-explicit-feedback) —
+  クリックや購買 vs 星評価。
+- [推薦の評価指標: nDCG, MAP, Recall@K](/ja/learn/concepts/evaluation-metrics) —
+  ランキング品質の測り方。
+
+## ハウツー
+
+ステップバイステップのチュートリアル。
+
+- [Python でレコメンドを作る方法](/ja/learn/how-to/build-in-python) —
+  インタラクションから API まで。
+- [レコメンドの評価方法](/ja/learn/how-to/evaluate) —
+  オフライン評価を正しく行う。
+- [暗黙的フィードバックで推薦を作る](/ja/learn/how-to/implicit-feedback) —
+  イベントログからランキングまで。
+
 ## ユースケース
 
 手元にあるデータから、動くレコメンダーを構築します。

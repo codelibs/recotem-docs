@@ -234,15 +234,36 @@ function v2DocsSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
 
 function learnSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
   const prefix = lang === 'ja' ? '/ja/learn' : '/learn'
+  const concepts = lang === 'ja' ? 'コンセプト' : 'Concepts'
+  const howTo = lang === 'ja' ? 'ハウツー' : 'How-to'
   const useCases = lang === 'ja' ? 'ユースケース' : 'Use cases'
   const compare = lang === 'ja' ? '比較' : 'Compare'
   const overview = lang === 'ja' ? '概要' : 'Overview'
   return [
     {
-      text: useCases,
+      text: concepts,
       collapsed: false,
       items: [
         { text: overview, link: `${prefix}/` },
+        { text: lang === 'ja' ? 'レコメンドシステムとは' : 'What Is a Recommendation System?', link: `${prefix}/concepts/recommendation-system` },
+        { text: lang === 'ja' ? '協調フィルタリング' : 'Collaborative Filtering', link: `${prefix}/concepts/collaborative-filtering` },
+        { text: lang === 'ja' ? '暗黙的・明示的フィードバック' : 'Implicit vs Explicit Feedback', link: `${prefix}/concepts/implicit-explicit-feedback` },
+        { text: lang === 'ja' ? '評価指標' : 'Evaluation Metrics', link: `${prefix}/concepts/evaluation-metrics` },
+      ],
+    },
+    {
+      text: howTo,
+      collapsed: false,
+      items: [
+        { text: lang === 'ja' ? 'Python で作る' : 'Build in Python', link: `${prefix}/how-to/build-in-python` },
+        { text: lang === 'ja' ? '評価する' : 'Evaluate a Recommender', link: `${prefix}/how-to/evaluate` },
+        { text: lang === 'ja' ? '暗黙的フィードバック' : 'Implicit Feedback', link: `${prefix}/how-to/implicit-feedback` },
+      ],
+    },
+    {
+      text: useCases,
+      collapsed: false,
+      items: [
         { text: lang === 'ja' ? 'GA4 × BigQuery' : 'GA4 + BigQuery', link: `${prefix}/use-cases/ga4-bigquery` },
         { text: lang === 'ja' ? '購買ログ' : 'Purchase Logs', link: `${prefix}/use-cases/purchase-logs` },
         { text: lang === 'ja' ? 'SQL データベース' : 'SQL Database', link: `${prefix}/use-cases/sql-database` },
