@@ -1,6 +1,19 @@
 ---
 title: Learn Recotem
 description: Hands-on guides to building recommendation systems with Recotem — from GA4 and purchase logs to comparisons with AWS Personalize and Python recommender libraries.
+faq:
+  - q: "What is Recotem?"
+    a: "Recotem is an open-source, recipe-driven recommender system for Python. A single YAML recipe describes the data, the training search, and the output; recotem train produces a signed model artifact and recotem serve mounts it as a /v1/recipes/{name}:recommend HTTP API. It is built on the irspack recommender library."
+  - q: "Is Recotem free and open source?"
+    a: "Yes. Recotem is released under the Apache 2.0 license and runs entirely on your own infrastructure. There are no per-request fees and no managed-service subscription."
+  - q: "What recommendation algorithms does Recotem support?"
+    a: "IALS, RP3beta, CosineKNN, DenseSLIM, TruncatedSVD, BPRFM, and a TopPop popularity baseline. You list the algorithms to try in the recipe and an Optuna hyperparameter search keeps the best-scoring model."
+  - q: "Does Recotem need a database or message broker?"
+    a: "No. Training and serving communicate only through a signed artifact file, so there is no database, no message queue, and no admin UI to run. recotem serve hot-swaps the model when a new artifact appears."
+  - q: "What data does Recotem need to train a model?"
+    a: "Interaction rows — one (user, item) event per row, optionally with a timestamp. Recotem models implicit feedback such as clicks, plays, and purchases; explicit star ratings are not required. Data can come from CSV, Parquet, BigQuery, or a SQL database."
+  - q: "Is Recotem an alternative to AWS Personalize?"
+    a: "Yes. Recotem is a self-hostable, open-source alternative to managed recommendation services like AWS Personalize — you keep the data and the model, with no per-request pricing."
 ---
 
 # Learn Recotem
@@ -56,6 +69,49 @@ Where Recotem fits relative to the alternatives.
   framework vs library for Python recommenders.
 - [Open-Source Recommendation Systems Compared](/learn/compare/open-source) —
   Gorse, RecBole, Merlin, and Recotem.
+
+## Frequently asked questions
+
+### What is Recotem?
+
+Recotem is an open-source, recipe-driven recommender system for Python. A single
+YAML recipe describes the data, the training search, and the output;
+`recotem train` produces a signed model artifact and `recotem serve` mounts it as
+a `/v1/recipes/{name}:recommend` HTTP API. It is built on the
+[irspack](https://github.com/tohtsky/irspack) recommender library.
+
+### Is Recotem free and open source?
+
+Yes. Recotem is released under the Apache 2.0 license and runs entirely on your
+own infrastructure. There are no per-request fees and no managed-service
+subscription.
+
+### What recommendation algorithms does Recotem support?
+
+IALS, RP3beta, CosineKNN, DenseSLIM, TruncatedSVD, BPRFM, and a TopPop
+popularity baseline. You list the algorithms to try in the recipe and an
+[Optuna](/docs/recipe-reference#training) hyperparameter search keeps the
+best-scoring model.
+
+### Does Recotem need a database or message broker?
+
+No. Training and serving communicate only through a signed artifact file, so
+there is no database, no message queue, and no admin UI to run. `recotem serve`
+hot-swaps the model when a new artifact appears.
+
+### What data does Recotem need to train a model?
+
+Interaction rows — one (user, item) event per row, optionally with a timestamp.
+Recotem models [implicit feedback](/learn/concepts/implicit-explicit-feedback)
+such as clicks, plays, and purchases; explicit star ratings are not required.
+Data can come from CSV, Parquet, BigQuery, or a SQL database.
+
+### Is Recotem an alternative to AWS Personalize?
+
+Yes. Recotem is a self-hostable, open-source alternative to managed
+recommendation services like
+[AWS Personalize](/learn/compare/aws-personalize-alternative) — you keep the
+data and the model, with no per-request pricing.
 
 ## Next steps
 
