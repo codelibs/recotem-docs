@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitepress'
-import type { DefaultTheme } from 'vitepress'
+import type { DefaultTheme, HeadConfig } from 'vitepress'
 
 // ---------------------------------------------------------------------------
 // SEO helpers (canonical, hreflang, Open Graph / Twitter, JSON-LD)
@@ -12,6 +12,15 @@ const SITE_DESC_EN =
 const SITE_DESC_JA =
   'irspack ベースのレシピ駆動レコメンダーの学習・配信。1つのYAMLレシピ = 1モデル = 1レコメンドAPI。セルフホストでホットスワップ対応、データベース不要。'
 const OG_IMAGE = `${SITE}/og-image.png`
+
+// ---------------------------------------------------------------------------
+// Google Tag Manager (production builds only, matching the pre-VitePress
+// vuepress-plugin-google-tag-manager behavior)
+// ---------------------------------------------------------------------------
+
+const GTM_ID = 'GTM-5QR8QHV'
+const IS_PROD = process.env.NODE_ENV === 'production'
+const GTM_NOSCRIPT = `<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${GTM_ID}" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>`
 
 // Map a VitePress page relativePath (e.g. "ja/docs/security.md") to its served
 // URL, matching the default (cleanUrls: false) scheme so canonical / hreflang /
@@ -278,9 +287,25 @@ export default defineConfig({
     ['meta', { name: 'theme-color', content: '#3eaf7c' }],
     ['link', { rel: 'icon', href: '/favicon.png' }],
     ['meta', { name: 'viewport', content: 'width=device-width, initial-scale=1' }],
+    ...(IS_PROD
+      ? ([
+          [
+            'script',
+            {},
+            `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${GTM_ID}');`,
+          ],
+        ] as HeadConfig[])
+      : []),
   ],
 
   sitemap: { hostname: 'https://recotem.org' },
+
+  // Inject the GTM <noscript> fallback immediately after <body>, as recommended
+  // by Google (production builds only).
+  transformHtml(code) {
+    if (!IS_PROD) return
+    return code.replace('<body>', `<body>${GTM_NOSCRIPT}`)
+  },
 
   // Design/spec docs and asset scripts live in the repo but must not be
   // published as site pages.
