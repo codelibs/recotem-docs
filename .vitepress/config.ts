@@ -158,8 +158,8 @@ function v1DocsSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
   ]
 }
 
-function v2GuideSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
-  const prefix = lang === 'ja' ? '/ja/guide' : '/guide'
+function v2GuideSidebar(lang: 'en' | 'ja', version = ''): DefaultTheme.SidebarItem[] {
+  const prefix = `${version}${lang === 'ja' ? '/ja/guide' : '/guide'}`
   const basics = lang === 'ja' ? '基礎編' : 'Basics'
   const advanced = lang === 'ja' ? '進んだ使い方' : 'Advanced'
   return [
@@ -184,8 +184,8 @@ function v2GuideSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
   ]
 }
 
-function v2DocsSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
-  const prefix = lang === 'ja' ? '/ja/docs' : '/docs'
+function v2DocsSidebar(lang: 'en' | 'ja', version = ''): DefaultTheme.SidebarItem[] {
+  const prefix = `${version}${lang === 'ja' ? '/ja/docs' : '/docs'}`
   const conceptsTitle = lang === 'ja' ? 'コンセプト' : 'Concepts'
   const recipeTitle = lang === 'ja' ? 'レシピ' : 'Recipe'
   const dataSourcesTitle = lang === 'ja' ? 'データソース' : 'Data Sources'
@@ -298,7 +298,20 @@ export default defineConfig({
       : []),
   ],
 
-  sitemap: { hostname: 'https://recotem.org' },
+  sitemap: {
+    hostname: 'https://recotem.org',
+    // Keep version-pinned directories (1.0/, 2.0/, 2.1/, …) and internal root
+    // docs out of the sitemap. Those versions are noindexed (see
+    // transformPageData) but still served; the current stable is the
+    // unversioned root tree. CLAUDE.md / README.md must not be indexed.
+    transformItems: (items) =>
+      items.filter((i) => {
+        const u = i.url.replace(/^\//, '')
+        return (
+          !/^\d+\.\d+\//.test(u) && u !== 'CLAUDE.html' && u !== 'README.html'
+        )
+      }),
+  },
 
   // Inject the GTM <noscript> fallback immediately after <body>, as recommended
   // by Google (production builds only).
@@ -309,7 +322,7 @@ export default defineConfig({
 
   // Design/spec docs and asset scripts live in the repo but must not be
   // published as site pages.
-  srcExclude: ['specs/**', 'scripts/**'],
+  srcExclude: ['specs/**', 'scripts/**', 'src/**', 'CLAUDE.md', 'README.md'],
 
   // Per-page SEO: canonical + EN/JA hreflang alternates + Open Graph /
   // Twitter cards + JSON-LD, generated for every page from its relativePath.
@@ -318,8 +331,11 @@ export default defineConfig({
     const url = pathToUrl(rel)
     const head = (pageData.frontmatter.head ??= [])
 
-    // v1 archive: self-canonical only, no bilingual pairing.
-    if (rel.startsWith('1.0/')) {
+    // Version-pinned directories (1.0/, 2.0/, 2.1/, …): kept accessible (the
+    // product links to them; the current stable lives unversioned at the root)
+    // but removed from search via noindex; self-canonical, no bilingual pairing.
+    if (/^\d+\.\d+\//.test(rel)) {
+      head.push(['meta', { name: 'robots', content: 'noindex, follow' }])
       head.push(['link', { rel: 'canonical', href: SITE + url }])
       return
     }
@@ -392,6 +408,11 @@ export default defineConfig({
           // v1 JA (still under root locale)
           '/1.0/ja/guide/': v1GuideSidebar('ja'),
           '/1.0/ja/docs/': v1DocsSidebar('ja'),
+          // v2.1 preview (in development) — under root locale like the archives
+          '/2.1/guide/': v2GuideSidebar('en', '/2.1'),
+          '/2.1/docs/': v2DocsSidebar('en', '/2.1'),
+          '/2.1/ja/guide/': v2GuideSidebar('ja', '/2.1'),
+          '/2.1/ja/docs/': v2DocsSidebar('ja', '/2.1'),
         },
       },
     },
@@ -411,6 +432,10 @@ export default defineConfig({
           '/ja/guide/': v2GuideSidebar('ja'),
           '/ja/docs/': v2DocsSidebar('ja'),
           '/ja/learn/': learnSidebar('ja'),
+          // v2.1 preview ja pages resolve to the ja locale, so register their
+          // version-scoped sidebars here too.
+          '/2.1/ja/guide/': v2GuideSidebar('ja', '/2.1'),
+          '/2.1/ja/docs/': v2DocsSidebar('ja', '/2.1'),
         },
       },
     },

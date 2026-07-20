@@ -13,28 +13,52 @@ yarn docs:preview   # Preview production build locally
 
 ## Architecture
 
-This is a **VitePress** documentation site for Recotem, supporting two versions (v1, v2) and two languages (English, Japanese) in a single build.
+This is a **VitePress** documentation site for Recotem. It serves the current stable docs plus archived and in-development versions, in English and Japanese, from a single build. Routing, SEO, nav, and sidebars are all configured in `.vitepress/config.ts`.
 
-### Content layout
+### Documentation versioning (important)
 
-| Path | Content |
-|---|---|
-| `index.md`, `guide/`, `docs/` | v2 English |
-| `ja/` | v2 Japanese (`guide/`, `docs/`) |
-| `1.0/` | v1 English and Japanese (`guide/`, `docs/`, `ja/`) |
+The site uses an **"unversioned = latest stable"** model. Keep this model when adding or restructuring docs.
 
-v1 content under `1.0/` is archived and should generally not be changed.
+| Path | Content | Indexed by search |
+|---|---|---|
+| `/` | General landing (home) | Yes |
+| `docs/`, `guide/`, `learn/` (+ `ja/…`) | **Current stable** — the canonical docs. URLs are **unversioned and stable across releases**. | Yes |
+| `2.1/` (+ `2.1/ja/…`) | In-development next version preview | No (`noindex`) |
+| `1.0/` (+ `1.0/ja/…`) | Old-version archive | No (`noindex`) |
+| `2.0/`, … | Frozen snapshot of a past stable (created at the next release) | No (`noindex`) |
+
+Rules:
+- Edit the current stable line at the **unversioned** root (`docs/`, `guide/`, `learn/`). **Keep these URLs stable** — that stability is what SEO relies on.
+- Any directory matching `^\d+\.\d+/` (e.g. `1.0/`, `2.0/`, `2.1/`) is automatically `noindex, follow` + self-canonical and excluded from `sitemap.xml` (handled in `transformPageData` / `sitemap.transformItems` — **no per-page frontmatter needed**). Version dirs stay served (the product links to them); they just don't compete in search.
+- `learn/` is version-agnostic — keep it **shared/unversioned**; do not copy it into version directories.
+
+### Version lifecycle (at each release, part of `release-recotem`)
+
+1. **Freeze**: copy the current unversioned stable (`docs/ guide/` + `ja/…`) into a new `x.y/` snapshot (e.g. `2.0/`, `2.0/ja/`).
+2. **Promote**: replace the unversioned `docs/ guide/` content with the next version's.
+3. **Next**: create a fresh `x.y/` preview for the following in-development version.
+
+To seed a new in-dev preview, copy the current stable into `x.y/` and rewrite **absolute internal links** to stay inside it (`](/docs/…)` → `](/x.y/docs/…)`, `](/guide/…)` → `](/x.y/guide/…)`; leave `](/learn/…)` and relative links alone).
+
+### Authoring conventions
+
+- **SEO frontmatter is required** on every content page: a unique `title` and a unique, keyword-aware `description` (title ≤ ~60 chars; description ≤ ~155 chars; in the page's language). `layout: home` pages fall back to site defaults.
+- **Internal links**: in the unversioned stable tree use absolute paths (`/docs/…`, `/guide/…`, `/learn/…`). Inside a version directory, links must stay within that version (`/x.y/docs/…`), except `/learn/…` which stays shared.
+- **Bilingual**: add the English and Japanese pages together and keep them in sync.
 
 ### i18n and routing
 
-VitePress locales are configured in `.vitepress/config.ts`:
-- `root` locale serves English (v2 at `/`, v1 at `/1.0/`)
-- `ja` locale serves Japanese v2 at `/ja/`
-- v1 Japanese (`/1.0/ja/`) lives under the root locale, not the `ja` locale — this is intentional
+- `root` locale serves English; `ja` locale serves Japanese stable at `/ja/`.
+- Version directories are **self-contained**: `x.y/` (English) and `x.y/ja/` (Japanese) both live under the version directory (not under `/ja/`).
+- **VitePress routes `x.y/ja/…` to the `ja` locale** (`<html lang="ja-JP">`). So a version dir's Japanese sidebar must be registered under **both** the `root` locale (keyed `/x.y/ja/…`) and the `ja` locale, or those pages fall back to the stable sidebar.
 
 ### Navigation and sidebar
 
-All nav items and sidebar entries are defined in `.vitepress/config.ts` using four helper functions (`v1GuideSidebar`, `v1DocsSidebar`, `v2GuideSidebar`, `v2DocsSidebar`). When adding a new page, register it in the appropriate sidebar helper and create the corresponding `.md` file.
+Nav and sidebars live in `.vitepress/config.ts`. Sidebar helpers (`v1GuideSidebar`, `v1DocsSidebar`, `v2GuideSidebar`, `v2DocsSidebar`, `learnSidebar`) take a language; the v2 helpers also take an optional **version prefix** (e.g. `v2DocsSidebar('en', '/2.1')`). When adding a page, create the `.md` file and register it in the right helper. `.vitepress/theme/VersionSwitcher.vue` lists the selectable versions.
+
+### Not published (excluded from the build)
+
+`srcExclude` drops `specs/**`, `scripts/**`, `src/**` (legacy VuePress source), and `CLAUDE.md` / `README.md`. The obsolete `docs/user/**` (v1-era development docs) is not committed. Do not publish these.
 
 ### Images
 
@@ -42,4 +66,4 @@ Screenshots and images are co-located with their markdown files. Shared static a
 
 ### Theme
 
-`.vitepress/theme/` extends VitePress DefaultTheme with minimal CSS overrides (brand color `#3eaf7c`, nav logo-only display).
+`.vitepress/theme/` extends VitePress DefaultTheme with minimal CSS overrides (brand color `#3eaf7c`, nav logo-only display) plus the `VersionSwitcher` component.
