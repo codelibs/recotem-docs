@@ -24,5 +24,8 @@ _build/
 # Serena (AI tooling)
 .serena/
 
+# Local design/spec docs (also build-excluded via srcExclude; kept local, not committed)
+/specs/
+
 # Misc
 *.log
