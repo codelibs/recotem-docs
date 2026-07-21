@@ -177,4 +177,5 @@ fit.
 - [Serving API reference](/docs/serving-api) — every endpoint, auth header, and response shape for the self-hosted recommendation API.
 - [Architecture overview](/docs/) — how `train` and `serve` communicate only through signed artifacts.
 - [Open-Source Recommendation Systems Compared](/learn/compare/open-source) — how Recotem compares to Gorse, RecBole, and Merlin.
+- [Build vs Buy for Recommendation Engines](/learn/compare/build-vs-buy) — the wider decision this page is one branch of: build, SaaS, or self-hosted open source.
 - Browse all guides in the [Learn hub](/learn/).

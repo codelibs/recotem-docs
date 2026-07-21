@@ -276,4 +276,6 @@ item_metadata:
   データセットで一気通貫に。
 - [GA4 × BigQuery で商品レコメンド](/ja/learn/use-cases/ga4-bigquery) —
   エクスポートした CSV の代わりに分析イベントから直接構築します。
+- [EC サイトのレコメンド導入ガイド](/ja/learn/use-cases/ecommerce) —
+  設置場所と効果測定という「計画」レイヤ。
 - [Learn ハブ](/ja/learn/) に戻る。

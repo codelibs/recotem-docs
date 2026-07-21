@@ -270,4 +270,7 @@ Use `item_id_column` when your catalog's key column is named something other tha
   dataset.
 - [Product Recommendations from GA4 + BigQuery](/learn/use-cases/ga4-bigquery) —
   do this straight from analytics events instead of an exported CSV.
+- [E-commerce Product Recommendations](/learn/use-cases/ecommerce) — the
+  planning layer: where widgets go on the store and how to measure their
+  impact.
 - Back to the [Learn hub](/learn/).
