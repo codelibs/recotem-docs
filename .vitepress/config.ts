@@ -7,6 +7,7 @@ import type { DefaultTheme, HeadConfig } from 'vitepress'
 
 const SITE = 'https://recotem.org'
 const SITE_NAME = 'Recotem'
+const GITHUB_REPO = 'https://github.com/codelibs/recotem'
 const SITE_DESC_EN =
   'Recipe-driven recommender training and serving on irspack. One YAML recipe = one model = one recommendation API — self-hosted, hot-swap, no database.'
 const SITE_DESC_JA =
@@ -67,6 +68,7 @@ function homeJsonLd(isJa: boolean) {
         operatingSystem: 'Linux, macOS, Docker',
         url: SITE,
         downloadUrl: 'https://pypi.org/project/recotem/',
+        sameAs: [GITHUB_REPO],
         description: isJa ? SITE_DESC_JA : SITE_DESC_EN,
         license: 'https://www.apache.org/licenses/LICENSE-2.0',
         author: { '@id': `${SITE}/#organization` },
