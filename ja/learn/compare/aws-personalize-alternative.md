@@ -176,4 +176,5 @@ Recotem が最も活きるのは、その逆の制約です。すでにクエリ
 - [Serving API リファレンス](/ja/docs/serving-api) — セルフホスト・レコメンド API の全エンドポイント・認証ヘッダ・レスポンス形式。
 - [アーキテクチャ概要](/ja/docs/) — `train` と `serve` が署名付きアーティファクトだけで通信する仕組み。
 - [OSS レコメンドエンジン比較](/ja/learn/compare/open-source) — Gorse・RecBole・Merlin との比較。
+- [レコメンドエンジンは自作・SaaS・OSS どれを選ぶ？](/ja/learn/compare/build-vs-buy) — このページが扱う「購入 vs セルフホスト」を含む、より広い意思決定の全体像。
 - すべてのガイドは [Learn ハブ](/ja/learn/) から。

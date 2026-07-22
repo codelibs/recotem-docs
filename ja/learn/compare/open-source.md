@@ -170,6 +170,8 @@ SQL のクエリにレシピを向けるだけで、運用すべきクラスタ�
 ## 次のステップ
 
 - [Recotem を学ぶ](/ja/learn/) —— 実行可能なレシピに基づくタスク志向のガイド。
+- [レコメンドエンジンは自作・SaaS・OSS どれを選ぶ？](/ja/learn/compare/build-vs-buy) ——
+  一段引いた視点での導入形態の比較。
 - [AWS Personalize の代替](/ja/learn/compare/aws-personalize-alternative) ——
   マネージドなクラウドサービスに対するセルフホスト・OSS の選択肢。
 - [アーキテクチャ概要](/ja/docs/) —— レシピ・アーティファクト・配信の関係。

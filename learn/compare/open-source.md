@@ -177,6 +177,9 @@ is for.
 ## Next steps
 
 - [Learn Recotem](/learn/) — task-focused guides grounded in runnable recipes.
+- [Build vs Buy for Recommendation Engines](/learn/compare/build-vs-buy) —
+  step back one level: hand-built pipelines vs SaaS vs open-source
+  self-hosted.
 - [AWS Personalize Alternative](/learn/compare/aws-personalize-alternative) —
   the self-hosted, open-source case against a managed cloud service.
 - [Architecture overview](/docs/) — how recipes, artifacts, and serving fit

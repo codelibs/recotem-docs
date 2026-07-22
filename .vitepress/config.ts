@@ -247,23 +247,34 @@ function learnSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
   const prefix = lang === 'ja' ? '/ja/learn' : '/learn'
   const useCases = lang === 'ja' ? 'ユースケース' : 'Use cases'
   const compare = lang === 'ja' ? '比較' : 'Compare'
+  const basics = lang === 'ja' ? '基礎知識' : 'Basics'
   const overview = lang === 'ja' ? '概要' : 'Overview'
   return [
+    {
+      text: basics,
+      collapsed: false,
+      items: [
+        { text: overview, link: `${prefix}/` },
+        { text: lang === 'ja' ? 'レコメンドエンジンとは' : 'What Is a Recommendation Engine?', link: `${prefix}/basics/what-is-a-recommendation-engine` },
+        { text: lang === 'ja' ? '協調フィルタリングとは' : 'Collaborative Filtering', link: `${prefix}/basics/collaborative-filtering` },
+      ],
+    },
     {
       text: useCases,
       collapsed: false,
       items: [
-        { text: overview, link: `${prefix}/` },
         { text: lang === 'ja' ? 'GA4 × BigQuery' : 'GA4 + BigQuery', link: `${prefix}/use-cases/ga4-bigquery` },
         { text: lang === 'ja' ? '購買ログ' : 'Purchase Logs', link: `${prefix}/use-cases/purchase-logs` },
         { text: lang === 'ja' ? 'SQL データベース' : 'SQL Database', link: `${prefix}/use-cases/sql-database` },
         { text: lang === 'ja' ? 'レコメンド API' : 'Recommendation API', link: `${prefix}/use-cases/recommendation-api` },
+        { text: lang === 'ja' ? 'EC サイトのレコメンド' : 'E-commerce Recommendations', link: `${prefix}/use-cases/ecommerce` },
       ],
     },
     {
       text: compare,
       collapsed: false,
       items: [
+        { text: lang === 'ja' ? '自作・SaaS・OSS 比較' : 'Build vs Buy', link: `${prefix}/compare/build-vs-buy` },
         { text: lang === 'ja' ? 'AWS Personalize の代替' : 'AWS Personalize Alternative', link: `${prefix}/compare/aws-personalize-alternative` },
         { text: lang === 'ja' ? 'Python ライブラリ比較' : 'vs Python Libraries', link: `${prefix}/compare/python-libraries` },
         { text: lang === 'ja' ? 'OSS 比較' : 'Open-Source Compared', link: `${prefix}/compare/open-source` },
