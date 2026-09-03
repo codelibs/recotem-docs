@@ -153,6 +153,7 @@ SSRF ガード付きの HTTP/HTTPS フェッチャーでネットワークソー
 プロセスの起動または処理の続行を妨げる環境または設定エラーで `ConfigError` が発生します。一般的な原因:
 
 - `RECOTEM_SIGNING_KEYS` が未設定 (明示的に `--dev-allow-unsigned` を使用するコマンドを除く全コマンドで必須)。
+- `RECOTEM_SIGNING_KEYS` は設定されているが不正 — `kid:hex` エントリの形式誤り、または 64 文字の 16 進数でない値。`train_error` イベントは `code: signing_keys_invalid` を伴う。これは終了コード 5 では**なく** 8 である: 鍵エントリの誤りはアーティファクトの破損ではなく環境設定のタイプミスであるため。
 - `RECOTEM_SIGNING_KEYS` なし、かつ `--dev-allow-unsigned` なしで `recotem inspect` を実行。
 - `RECOTEM_ENV` が `development` でない場合に `--dev-allow-unsigned` を渡した (ゲートチェック)。
 - コンパニオンフラグ `--i-understand-this-loads-arbitrary-code` なしで `--dev-allow-unsigned` を渡した。

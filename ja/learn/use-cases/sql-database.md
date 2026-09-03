@@ -81,7 +81,7 @@ WHERE status = 'paid'
   AND ordered_at >= :since
 ```
 
-バインドパラメータ `:since` は `query_parameters` から供給されます。`query` とは異なり、`query_parameters` は `${RECOTEM_RECIPE_*}` 展開の対象になります。
+バインドパラメータ `:since` は `query_parameters` から供給され、その値は書いたとおりに使われます。`query_parameters` は `query` と同じ no-expand リストに載っているため、そこに書いた `${RECOTEM_RECIPE_*}` は展開されずリテラル文字列としてバインドされます。つまりクエリは意図した日付ではなく文字列 `${RECOTEM_RECIPE_SINCE}` で絞り込むことになり、カラムの型によっては明確なエラーにならないまま通ってしまいます — [パラメータバインド](/ja/docs/data-sources/sql#パラメータバインド) を参照してください。日付はそのまま書いてください。期間を定期的に動かしたい場合は、SQL 側で計算する (`ordered_at >= CURRENT_DATE - INTERVAL '90 days'`) か、テンプレートからレシピを生成してください。
 
 ## レシピを書く
 
@@ -99,7 +99,7 @@ source:
     WHERE status = 'paid'
       AND ordered_at >= :since
   query_parameters:
-    since: ${RECOTEM_RECIPE_SINCE}
+    since: "2026-04-01"
   connect_timeout_seconds: 10
   statement_timeout_seconds: 300
 
@@ -155,7 +155,6 @@ export RECOTEM_API_KEYS="key1:sha256:<hex64>"
 
 ```bash
 export RECOTEM_RECIPE_DB_DSN="postgresql+psycopg://reco_ro:pass@db.internal:5432/shop?sslmode=require"
-export RECOTEM_RECIPE_SINCE="2026-01-01"
 
 recotem validate recipes/order_recs.yaml
 recotem train recipes/order_recs.yaml

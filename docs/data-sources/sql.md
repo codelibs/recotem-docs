@@ -46,7 +46,7 @@ source:
     WHERE purchased_at >= :since
       AND status = 'paid'
   query_parameters:
-    since: ${RECOTEM_RECIPE_SINCE}
+    since: "2026-04-01"
   connect_timeout_seconds: 10
   statement_timeout_seconds: 300
 ```
@@ -55,7 +55,7 @@ source:
 |---|---|---|---|
 | `dsn_env` | yes | — | Name of an env var matching `^RECOTEM_RECIPE_[A-Z0-9_]+$` containing the DSN. The DSN itself is never written to the recipe. |
 | `query` | yes | — | Raw SQL. Never subject to `${...}` expansion (SQL injection foreclosure). |
-| `query_parameters` | no | `{}` | Bound via SQLAlchemy `text().bindparams(...)`. Subject to `${RECOTEM_RECIPE_*}` expansion. |
+| `query_parameters` | no | `{}` | Bound via SQLAlchemy `text().bindparams(...)`. Never subject to `${...}` expansion — values are used exactly as written. |
 | `connect_timeout_seconds` | no | `10` | Valid range `[1, 60]`. Out-of-range raises `ValidationError`. Passed as `connect_timeout` (PG/MySQL) or `timeout` (SQLite). |
 | `statement_timeout_seconds` | no | `300` | Valid range `[1, 1800]`. See [Statement timeouts](#statement-timeouts) for per-dialect details. |
 
@@ -82,13 +82,19 @@ source:
     WHERE ts >= :since
       AND event_type = :event_type
   query_parameters:
-    since: ${RECOTEM_RECIPE_SINCE}
+    since: "2026-04-01"
     event_type: purchase
 ```
 
-Only `query_parameters` values undergo `${RECOTEM_RECIPE_*}` expansion. Both `query` and `dsn_env` are unconditionally exempt from expansion regardless of variable name.
-
 Parameter values are bound via SQLAlchemy `text().bindparams(...)`; supported types are `str`, `int`, `float`, and `bool`.
+
+::: warning `query_parameters` values are literals, not templates
+`${RECOTEM_RECIPE_*}` expansion is suppressed inside `query_parameters` exactly as it is inside `query` — both keys are on the loader's no-expand list, at every nesting level. A recipe that writes `since: ${RECOTEM_RECIPE_SINCE}` binds the literal string `${RECOTEM_RECIPE_SINCE}` as the parameter value; the environment variable is never read.
+
+What that produces is not always loud. Against a text date column, `ts >= '${RECOTEM_RECIPE_SINCE}'` is true for every row — `$` sorts below every digit — so the run loads the entire table and exits **0** having silently trained on the whole history. Flip the comparison to `<=` and it matches nothing: `DataSourceError: source 'sql' returned no rows`, exit 3.
+
+For a window that moves with each run, express it in the SQL — `WHERE ts >= CURRENT_DATE - INTERVAL '90 days'` (PostgreSQL), `WHERE ts >= CURRENT_DATE - INTERVAL 90 DAY` (MySQL / MariaDB), `WHERE ts >= date('now', '-90 days')` (SQLite) — or render the recipe from a template before calling `recotem train`. `${RECOTEM_RECIPE_*}` **is** expanded in `source.path`, `output.path`, and `item_metadata.path`; only `query`, `query_parameters`, and `dsn_env` are withheld.
+:::
 
 ## Read-only enforcement
 
@@ -184,5 +190,5 @@ All SQL exceptions are wrapped in `DataSourceError` and produce exit 3. The full
 `RECOTEM_MAX_SQL_ROWS` caps the total **row count**, not the resulting DataFrame's resident memory. Chunks are accumulated into a list and concatenated at the end, so peak RAM is approximately `total_rows × bytes_per_row`. Trainers with the default cap (50 M rows) should expect ~2.5–5 GiB resident under wide-result queries; with the upper clamp (500 M rows) the same query can require 25 GiB+ of RAM. Tighten the cap or the query columns if you need a memory bound, not just a row bound. Server-side streaming via `stream_results=True` controls only the **wire-level** cursor; the row cap is the right knob for the consumer-side bound.
 :::
 
-- `source.query` and `source.dsn_env` are unconditionally exempt from `${...}` expansion regardless of variable name; only `query_parameters` values are expanded.
+- `source.query`, `source.query_parameters`, and `source.dsn_env` are all exempt from `${...}` expansion regardless of variable name: `query` and `query_parameters` are on the recipe loader's global no-expand list, and the SQL source adds `dsn_env` to it. See [Parameter binding](#parameter-binding).
 - `flock` is host-local; across hosts use scheduler-level mutex (`concurrencyPolicy: Forbid` in Kubernetes CronJobs).

@@ -46,7 +46,7 @@ source:
     WHERE purchased_at >= :since
       AND status = 'paid'
   query_parameters:
-    since: ${RECOTEM_RECIPE_SINCE}
+    since: "2026-04-01"
   connect_timeout_seconds: 10
   statement_timeout_seconds: 300
 ```
@@ -55,7 +55,7 @@ source:
 |------------|------|-----------|------|
 | `dsn_env` | yes | — | DSN を保持する環境変数の名前。`^RECOTEM_RECIPE_[A-Z0-9_]+$` に一致する必要があります。DSN 自体がレシピに書き込まれることはありません。 |
 | `query` | yes | — | 生の SQL。変数名に関わらず `${...}` 展開は**決して**行われません (SQL インジェクションの防止)。 |
-| `query_parameters` | no | `{}` | SQLAlchemy の `text().bindparams(...)` 経由でバインドされます。`${RECOTEM_RECIPE_*}` 展開の対象です。 |
+| `query_parameters` | no | `{}` | SQLAlchemy の `text().bindparams(...)` 経由でバインドされます。`${...}` 展開は**決して**行われません — 値は書いたとおりに使われます。 |
 | `connect_timeout_seconds` | no | `10` | 有効範囲 `[1, 60]`。範囲外は `ValidationError`。PG/MySQL では `connect_timeout`、SQLite では `timeout` として渡されます。 |
 | `statement_timeout_seconds` | no | `300` | 有効範囲 `[1, 1800]`。ダイアレクト別の詳細は [ステートメントタイムアウト](#ステートメントタイムアウト) を参照してください。 |
 
@@ -82,13 +82,19 @@ source:
     WHERE ts >= :since
       AND event_type = :event_type
   query_parameters:
-    since: ${RECOTEM_RECIPE_SINCE}
+    since: "2026-04-01"
     event_type: purchase
 ```
 
-`${RECOTEM_RECIPE_*}` 展開は `query_parameters` の値に対してのみ行われます。`query` と `dsn_env` は変数名に関わらず展開から無条件に除外されます。
-
 パラメータ値は SQLAlchemy の `text().bindparams(...)` でバインドされます。対応する型は `str`、`int`、`float`、`bool` です。
+
+::: warning `query_parameters` の値はテンプレートではなくリテラルです
+`${RECOTEM_RECIPE_*}` 展開は `query` と同様に `query_parameters` の内部でも抑制されます — どちらのキーもローダーの no-expand リストに載っており、ネストの深さを問いません。`since: ${RECOTEM_RECIPE_SINCE}` と書いたレシピは、リテラル文字列 `${RECOTEM_RECIPE_SINCE}` をパラメータ値としてバインドします。環境変数が読まれることはありません。
+
+その結果は必ずしも目に見える形では現れません。テキスト型の日付カラムに対して `ts >= '${RECOTEM_RECIPE_SINCE}'` はすべての行で真になり (`$` はすべての数字より前にソートされます)、実行はテーブル全体を読み込んだうえで終了コード **0** を返します — 全履歴で学習してしまったことに気づけません。比較を `<=` にすると今度は 1 行も一致せず、`DataSourceError: source 'sql' returned no rows` (終了コード 3) になります。
+
+実行ごとに動かしたい期間は SQL 側で表現してください — `WHERE ts >= CURRENT_DATE - INTERVAL '90 days'` (PostgreSQL)、`WHERE ts >= CURRENT_DATE - INTERVAL 90 DAY` (MySQL / MariaDB)、`WHERE ts >= date('now', '-90 days')` (SQLite) — または `recotem train` を呼ぶ前にテンプレートからレシピを生成してください。`${RECOTEM_RECIPE_*}` は `source.path`、`output.path`、`item_metadata.path` では**展開されます**。展開されないのは `query`、`query_parameters`、`dsn_env` だけです。
+:::
 
 ## 読み取り専用の強制
 
@@ -184,5 +190,5 @@ SSRF チェックは init 時にすべての候補ルーティングホストに
 `RECOTEM_MAX_SQL_ROWS` は総**行数**を上限とするのみで、生成される DataFrame の常駐メモリは制限しません。チャンクはリストに蓄積されて最後に連結されるため、ピーク RAM はおおよそ `total_rows × bytes_per_row` です。デフォルトの上限 (5,000 万行) ではワイドな結果クエリで 2.5〜5 GiB の常駐メモリを想定してください。上限クランプ (5 億行) では同じクエリが 25 GiB 以上の RAM を必要とする可能性があります。行数の上限だけでなくメモリの上限が必要な場合は、上限値を厳しくするかクエリのカラムを減らしてください。`stream_results=True` によるサーバーサイドストリーミングは**ワイヤレベル**のカーソルのみを制御します。コンシューマーサイドの上限には行数上限を使用してください。
 :::
 
-- `source.query` および `source.dsn_env` は変数名に関わらず `${...}` 展開から無条件に除外されます。展開対象は `query_parameters` の値のみです。
+- `source.query`、`source.query_parameters`、`source.dsn_env` はいずれも変数名に関わらず `${...}` 展開から除外されます。`query` と `query_parameters` はレシピローダーのグローバルな no-expand リストに載っており、SQL ソースがそこに `dsn_env` を追加します。[パラメータバインド](#パラメータバインド) を参照してください。
 - `flock` はホストローカルです。ホストをまたぐ場合はスケジューラレベルのミューテックスを使用してください (Kubernetes CronJob では `concurrencyPolicy: Forbid`)。

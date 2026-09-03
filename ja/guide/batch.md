@@ -206,7 +206,7 @@ curl http://localhost:8080/v1/health
 
 ## 参考ドキュメント
 
-- [デプロイ: Docker](/docs/deployment/docker) — 本番環境向け Docker パターン
-- [デプロイ: Kubernetes](/docs/deployment/kubernetes) — 完全な Helm チャートリファレンスとローリングアップデートのガイド
-- [デプロイ: cron / systemd](/docs/deployment/cron-systemd) — 詳細な cron とラッパースクリプトのパターン
-- [オペレーション](/docs/operations) — 鍵のローテーション、メモリのサイジング、トラブルシューティング
+- [デプロイ: Docker](/ja/docs/deployment/docker) — 本番環境向け Docker パターン
+- [デプロイ: Kubernetes](/ja/docs/deployment/kubernetes) — 完全な Helm チャートリファレンスとローリングアップデートのガイド
+- [デプロイ: cron / systemd](/ja/docs/deployment/cron-systemd) — 詳細な cron とラッパースクリプトのパターン
+- [オペレーション](/ja/docs/operations) — 鍵のローテーション、メモリのサイジング、トラブルシューティング

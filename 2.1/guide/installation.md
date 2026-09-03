@@ -83,7 +83,7 @@ export RECOTEM_SIGNING_KEYS="prod:<64-char hex string>"
 
 ### API key
 
-The API key controls who can call `/predict`. Clients send it as an `X-API-Key` HTTP header. The server stores only a hash of the key, not the plaintext.
+The API key controls who can call the serving API: every endpoint except `GET /v1/health` requires it, including `/v1/recipes/{name}:recommend` and the other recipe verbs. Clients send it as an `X-API-Key` HTTP header. The server stores only a hash of the key, not the plaintext.
 
 ```bash
 recotem keygen --type api --kid client-a
@@ -112,8 +112,8 @@ If `RECOTEM_API_KEYS` is not set, the server binds to `127.0.0.1` only (loopback
 | Variable | Used by | Purpose |
 |---|---|---|
 | `RECOTEM_SIGNING_KEYS` | `train` and `serve` | HMAC sign and verify artifact files |
-| `RECOTEM_API_KEYS` | `serve` | Authenticate `/predict` callers (server stores hash only) |
-| `X-API-Key: <plaintext>` | HTTP clients | Sent on every `/predict` request |
+| `RECOTEM_API_KEYS` | `serve` | Authenticate `/v1` API callers (server stores hash only) |
+| `X-API-Key: <plaintext>` | HTTP clients | Sent on every `/v1` request except `GET /v1/health` |
 
 Both `RECOTEM_SIGNING_KEYS` and `RECOTEM_API_KEYS` accept multiple comma-separated entries (`kid1:value,kid2:value`) to enable key rotation without downtime. See the [Operations](/2.1/docs/operations) guide for the rotation procedure.
 

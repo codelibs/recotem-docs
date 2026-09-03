@@ -86,7 +86,7 @@ source:
     FROM events
     WHERE ts >= :since
   query_parameters:
-    since: ${RECOTEM_RECIPE_SINCE}
+    since: "2026-04-01"
   connect_timeout_seconds: 10
   statement_timeout_seconds: 300
 ```
@@ -95,7 +95,7 @@ source:
 |------------|-----|-----------|------|
 | `dsn_env` | string | required | DSN を保持する環境変数の名前。`^RECOTEM_RECIPE_[A-Z0-9_]+$` に一致する必要があります。DSN 自体はレシピに書き込まれません。環境変数展開の対象外 — このフィールドは変数の*名前*を保持するものであり、値ではありません。 |
 | `query` | string | required | 生の SQL。信頼されたコード — 環境変数展開されません。動的な値には `:name` を使用してください。 |
-| `query_parameters` | map | `{}` | SQLAlchemy の `text().bindparams(...)` 経由でバインドされます。`${RECOTEM_RECIPE_*}` 展開の対象です。 |
+| `query_parameters` | map | `{}` | SQLAlchemy の `text().bindparams(...)` 経由でバインドされる名前付きパラメータ。値は書いたとおりに使われます — 環境変数展開されません。型は `str`、`int`、`float`、`bool`。 |
 | `connect_timeout_seconds` | int | `10` | 有効範囲 `[1, 60]`。 |
 | `statement_timeout_seconds` | int | `300` | 有効範囲 `[1, 1800]`。ダイアレクトごとの実装は [SQL ソース](./data-sources/sql#ステートメントタイムアウト) を参照してください。 |
 

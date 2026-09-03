@@ -81,7 +81,7 @@ WHERE status = 'paid'
   AND ordered_at >= :since
 ```
 
-The bind parameter `:since` is supplied from `query_parameters`, which — unlike `query` — does undergo `${RECOTEM_RECIPE_*}` expansion.
+The bind parameter `:since` is supplied from `query_parameters`, and its value is used exactly as written. `query_parameters` sits on the same no-expand list as `query`, so a `${RECOTEM_RECIPE_*}` reference there is bound as literal text: the query would filter on the string `${RECOTEM_RECIPE_SINCE}` and never on the date you meant, and depending on the column type that fails loudly or not at all — see [Parameter binding](/docs/data-sources/sql#parameter-binding). Write the date literally; to move the window on a schedule, put the arithmetic in the SQL (`ordered_at >= CURRENT_DATE - INTERVAL '90 days'`) or render the recipe from a template.
 
 ## Write the recipe
 
@@ -99,7 +99,7 @@ source:
     WHERE status = 'paid'
       AND ordered_at >= :since
   query_parameters:
-    since: ${RECOTEM_RECIPE_SINCE}
+    since: "2026-04-01"
   connect_timeout_seconds: 10
   statement_timeout_seconds: 300
 
@@ -155,7 +155,6 @@ Validate connectivity before a long run — `recotem validate` issues a `SELECT 
 
 ```bash
 export RECOTEM_RECIPE_DB_DSN="postgresql+psycopg://reco_ro:pass@db.internal:5432/shop?sslmode=require"
-export RECOTEM_RECIPE_SINCE="2026-01-01"
 
 recotem validate recipes/order_recs.yaml
 recotem train recipes/order_recs.yaml
