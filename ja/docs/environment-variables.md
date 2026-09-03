@@ -43,7 +43,7 @@ description: "Recotem のすべての RECOTEM_* 環境変数リファレンス�
 |---|---|---|---|---|
 | `RECOTEM_MAX_ARTIFACT_BYTES` | 2 GiB | serve | [1 MiB, 16 GiB] | アーティファクトファイルごとのサイズ上限。デシリアライズが発生する前に適用される。小さなモデルが多い場合はメモリ上限を下げるために削減する。 |
 | `RECOTEM_MAX_PAYLOAD_BYTES` | 512 MiB | serve | [1 MiB, 16 GiB] | HMAC 検証後のデシリアライズ中に適用されるペイロードごとの上限。`RECOTEM_MAX_ARTIFACT_BYTES` 以下でなければならない。そうでない場合は起動時に `ConfigError` (終了コード 8) で失敗する。デシリアライズによるメモリ展開を制限するため `RECOTEM_MAX_ARTIFACT_BYTES` より小さく設定されている。 |
-| `RECOTEM_MAX_DOWNLOAD_BYTES` | 256 MiB | train | [1 MiB, 16 GiB] | HTTP/HTTPS、ローカルファイル、オブジェクトストアのソース読み取りにおける生 I/O バイト上限。上限はストリーム途中で適用される。超過すると `DataSourceError` (終了コード 3) が発生する。解凍後の DataFrame はキャップ**しない** — [セキュリティ — 解凍後サイズ上限の未適用](./security#解凍後サイズ上限の未適用medium-5) を参照。 |
+| `RECOTEM_MAX_DOWNLOAD_BYTES` | 256 MiB | train | [1 MiB, 16 GiB] | HTTP/HTTPS、ローカルファイル、オブジェクトストアのソース読み取りにおける生 I/O バイト上限。上限はストリーム途中で適用される。超過すると `DataSourceError` (終了コード 3) が発生する。解凍後の DataFrame はキャップ**しない** — [セキュリティ — 解凍後サイズ上限の未適用](./security#解凍後サイズ上限の未適用-medium-5) を参照。 |
 
 ## HTTP フェッチャー
 
@@ -86,7 +86,7 @@ description: "Recotem のすべての RECOTEM_* 環境変数リファレンス�
 | `RECOTEM_ARTIFACT_ROOT` | (空) | train | — | 設定した場合、レシピのローカル `output.path` の値はこのディレクトリ配下に存在しなければならない。シンボリックリンクエスケープは拒否される。ホスト上で train プロセスがアーティファクトを書き込める場所を制限するために使用する。 |
 | `RECOTEM_LOCK_DIR` | (空) | train | — | レシピごとの学習ロックファイルのディレクトリを上書きする。ローカルの `output.path` 値は常に `<output_path>.lock` でロックされる。リモートの `output.path` 値 (`s3://`、`gs://` など) はホストローカルのロックファイルを必要とする。`RECOTEM_LOCK_DIR` が未設定の場合は `<tempdir>/recotem-locks/` にフォールバックする。注意: `flock` はホストローカル — ホスト間のシングルライター保証にはスケジューラーレベルのミューテックスを使用すること (Kubernetes の `concurrencyPolicy: Forbid` など)。 |
 | `RECOTEM_METADATA_FIELD_DENY` | (空) | serve | — | アイテムメタデータインデックスのロード時に除外する列名のカンマ区切りリスト。除外された列はすべての推薦エンドポイント (`:recommend`、`:recommend-related`、および `include_metadata=true` の `:batch-recommend*`) のレスポンスに含まれない。マッチングは大文字小文字を区別しない — メタデータの `"Internal_ID"` は拒否リストに `"internal_id"` があればストリップされる。PII 列を API レスポンスから除外するために使用する。 |
-| `RECOTEM_METRICS_ENABLED` | (未設定) | serve | — | 真値: `1`、`true`、`yes`、`on`。Prometheus `/v1/metrics` エンドポイントを有効化する。`recotem[metrics]` エクストラが必要 (`pip install "recotem[metrics]"`)。エンドポイントはオプトインでデフォルトでは無効。 |
+| `RECOTEM_METRICS_ENABLED` | (未設定) | serve | — | 真値: `1`、`true`、`yes`、`on`。Prometheus `/v1/metrics` エンドポイントを有効化する。`recotem[metrics]` エクストラが必要 (`pip install "recotem[metrics]"`)。エンドポイントはオプトインでデフォルトでは無効。**他のすべての `/v1` ルートと同様に API キーが必要** — 有効な `X-API-Key` のないスクレイプは `401` を受け取るため、スクレイパーにキーを設定すること (あるいは非認証構成で動作させること。その場合はループバックのみのバインドが強制される)。パスは `/metrics` ではなく `/v1/metrics`。 |
 
 ## データソース
 

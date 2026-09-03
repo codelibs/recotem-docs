@@ -57,7 +57,7 @@ RECOTEM_SIGNING_KEYS="prod-2026-q3:ddeeff..."
 
 Restart `recotem serve`. Any artifact still signed with the old kid will fail to load and will show up as `loaded: false` in `/v1/health/details`. Retrain those recipes.
 
-Confirm all recipes loaded successfully. Per-recipe state lives behind the authenticated `/v1/health/details` endpoint — the public `/v1/health` returns only `{status, total, loaded}` aggregates:
+Confirm all recipes loaded successfully. Per-recipe state lives behind the authenticated `/v1/health/details` endpoint — the public `/v1/health` returns only `{status, total, loaded}` aggregates, plus `skipped` when a recipe file could not be parsed at all (see [Unparseable recipe files](#unparseable-recipe-files)):
 
 ```bash
 # -f / --fail returns exit 22 on 4xx/5xx, which would mask a 503.
@@ -399,6 +399,24 @@ The startup-only event variants are:
 | `initial_artifact_hmac_failed` | HMAC mismatch or unknown kid |
 | `initial_artifact_deserialize_failed` | FQCN allow-list rejection or payload decode error |
 | `initial_artifact_hmac_skipped_dev` | `--dev-allow-unsigned` |
+
+### Unparseable recipe files
+
+A file that cannot be parsed *at all* — YAML syntax error, schema violation — is treated differently from a recipe whose artifact failed to load. It declares no recipe: it has no name, no artifact, and nothing to serve. Such a file is **skipped**:
+
+- It is **excluded from the `total` and `loaded` counts** in `/v1/health`, and reported under a separate `skipped` count instead. The field is present only when the count is non-zero. `/v1/health` returns `ok` (HTTP 200) when every *loadable* recipe is loaded, so a typo in one file cannot fail a Kubernetes readiness probe for every other recipe in the pod.
+- It **remains visible in `/v1/health/details`**, keyed by its file stem, with `"skipped": true` and an `error` string naming the offending **filename** and the parse error. The file stem is a fabrication — the recipe name is unreadable — so the filename is the identifier that leads back to the cause.
+- `skipped` entries do **not** set `/v1/health/details` to `degraded`; nothing stopped serving.
+
+```json
+{"status": "ok", "total": 3, "loaded": 3, "skipped": 1}
+```
+
+This is the distinction that decides whether a pod keeps traffic. An **unparseable recipe file** yields `200` with a `skipped` count and the pod stays in the Service. A **valid recipe whose artifact cannot load** yields `503 degraded` (see [Initial load failure](#initial-load-failure)) and takes the pod out. Both appear as a failing recipe in the logs; only the second one is an availability event.
+
+::: warning Alerting
+Do not page on the `skipped` count — it is a config-quality signal, not an availability one. Alert on it as a warning (`skipped > 0` for more than one deploy cycle) so a broken file is noticed and fixed, while readiness stays keyed to `status`.
+:::
 
 ---
 

@@ -46,7 +46,7 @@ Recotem (the framework built on it). Maintenance facts are marked as of
 | Data loading | You build the sparse matrix | You build the sparse matrix | You build the sparse matrix | CSV / Parquet / BigQuery / SQL / plugins, declared in the recipe |
 | Serving story | None — you write the service | None — you write the service | None — it is a training library | FastAPI endpoints, HMAC-signed artifacts, auth, hot-swap, batch verbs |
 | GPU acceleration | CPU (Cython) | CPU + optional CUDA kernels for ALS/BPR | CPU (C++/Eigen) | CPU (C++/Eigen) |
-| Maintenance (as of 2026-07) | Latest 1.17 (Mar 2023); low release activity, not archived | Active; latest v0.7.3 (May 2026) | Active; latest v0.4.2 (May 2026) | Active (this project) |
+| Maintenance (as of 2026-07) | Latest 1.17 (Mar 2023); low release activity, not archived | Active; latest v0.7.3 (May 2026) | Active; latest v0.5.2 (Jul 2026) | Active (this project) |
 
 ## LightFM
 
@@ -99,7 +99,8 @@ irspack is itself a library: it does not fetch data from your warehouse and it
 does not serve predictions. Its `IDMappedRecommender` maps your raw user and
 item IDs to internal indices so you can predict with real IDs, but wiring it to
 a data source and an HTTP endpoint is left to you. As of 2026-07, irspack is
-actively maintained (v0.4.2, May 2026).
+actively maintained (v0.5.2, July 2026). Recotem 2.1.0 pins irspack 0.5.2;
+Recotem 2.0.x pinned 0.4.2.
 
 ## Where Recotem fits: train + tune + serve on irspack
 

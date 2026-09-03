@@ -406,19 +406,22 @@ Overall liveness and readiness status. Suitable for Kubernetes liveness and read
 
 | Field | Type | Description |
 |---|---|---|
-| `status` | `"ok"` \| `"degraded"` | `"ok"` when every configured recipe is loaded. `"degraded"` when any recipe is unloaded. When `total == 0`, the status is always `"ok"`. |
-| `total` | integer | Total number of recipe entries in the registry. |
+| `status` | `"ok"` \| `"degraded"` | `"ok"` when every recipe counted in `total` is loaded. `"degraded"` when any of them is unloaded. When `total == 0`, the status is always `"ok"`. |
+| `total` | integer | Number of recipe entries in the registry, **excluding** files that could not be parsed at all. |
 | `loaded` | integer | Number of recipes successfully loaded and ready to serve. |
+| `skipped` | integer | Number of recipe files that could not be parsed at all (YAML syntax error, schema violation). **Present only when non-zero.** Excluded from `total` and `loaded`: such a file declares no recipe, so it never makes the status `"degraded"`. See [Operations — Unparseable recipe files](./operations#unparseable-recipe-files). |
 
 **Status codes:**
 
 | Code | Condition |
 |---|---|
-| 200 | All recipes are loaded. |
+| 200 | All recipes are loaded. A non-zero `skipped` count does not change this. |
 | 503 | One or more recipes are not loaded. |
 
 ::: tip Kubernetes readiness probes
 A `503` response removes the pod from the Service endpoints. This is intentional — a pod where every recommendation request would return `503` should not receive traffic. Use `GET /v1/health` for both readiness and liveness probes.
+
+The two recipe failure modes differ here. An **unparseable recipe file** returns `200` with a `skipped` count and the pod keeps its traffic; a **valid recipe whose artifact cannot load** returns `503 degraded` and the pod is taken out. Alert on `skipped` as a warning, not as a page.
 :::
 
 **curl example:**

@@ -217,15 +217,16 @@ name: echo_test
 
 source:
   type: echo
-  n_users: 50
+  n_users: 200
   n_items: 100
-  n_rows: 500
+  n_rows: 6000    # see the note below before shrinking these
   seed: 42        # optional; omit to use the default seed
 
 schema:
   user_column: user_id
   item_column: item_id
   time_column: timestamp   # EchoSource emits integer epoch-second timestamps
+  time_unit: s             # required: a numeric time_column has no implied unit
 
 training:
   algorithms: [TopPop]
@@ -242,6 +243,14 @@ output:
 ```bash
 recotem train recipe.yaml
 ```
+
+::: warning 注意 — 数値の time_column には time_unit が必須
+`schema.time_column` が指す列が文字列や datetime ではなく数値を保持している場合、`time_unit` は必須です — 省略すると `code: time_unit_required` で終了コード 4 になります。`recotem validate` はこれを**検出しません**: レシピスキーマの検査とソースへのプローブは行いますが、単位が必要になるのは行がパースされた後だからです。そのため `time_unit` を欠いたレシピは validate をきれいに通過し、`recotem train` で失敗します。ソースがエポック整数を出力する場合は、レシピ作成者が最初から単位を設定できるよう、プラグインの README にその旨を記載してください。
+:::
+
+::: tip ヒント — 行数がこれほど大きい理由
+EchoSource はユーザーとアイテムのペアを一様ランダムにサンプリングするため、データにはレコメンダーが見つけられる信号がありません。報告される `best_score` はゼロ付近のノイズであり、モデルの品質については何も語りません。これは運用上の問題になります。最良トライアルのスコアが**ちょうど** 0.0 のとき、学習は `code: zero_score` で終了コード 4 になるためです。小さな合成データセットではこれは現実に起こり得ます — `n_users: 50` / `n_rows: 500` ではおよそ 30 回に 1 回が 0.0 になり、同一条件の実行どうしでも結果が食い違いました。`split.seed` は irspack がホールドアウト集合を導出する ID の順序を制御しないためです。ホールドアウト集合の*サイズ*は固定でも、*どの*インタラクションがそこに入るかは固定されません。上記の行数はホールドアウト集合のインタラクションを 31 件ではなく 511 件にするため、全件ミスの評価はほぼ起こり得なくなります。行数を減らすと、このウォークスルーはプラグインとは無関係の理由で断続的に失敗するようになります。
+:::
 
 ## FetchContext
 
