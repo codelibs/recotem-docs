@@ -190,4 +190,4 @@ output:
 recotem validate my_recipe.yaml
 ```
 
-フィールドごとの完全なリファレンス (すべてのデフォルト値、制約、エッジケース) については [レシピリファレンス](/docs/recipe-reference)を参照してください。
+フィールドごとの完全なリファレンス (すべてのデフォルト値、制約、エッジケース) については [レシピリファレンス](/ja/docs/recipe-reference)を参照してください。

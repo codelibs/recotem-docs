@@ -7,7 +7,7 @@ description: "Recotem のプラグインデータソース。recotem.datasources
 
 プラグインは `source.type` 識別子を拡張し、組み込みの `csv`、`parquet`、`bigquery` 型を超えたカスタムデータソースをサポートします。`recotem.datasources` エントリポイントグループに登録されたインストール済みの Python パッケージは、起動時に自動的に検出されます — Recotem のコード変更は不要です。
 
-プラグインのオーサリング契約の全詳細 (クラスの形状、`FetchContext`、テスト、パッケージング、互換性) については [Plugin Authoring](/docs/plugin-authoring) を参照してください。
+プラグインのオーサリング契約の全詳細 (クラスの形状、`FetchContext`、テスト、パッケージング、互換性) については [Plugin Authoring](/ja/docs/plugin-authoring) を参照してください。
 
 ## プラグインの検出方法
 

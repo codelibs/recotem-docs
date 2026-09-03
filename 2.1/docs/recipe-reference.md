@@ -86,7 +86,7 @@ source:
     FROM events
     WHERE ts >= :since
   query_parameters:
-    since: ${RECOTEM_RECIPE_SINCE}
+    since: "2026-04-01"
   connect_timeout_seconds: 10
   statement_timeout_seconds: 300
 ```
@@ -95,7 +95,7 @@ source:
 |-------|------|---------|-------|
 | `dsn_env` | string | required | Name of an env var matching `^RECOTEM_RECIPE_[A-Z0-9_]+$` containing the DSN. The DSN itself is never written to the recipe. Not env-expanded — the field holds the variable *name*, not a value. |
 | `query` | string | required | Raw SQL. Trusted code — not env-expanded. Use `:name` for dynamic values. |
-| `query_parameters` | map | `{}` | Bound via SQLAlchemy `text().bindparams(...)`. Subject to `${RECOTEM_RECIPE_*}` expansion. |
+| `query_parameters` | map | `{}` | Named parameters bound via SQLAlchemy `text().bindparams(...)`. Values are used exactly as written — not env-expanded. Types: `str`, `int`, `float`, `bool`. |
 | `connect_timeout_seconds` | int | `10` | Valid range `[1, 60]`. |
 | `statement_timeout_seconds` | int | `300` | Valid range `[1, 1800]`. Per-dialect implementation — see [SQL source](./data-sources/sql#statement-timeouts). |
 

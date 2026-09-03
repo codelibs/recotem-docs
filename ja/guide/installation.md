@@ -83,7 +83,7 @@ export RECOTEM_SIGNING_KEYS="prod:<64 文字の hex 文字列>"
 
 ### API キー
 
-API キーは `/predict` を呼び出せるクライアントを制御します。クライアントは `X-API-Key` HTTP ヘッダーとして送信します。サーバーはキーのハッシュのみを保存し、平文は保存しません。
+API キーはサービング API を呼び出せるクライアントを制御します。`GET /v1/health` を除くすべてのエンドポイントで必要で、`/v1/recipes/{name}:recommend` などのレシピ動詞も含まれます。クライアントは `X-API-Key` HTTP ヘッダーとして送信します。サーバーはキーのハッシュのみを保存し、平文は保存しません。
 
 ```bash
 recotem keygen --type api --kid client-a
@@ -112,10 +112,10 @@ export RECOTEM_API_PLAINTEXT="<43 文字の base64url 文字列>"
 | 変数 | 使用するコマンド | 目的 |
 |---|---|---|
 | `RECOTEM_SIGNING_KEYS` | `train` と `serve` | アーティファクトファイルの HMAC 署名と検証 |
-| `RECOTEM_API_KEYS` | `serve` | `/predict` 呼び出し元の認証 (サーバーはハッシュのみ保存) |
-| `X-API-Key: <plaintext>` | HTTP クライアント | すべての `/predict` リクエストに付加して送信 |
+| `RECOTEM_API_KEYS` | `serve` | `/v1` API 呼び出し元の認証 (サーバーはハッシュのみ保存) |
+| `X-API-Key: <plaintext>` | HTTP クライアント | `GET /v1/health` を除くすべての `/v1` リクエストに付加して送信 |
 
-`RECOTEM_SIGNING_KEYS` と `RECOTEM_API_KEYS` はどちらも複数のエントリをカンマ区切りで指定できます (`kid1:value,kid2:value`)。これにより、ダウンタイムなしで鍵のローテーションが可能です。ローテーション手順については[オペレーション](/docs/operations)ガイドを参照してください。
+`RECOTEM_SIGNING_KEYS` と `RECOTEM_API_KEYS` はどちらも複数のエントリをカンマ区切りで指定できます (`kid1:value,kid2:value`)。これにより、ダウンタイムなしで鍵のローテーションが可能です。ローテーション手順については[オペレーション](/ja/docs/operations)ガイドを参照してください。
 
 ## 次のステップ
 

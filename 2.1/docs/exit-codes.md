@@ -162,6 +162,7 @@ Common causes:
 `ConfigError` is raised for environment or configuration errors that prevent the process from starting or proceeding. Common causes:
 
 - `RECOTEM_SIGNING_KEYS` is not set (required for all commands except those explicitly using `--dev-allow-unsigned`).
+- `RECOTEM_SIGNING_KEYS` is set but malformed — a bad `kid:hex` entry, or a value that is not 64 hex characters. The `train_error` event carries `code: signing_keys_invalid`. This is exit 8, **not** exit 5: a bad key entry is an operator typo in the environment, not a corrupt artifact.
 - `recotem inspect` invoked without `RECOTEM_SIGNING_KEYS` and without `--dev-allow-unsigned`.
 - `--dev-allow-unsigned` passed when `RECOTEM_ENV` is not `development` (gate check).
 - `--dev-allow-unsigned` passed without the companion `--i-understand-this-loads-arbitrary-code` flag.

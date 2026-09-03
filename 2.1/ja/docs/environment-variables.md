@@ -106,7 +106,7 @@ description: "Recotem のすべての RECOTEM_* 環境変数リファレンス�
 | 変数 | デフォルト | スコープ | クランプ | 説明 |
 |---|---|---|---|---|
 | `RECOTEM_BQ_REQUIRE_STORAGE_API` | (未設定) | train | — | 真値: `1`、`true`、`yes`、`on`。設定すると、BigQuery Storage Read API が失敗した場合 (例: `bigquery.readSessions.create` IAM 権限の欠落) に BigQuery ソースがより遅い REST API にサイレントフォールバックするのではなく、`DataSourceError` (終了コード 3) を発生させる。スループット低下を受け入れるのではなく IAM のギャップを表面化させるために使用する。 |
-| `RECOTEM_MAX_SQL_ROWS` | `50_000_000` | train | [1_000, 500_000_000] | SQL データソースが返す行数のハードキャップ。上限を超えると `DataSourceError` (終了コード 3) を発生させる。**行数**をキャップするのであって、DataFrame の常駐メモリではない — [SQL ソース — メモリバウンドの注意点](./data-sources/sql#memory-bound-caveat) を参照。 |
+| `RECOTEM_MAX_SQL_ROWS` | `50_000_000` | train | [1_000, 500_000_000] | SQL データソースが返す行数のハードキャップ。上限を超えると `DataSourceError` (終了コード 3) を発生させる。**行数**をキャップするのであって、DataFrame の常駐メモリではない — [SQL ソース — メモリバウンドの注意点](./data-sources/sql#備考) を参照。 |
 | `RECOTEM_SQL_ALLOW_PRIVATE` | (未設定) | train | — | 真値: `1`、`true`、`yes`、`on`。SQL ソースがプライベート / ループバックの DSN ホストを受け入れるオプトイン (デフォルトは SSRF 対策のため拒否)。あらゆるドライバルーティング形式 (netloc、`?host=`、`?hostaddr=`、`?service=`、`?unix_socket=`、絶対パスホスト、ホスト情報のないネットワーク DSN) をカバー — このフラグなしでは全てデフォルトで拒否される。各プローブ / フェッチ前の DNS リバインディング再チェックも無効化される — オプトインはホストをエンドツーエンドで信頼することを意味する。 |
 
 ## レシピ展開

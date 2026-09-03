@@ -235,7 +235,7 @@ curl -sX POST http://127.0.0.1:8080/v1/recipes/purchase_log:recommend \
 | `RecipeError: 'source.path' uses a network scheme … requires a 'sha256' integrity pin` | The `sha256` field was removed from the recipe | Re-add the `sha256:` line |
 | `DataSourceError: sha256 mismatch` | The upstream file changed | Re-compute with `curl -sL <url> \| shasum -a 256` and update the recipe |
 | `DataSourceError: HTTP 404 fetching ...` | The URL changed | Verify the URL in a browser; check the `v1.0.0` tag is still present |
-| `ArtifactError: RECOTEM_SIGNING_KEYS not set` | Step 1 (key generation) was not exported | Re-run the export and try again |
+| `Training failed: RECOTEM_SIGNING_KEYS is not set.` (exit 8, `code: signing_key_missing`) | Step 1 (key generation) was not exported | Re-run the export and try again |
 | `401 Unauthorized` on `/v1/recipes/...` | Wrong API key value | Use the `plaintext` line from `keygen --type api`, not the `hash` line |
 | `503 RECIPE_UNAVAILABLE` immediately after training | The watcher has not polled yet | Wait up to `RECOTEM_WATCH_INTERVAL` seconds (default 5 s; the tutorial compose sets 10 s). Check `/v1/health`. |
 | Path B: artifact written to the wrong directory | The recipe's `output.path` is relative to the working directory | Run `recotem train` from the repository root, or change `output.path` to an absolute path |

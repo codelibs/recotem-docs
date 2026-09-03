@@ -1,3 +1,6 @@
+import { readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitepress'
 import type { DefaultTheme, HeadConfig } from 'vitepress'
 
@@ -284,6 +287,48 @@ function learnSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
 }
 
 // ---------------------------------------------------------------------------
+// Published page inventory (language switcher)
+// ---------------------------------------------------------------------------
+
+// The default theme's language flyout assumes the locale is a single prefix at
+// the front of the path. Here the language sits *inside* each version directory
+// (`2.1/ja/docs/…`), so `.vitepress/theme/langs.ts` derives the counterpart from
+// the directory layout instead — and needs to know which pages exist, because a
+// few archived 1.0 pages were never translated. The exclusions mirror
+// `srcExclude` below plus the directories VitePress never renders as pages, so
+// the list only ever names pages the build actually writes.
+const NON_PAGE_DIRS = new Set([
+  'node_modules',
+  'public',
+  'scripts',
+  'specs',
+  'src',
+])
+const NON_PAGE_FILES = new Set(['CLAUDE.md', 'README.md'])
+
+function collectPageIds(dir: string, prefix = ''): string[] {
+  const ids: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const id = prefix ? `${prefix}/${entry.name}` : entry.name
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith('.') || NON_PAGE_DIRS.has(entry.name)) continue
+      ids.push(...collectPageIds(join(dir, entry.name), id))
+    } else if (entry.name.endsWith('.md') && !NON_PAGE_FILES.has(id)) {
+      ids.push(id)
+    }
+  }
+  return ids
+}
+
+const SRC_ROOT = fileURLToPath(new URL('..', import.meta.url))
+const PAGE_IDS = collectPageIds(SRC_ROOT)
+
+interface RecotemThemeConfig extends DefaultTheme.Config {
+  /** Every published page id (VitePress `relativePath`). */
+  pageIds: string[]
+}
+
+// ---------------------------------------------------------------------------
 // Heading slugs (Japanese anchors)
 // ---------------------------------------------------------------------------
 
@@ -497,13 +542,31 @@ export default defineConfig({
     },
   },
 
+  // Swap the default theme's language-switcher composable for the layout-aware
+  // one. Both translation components and the nav overflow menu import it, so
+  // aliasing the module fixes all three call sites at once. See
+  // .vitepress/theme/langs.ts for why `locales` cannot express this layout.
+  vite: {
+    resolve: {
+      alias: [
+        {
+          find: /^.*\/composables\/langs$/,
+          replacement: fileURLToPath(
+            new URL('./theme/langs.ts', import.meta.url),
+          ),
+        },
+      ],
+    },
+  },
+
   themeConfig: {
     logo: '/recotem-header.png',
+    pageIds: PAGE_IDS,
     socialLinks: [
       { icon: 'github', link: 'https://github.com/codelibs/recotem' },
     ],
     footer: {
       message: 'Sponsored by <a href="https://codelibs.co">Codelibs, inc</a>',
     },
-  },
+  } as RecotemThemeConfig,
 })

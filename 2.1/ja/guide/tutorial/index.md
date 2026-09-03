@@ -235,7 +235,7 @@ curl -sX POST http://127.0.0.1:8080/v1/recipes/purchase_log:recommend \
 | `RecipeError: 'source.path' uses a network scheme … requires a 'sha256' integrity pin` | レシピから `sha256` フィールドが削除された | `sha256:` の行を再度追加する |
 | `DataSourceError: sha256 mismatch` | 上流のファイルが変更された | `curl -sL <url> \| shasum -a 256` で再計算してレシピを更新する |
 | `DataSourceError: HTTP 404 fetching ...` | URL が変更された | ブラウザで URL を確認し、`v1.0.0` タグがまだ存在するか確認する |
-| `ArtifactError: RECOTEM_SIGNING_KEYS not set` | ステップ 1 (鍵の生成) がエクスポートされていない | エクスポートを再実行して再試行する |
+| `Training failed: RECOTEM_SIGNING_KEYS is not set.` (終了コード 8、`code: signing_key_missing`) | ステップ 1 (鍵の生成) がエクスポートされていない | エクスポートを再実行して再試行する |
 | `/v1/recipes/...` で `401 Unauthorized` | API キーの値が間違っている | `keygen --type api` の `hash` ではなく `plaintext` の値を使用する |
 | 学習直後に `503 RECIPE_UNAVAILABLE` | ウォッチャーがまだポーリングしていない | `RECOTEM_WATCH_INTERVAL` 秒 (デフォルト 5 秒、チュートリアルの compose では 10 秒) 待つ。`/v1/health` を確認する |
 | パス B: アーティファクトが予期しないディレクトリに書き出される | レシピの `output.path` が作業ディレクトリからの相対パス | リポジトリのルートから `recotem train` を実行するか、`output.path` を絶対パスに変更する |
