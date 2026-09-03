@@ -13,8 +13,8 @@ Recotem は単一の Docker イメージとして提供されます。`recotem t
 
 | タグパターン | 可変性 | 用途 |
 |---|---|---|
-| `2.0.0`, `2.0.1`, ... (semver `{{version}}`) | 不変 | 本番環境 — ここにピン留めすること |
-| `2.0`, `2.1`, ... (semver `{{major}}.{{minor}}`) | マイナーバージョン内で可変 | ローリングマイナーピン |
+| `2.0.0`, `2.0.1`, ... (完全な semver、`MAJOR.MINOR.PATCH`) | 不変 | 本番環境 — ここにピン留めすること |
+| `2.0`, `2.1`, ... (semver `MAJOR.MINOR`) | マイナーバージョン内で可変 | ローリングマイナーピン |
 | `latest` | 可変、`main` をトラック | 簡易評価用。本番環境では使用しないこと |
 | `main` (ブランチ参照) | 可変、`main` の最新 | スモークテストのみ |
 | `sha-<short>` | 不変 | 特定コミットの再現 |
@@ -123,7 +123,7 @@ mkdir -p ./artifacts && chown 1000:1000 ./artifacts
 
 ### イメージレベルの HEALTHCHECK
 
-Dockerfile は独自の `HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3` を宣言しており、`urllib.request.urlopen(f'http://127.0.0.1:{RECOTEM_PORT}/health', timeout=3)` をプローブします (これにより上書きされた `RECOTEM_PORT` も反映されます)。注意: イメージデフォルトのプローブは `/health` (`/v1` プレフィックスなし) を対象としています。v1 ルーターは `/v1` にマウントされているため、パブリックなヘルスエンドポイントは `/v1/health` です。アノテーション付き例の Compose レベルのヘルスチェックは `serve` サービスのイメージデフォルトを上書きして `/v1/health` を対象とします — オーケストレーターは `/v1/health` からの HTTP 200 レスポンスに依存してください。ワンショットの `train` コンテナでは、プロセスがすでに終了した後にイメージのヘルスチェックが実行されますが、誤った失敗は発生しません。
+Dockerfile は独自の `HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3` を宣言しており、`urllib.request.urlopen(f'http://127.0.0.1:{RECOTEM_PORT}/v1/health', timeout=3)` をプローブします (これにより上書きされた `RECOTEM_PORT` も反映されます)。v1 ルーターは `/v1` にマウントされているため、パブリックなヘルスエンドポイントは `/v1/health` であり、プレフィックスなしの `/health` は 404 を返します。アノテーション付き例の Compose レベルのヘルスチェックは `serve` サービスのイメージデフォルトを上書きしますが、対象は同じ `/v1/health` です — オーケストレーターは `/v1/health` からの HTTP 200 レスポンスに依存してください。ワンショットの `train` コンテナでは、プロセスがすでに終了した後にイメージのヘルスチェックが実行されますが、誤った失敗は発生しません。
 
 ### リバースプロキシバインディング
 

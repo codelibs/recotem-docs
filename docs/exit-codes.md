@@ -154,6 +154,7 @@ Common causes:
 - `--dev-allow-unsigned` passed without the companion `--i-understand-this-loads-arbitrary-code` flag.
 - `RECOTEM_MAX_PAYLOAD_BYTES` > `RECOTEM_MAX_ARTIFACT_BYTES` (misconfiguration raises at serve startup).
 - Bind port is already in use or permission denied (`EADDRINUSE`, `EACCES`, `EADDRNOTAVAIL`).
+- The per-recipe training lock path cannot be created or opened for lack of filesystem permission (`EACCES` / `EPERM`), raising `LockPermissionError`. This is deliberately **not** exit 6 — see the `--fail-on-busy` interaction section below.
 - An env var value is out of its clamped range in a way that prevents startup.
 
 **Recommended action:** Do not retry without fixing the configuration. Check `RECOTEM_SIGNING_KEYS`, `RECOTEM_ENV`, and any env vars listed in the error message.
@@ -163,6 +164,12 @@ Common causes:
 ## --fail-on-busy interaction
 
 By default, when `recotem train` cannot acquire the per-recipe lock it **exits 0** and emits the `recipe_lock_contended_skipping` structured log event. This is cron-friendly: a slow training run cannot cause subsequent scheduled runs to pile up failures.
+
+::: warning A permission failure is not contention
+The exit-0 skip covers lock **contention** only — another process currently holds the lock. If the lock path itself cannot be created or opened because of filesystem permissions (`EACCES` / `EPERM`: wrong volume ownership, a read-only mount, a mistyped `RECOTEM_LOCK_DIR`), `recotem train` raises `LockPermissionError` and exits **8** (configuration error) — always, with or without `--fail-on-busy`.
+
+A permission failure is a deployment mistake that no retry fixes, and exiting 0 would let a cron job or CronJob report success while the model silently goes stale. Scheduler retry logic keyed on the exit code must therefore treat **6** as "retry later" and **8** as "stop and fix the deployment".
+:::
 
 Pass `--fail-on-busy` to flip this to exit 6:
 

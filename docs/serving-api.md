@@ -494,7 +494,7 @@ scrape_configs:
 | `recotem_bigquery_storage_fallback_total` | Counter | `reason` |
 | `recotem_recipes_dir_scan_failures_total` | Counter | `error_class` |
 
-The `verb` label takes values `recommend`, `recommend-related`, `batch-recommend`, `batch-recommend-related`. The `status` label on `recotem_v1_requests_total` takes values `ok`, `unknown_user`, `unknown_seed_items`, `no_candidates`, `unavailable`, `recipe_not_found`, `validation_error`, and `error`. The `reason` label on `recotem_artifact_load_failures_total` takes values `read`, `parse`, `hmac`, `header_json`, `deserialize`, `metadata`, `yaml`, `unexpected`, `dir_scan`, and `timeout`.
+The `verb` label takes values `recommend`, `recommend-related`, `batch-recommend`, `batch-recommend-related`. The `status` label on `recotem_v1_requests_total` takes values `ok`, `unknown_user`, `unknown_seed_items`, `no_candidates`, `unavailable`, `recipe_not_found`, `validation_error`, and `error`. The `reason` label on `recotem_artifact_load_failures_total` takes values `read`, `parse`, `hmac`, `header_json`, `deserialize`, `metadata`, `yaml`, `unexpected`, `dir_scan`, `timeout`, `version_skew`, and `feature_version`.
 
 **curl example:**
 

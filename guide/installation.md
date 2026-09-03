@@ -34,7 +34,7 @@ The core package ships with CSV and Parquet data sources. Install extras for add
 | Amazon S3 | `pip install "recotem[s3]"` | Read/write artifacts and data from S3 |
 | Google Cloud Storage | `pip install "recotem[gcs]"` | Read/write artifacts and data from GCS |
 | Azure Blob Storage | `pip install "recotem[azure]"` | Read/write artifacts and data from Azure |
-| Prometheus metrics | `pip install "recotem[metrics]"` | Opt-in `/metrics` endpoint for monitoring |
+| Prometheus metrics | `pip install "recotem[metrics]"` | Opt-in `/v1/metrics` endpoint for monitoring (requires `X-API-Key`) |
 
 Extras can be combined: `pip install "recotem[s3,metrics]"`.
 

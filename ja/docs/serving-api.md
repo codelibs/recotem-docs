@@ -494,7 +494,7 @@ scrape_configs:
 | `recotem_bigquery_storage_fallback_total` | Counter | `reason` |
 | `recotem_recipes_dir_scan_failures_total` | Counter | `error_class` |
 
-`verb` ラベルは `recommend`、`recommend-related`、`batch-recommend`、`batch-recommend-related` の値を取ります。`recotem_v1_requests_total` の `status` ラベルは `ok`、`unknown_user`、`unknown_seed_items`、`no_candidates`、`unavailable`、`recipe_not_found`、`validation_error`、`error` の 8 値を取ります。`recotem_artifact_load_failures_total` の `reason` ラベルは `read`、`parse`、`hmac`、`header_json`、`deserialize`、`metadata`、`yaml`、`unexpected`、`dir_scan`、`timeout` の値を取ります。
+`verb` ラベルは `recommend`、`recommend-related`、`batch-recommend`、`batch-recommend-related` の値を取ります。`recotem_v1_requests_total` の `status` ラベルは `ok`、`unknown_user`、`unknown_seed_items`、`no_candidates`、`unavailable`、`recipe_not_found`、`validation_error`、`error` の 8 値を取ります。`recotem_artifact_load_failures_total` の `reason` ラベルは `read`、`parse`、`hmac`、`header_json`、`deserialize`、`metadata`、`yaml`、`unexpected`、`dir_scan`、`timeout`、`version_skew`、`feature_version` の値を取ります。
 
 **curl の例:**
 
