@@ -284,11 +284,54 @@ function learnSidebar(lang: 'en' | 'ja'): DefaultTheme.SidebarItem[] {
 }
 
 // ---------------------------------------------------------------------------
+// Heading slugs (Japanese anchors)
+// ---------------------------------------------------------------------------
+
+// VitePress' default slugify runs NFKD and then strips only U+0300–U+036F, the
+// Latin combining block. NFKD also decomposes Japanese voiced kana — パ becomes
+// ハ + U+309A, デ becomes テ + U+3099 — and those marks survive the strip. The
+// heading id therefore ends up in decomposed form while `[…](#パスルール)`, and
+// every other hand-written anchor, is composed. The two are visually identical
+// but unequal, so the link opens the page and never scrolls. VitePress does not
+// validate fragments, so nothing fails the build (see scripts/check-anchors.mjs).
+//
+// Recomposing with NFC after the strip fixes exactly that: canonical
+// composition is restored, while NFKD's compatibility folding (full-width → ASCII,
+// ｱ → ア) and Latin accent stripping (é → e) are unaffected, since NFC does not
+// reverse compatibility mappings and the accents are already gone by then.
+//
+// Copied from vitepress 1.6.4 (dist/node/chunk-*.js, `slugify`), which inlines
+// @mdit-vue/shared — that package is bundled rather than a resolvable dependency,
+// so it cannot be imported and wrapped.
+const rControl = /[\u0000-\u001f]/g
+const rSpecial = /[\s~`!@#$%^&*()\-_+=[\]{}|\\;:"'“”‘’<>,.?/]+/g
+const rCombining = /[\u0300-\u036f]/g
+
+function slugify(str: string): string {
+  return str
+    .normalize('NFKD')
+    .replace(rCombining, '')
+    .replace(rControl, '')
+    .replace(rSpecial, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/^(\d)/, '_$1')
+    .toLowerCase()
+    .normalize('NFC')
+}
+
+// ---------------------------------------------------------------------------
 // Main config
 // ---------------------------------------------------------------------------
 
 export default defineConfig({
   title: 'Recotem',
+
+  markdown: {
+    // Heading ids. The default theme's outline reads ids back off the DOM, so
+    // this is the only place the slug is minted.
+    anchor: { slugify },
+  },
 
   // Ignore localhost links (used in installation docs) and
   // allow the build to proceed with relative-path warnings
