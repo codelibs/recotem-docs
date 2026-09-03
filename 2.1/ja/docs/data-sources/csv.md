@@ -46,7 +46,7 @@ source:
 圧縮ファイル (`.gz`、`.bz2`、`.zip`、`.xz`) は透過的に解凍されます。
 
 ::: warning 展開後サイズの上限は強制されません
-`RECOTEM_MAX_DOWNLOAD_BYTES` は `source.path` から読み込まれた生バイト数を上限とします。解凍後に生成される pandas DataFrame のサイズは制限**しません**。生の上限に収まる高圧縮の CSV はメモリ上でその何倍ものサイズに展開される可能性があります。学習プロセスを制御するには、`recotem train` を cgroup、`MemoryMax=` を設定した systemd ユニット、または `resources.limits.memory` を設定した Kubernetes Pod 内で実行してください。[security — Decompressed-size cap not enforced](../security#decompressed-size-cap-not-enforced-medium-5) を参照してください。
+`RECOTEM_MAX_DOWNLOAD_BYTES` は `source.path` から読み込まれた生バイト数を上限とします。解凍後に生成される pandas DataFrame のサイズは制限**しません**。生の上限に収まる高圧縮の CSV はメモリ上でその何倍ものサイズに展開される可能性があります。学習プロセスを制御するには、`recotem train` を cgroup、`MemoryMax=` を設定した systemd ユニット、または `resources.limits.memory` を設定した Kubernetes Pod 内で実行してください。[security — Decompressed-size cap not enforced](../security#解凍後サイズ上限の未適用-medium-5) を参照してください。
 :::
 
 ## Parquet ソース

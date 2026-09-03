@@ -262,7 +262,7 @@ output:
 
 `source.path` および `item_metadata.path` のパススキームは明示的な許可リストに限定されます: ベアローカルパス (スキームプレフィックスなし)、`file://`、`s3://`、`gs://`、`az://`、`abfs://`、`abfss://`、`http://`、`https://`。fsspec のフルレジストリに依存する代わりにスキームを明示的に列挙することで、レシピの内容を経由して未審査のハンドラーにアクセスされることを防ぎます。チェーンされた fsspec プロトコル (`::` を含むパス) も拒否されます。`http://` および `https://` スキームは、同じ設定ブロックに `sha256` 整合性ピンが必要です。
 
-> **展開後サイズの上限は強制されません。** `RECOTEM_MAX_DOWNLOAD_BYTES` が上限とするのは生の I/O バイト数のみです。圧縮された CSV および columnar Parquet ソースは解凍後に生サイズの数倍に膨らむ可能性があり、生成される DataFrame はサイズ制限されません。影響を抑えるには `recotem train` を cgroup または Kubernetes Pod (メモリ制限付き) 内で実行してください。[security — Decompressed-size cap not enforced](./security#decompressed-size-cap-not-enforced-medium-5) を参照してください。
+> **展開後サイズの上限は強制されません。** `RECOTEM_MAX_DOWNLOAD_BYTES` が上限とするのは生の I/O バイト数のみです。圧縮された CSV および columnar Parquet ソースは解凍後に生サイズの数倍に膨らむ可能性があり、生成される DataFrame はサイズ制限されません。影響を抑えるには `recotem train` を cgroup または Kubernetes Pod (メモリ制限付き) 内で実行してください。[security — Decompressed-size cap not enforced](./security#解凍後サイズ上限の未適用-medium-5) を参照してください。
 
 `output.path` は以下のスキームに限定されます: ベアローカルパス (プレフィックスなし)、`file://`、`s3://`、`gs://`、`az://`、`abfs://`、`abfss://`。その他のスキームは拒否されます: `http://`、`https://`、`ftp://`、`ftps://` はこれらのプロトコルでアーティファクトの書き込みがサポートされていないため。`memory://` はプロセスローカルであり学習実行後に存続しないため。
 

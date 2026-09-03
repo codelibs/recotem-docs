@@ -39,7 +39,7 @@ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
 
 Required IAM role on the BigQuery dataset: `roles/bigquery.dataViewer` + `roles/bigquery.jobUser` on the project.
 
-For the Storage Read API (used for large result sets): `roles/bigquery.readSessionUser`. This role is **optional** — the fetch path tries `create_bqstorage_client=True` first. Storage Read API failures map to fallback **only for IAM-shape failures** (PermissionDenied / Forbidden / 403); quota errors, 5xx backend failures, and other non-permission errors raise `DataSourceError` so REST fallback does not double-bill. Set `RECOTEM_BQ_REQUIRE_STORAGE_API=1` to disable the IAM-fallback path entirely (requires `bigquery.readSessions.create` permission).
+For the Storage Read API (used for large result sets): `roles/bigquery.readSessionUser`. This role is **optional** — the fetch path tries `create_bqstorage_client=True` first. Storage Read API failures map to fallback **only for IAM-shape failures** (PermissionDenied / Forbidden / 403); quota errors, 5xx backend failures, and other non-permission errors raise `DataSourceError` so REST fallback does not double-bill. Set `RECOTEM_BQ_REQUIRE_STORAGE_API=1` to require the fast path — it needs both the `google-cloud-bigquery-storage` package and the `bigquery.readSessions.create` permission. See [Storage Read API fallback policy](#storage-read-api-fallback-policy).
 
 Recommended minimum set for a service account used by Recotem:
 
@@ -209,18 +209,29 @@ All BigQuery exceptions are wrapped in `DataSourceError` and produce exit 3. The
 
 ## Storage Read API fallback policy
 
-Recotem tries the BigQuery Storage Read API (`create_bqstorage_client=True`) first for efficiency with large result sets. The fallback to the standard REST API is **selective**, not unconditional:
+Recotem tries the BigQuery Storage Read API (`create_bqstorage_client=True`) first for efficiency with large result sets. This applies to the **result download only** — a query that fails to execute never reaches this stage.
 
-- **IAM-shape failures** (PermissionDenied / Forbidden / HTTP 403): the Storage Read API is silently skipped and the REST path is used instead. This covers the common case where `roles/bigquery.readSessionUser` is not granted.
-- **All other failures** (quota exceeded, 5xx backend errors, network timeouts, etc.): `DataSourceError` is raised immediately without attempting the REST fallback. This prevents a quota-exceeded Storage Read API call from silently double-billing by retrying over REST.
+Two things can make the fast path unavailable:
 
-To enforce Storage Read API usage and disable the IAM-fallback path entirely, set:
+1. **`google-cloud-bigquery-storage` is not installed.** Recotem checks for the dependency itself rather than waiting for an error, because `google-cloud-bigquery` does not raise one: it emits a `UserWarning` and downloads over REST. Without strict mode this is a silent, logged fallback (`bigquery_storage_fallback`).
+2. **The download itself fails.** The fallback to REST is then **selective**, not unconditional:
+   - **IAM-shape failures** (PermissionDenied / Forbidden / HTTP 403): the Storage Read API is silently skipped and the REST path is used instead. This covers the common case where `roles/bigquery.readSessionUser` is not granted.
+   - **All other failures** (quota exceeded, 5xx backend errors, network timeouts, etc.): `DataSourceError` is raised immediately without attempting the REST fallback. This prevents a quota-exceeded Storage Read API call from silently double-billing by retrying over REST.
+
+To require the Storage Read API and disable **both** silent paths, set:
 
 ```bash
 export RECOTEM_BQ_REQUIRE_STORAGE_API=1
 ```
 
-When this variable is truthy (`1`, `true`, `yes`, `on`), any Storage Read API failure raises `DataSourceError` instead of falling back to REST. Use this setting when the service account is expected to hold `bigquery.readSessions.create` and you want hard enforcement.
+When this variable is truthy (`1`, `true`, `yes`, `on`):
+
+- A missing `google-cloud-bigquery-storage` raises `DataSourceError` naming the extra to install. This is checked **before the query is submitted**, so a misconfigured strict-mode run costs nothing — no scan is billed.
+- A Storage Read API **download** failure raises `DataSourceError` instead of falling back to REST.
+
+Strict mode governs the **download transport only**. It never changes how a query-execution failure is reported: a SQL typo under `RECOTEM_BQ_REQUIRE_STORAGE_API=1` is still `BigQuery query execution failed: 400 Syntax error: ...`, not `readSessions` advice.
+
+Use this setting when the service account is expected to hold `bigquery.readSessions.create` and you want hard enforcement.
 
 ## Notes
 

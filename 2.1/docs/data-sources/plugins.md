@@ -58,15 +58,16 @@ name: echo_test
 
 source:
   type: echo          # matches EchoSource.type_name
-  n_users: 50
+  n_users: 200
   n_items: 100
-  n_rows: 500
+  n_rows: 6000        # see Plugin Authoring before shrinking these
   seed: 42
 
 schema:
   user_column: user_id
   item_column: item_id
   time_column: timestamp   # EchoSource emits integer epoch-second timestamps
+  time_unit: s             # required: a numeric time_column has no implied unit
 
 training:
   algorithms: [TopPop]
@@ -84,7 +85,7 @@ Train as normal:
 recotem train recipe.yaml
 ```
 
-The `echo` plugin above is the canonical reference implementation from `examples/plugins/echo-source/`. It generates a synthetic DataFrame and is useful for CI pipelines that need to exercise the full train-serve path without real data.
+The `echo` plugin above is the canonical reference implementation from `examples/plugins/echo-source/`. It generates a synthetic DataFrame and is useful for CI pipelines that need to exercise the full train-serve path without real data. Its `timestamp` column holds epoch integers, so `schema.time_unit` is required, and the row counts are sized to keep the evaluation off an exact zero score — [Plugin Authoring](/2.1/docs/plugin-authoring) explains both.
 
 ## JSON Schema and IDE integration
 

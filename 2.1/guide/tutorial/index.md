@@ -65,7 +65,7 @@ A few things worth noting:
 
 ---
 
-## Path A — Docker Compose
+## Path A — Docker Compose {#path-a-docker-compose}
 
 ### Step 1 — Generate keys
 
@@ -160,7 +160,7 @@ docker compose down -v
 
 ---
 
-## Path B — pip
+## Path B — pip {#path-b-pip}
 
 ### Step 1 — Install and verify
 

@@ -65,7 +65,7 @@ output:
 
 ---
 
-## パス A — Docker Compose
+## パス A — Docker Compose {#パス-a-docker-compose}
 
 ### ステップ 1 — 鍵の生成
 
@@ -160,7 +160,7 @@ docker compose down -v
 
 ---
 
-## パス B — pip
+## パス B — pip {#パス-b-pip}
 
 ### ステップ 1 — インストールと確認
 

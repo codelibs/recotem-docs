@@ -81,20 +81,24 @@ An exception was raised that does not map to any domain error class. This typica
 |---------|---------|
 | `min_data_violation` | The cleaned dataset fell below `min_rows`, `min_users`, or `min_items`. The `train_error` event includes `n_rows`, `n_users`, `n_items`, `min_rows`, `min_users`, `min_items`. |
 | `time_column_parse_error` | The timestamp column could not be parsed. |
+| `split_error` | The train/validation split failed or produced nothing usable — an empty held-out test set, a `time_user` / `time_global` scheme with no `schema.time_column`, or a failure inside the irspack splitter. Lower `split.heldout_ratio` or use a larger dataset. |
 | `no_completed_trials` | All Optuna trials failed before any completed. |
 | `zero_score` | All completed trials scored 0.0. Usually indicates an empty test split. |
 | `excessive_per_trial_timeouts` | Most trials hit the per-trial timeout. Increase `training.per_trial_timeout_seconds` in the recipe. |
+| `search_error` | The Optuna search itself failed. Raised when `training.storage_path` embeds credentials (`user:pass@host` — use env-driven auth such as `PGPASSFILE` instead), and when the orphaned-thread ceiling is reached because `training.per_trial_timeout_seconds` is far shorter than the algorithm's runtime. |
 | `final_training_error` | The final (refit) training step failed after hyperparameter search completed. |
 | `signing_key_missing` | Signing key configuration is missing at artifact write time (also raises ConfigError in some paths — see exit 8). |
 | `datasource_error` | A `DataSourceError` surfaced through the training pipeline. |
 | `invalid_metric` | `training.metric` is not one of the supported metrics. |
 | `no_active_algorithms` | Every algorithm is disabled by `training.per_algorithm_trials` (all budgets are 0). |
 | `time_unit_required` | `schema.time_column` holds numeric values but `schema.time_unit` is unset. Set `time_unit` (`s`, `ms`, `us`, or `ns`) to avoid silent nanosecond interpretation of Unix timestamps. |
+| `unknown_algorithm` | An entry in `training.algorithms` does not resolve to a supported irspack recommender class. Check the alias against the supported algorithms list. (`unknown_algorithm_in_budget` below is the same failure reached through `training.per_algorithm_trials`.) |
 | `unknown_algorithm_in_budget` | `training.per_algorithm_trials` names an algorithm alias that does not resolve. |
 | `cutoff_exceeds_item_count` | `training.cutoff` is larger than the item dimension of the ground-truth matrix. |
 | `feature_axis_error` | A [`features:`](./recipe-reference#features) side's feature table has **zero** id overlap with the interaction data. See [Operations — recotem train exits 4 with feature_axis_error](./operations#recotem-train-exits-4-with-feature-axis-error). |
 | `feature_cholesky_error` | The feature-ridge Cholesky decomposition or solve failed during the **final refit** (during the search it only prunes the trial). Raising `min_frequency` on high-cardinality columns usually resolves it. |
 | `feature_table_error` | The feature table could not be fetched or used — a missing `type` discriminator on `features.<side>.source`, an `id_column` absent from the fetched table, or a declared feature column that is not present. |
+| `training_error` | The default subcode carried by the `TrainingError` base class. Any training-domain failure raised without a more specific code reports this — read the `error` field of the `train_error` event for the detail. |
 
 **Recommended action:** Retry for transient issues (network-adjacent data loads, flaky training). Do not retry `min_data_violation` without first investigating whether the data source is providing fewer rows than expected. For `zero_score` or empty test split issues, adjust the recipe's `split` or `cleansing` settings.
 
