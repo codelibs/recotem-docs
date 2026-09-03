@@ -9,7 +9,21 @@ yarn install        # Install dependencies (Node.js >= 18, Yarn v1 required)
 yarn docs:dev       # Start dev server with hot-reload at http://localhost:5173
 yarn docs:build     # Production build → .vitepress/dist/
 yarn docs:preview   # Preview production build locally
+yarn docs:check-anchors  # Verify every internal #fragment resolves (run after docs:build)
 ```
+
+### Heading anchors
+
+VitePress does not validate `#fragment` links: a broken anchor still builds and
+still opens the page, it just never scrolls. Run `yarn docs:check-anchors` after
+a build when adding or renaming headings.
+
+Heading ids are minted by the `markdown.anchor.slugify` override in
+`.vitepress/config.ts`, which is VitePress' own slugify plus a trailing NFC
+recomposition — without it, NFKD leaves Japanese voiced kana decomposed (パ as
+ハ + U+309A) and every hand-written `#パスルール`-style anchor silently misses.
+Keep Markdown sources in NFC; never paste a copied permalink from a site built
+before that override.
 
 ## Architecture
 
