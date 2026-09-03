@@ -24,7 +24,7 @@ description: "Recotem のプラグインデータソース。recotem.datasources
 | 属性 / メソッド | 種別 | 必須 | 説明 |
 |-----------------|------|------|------|
 | `type_name` | `ClassVar[str]` | yes | レシピの `source.type` と照合される識別子値。非空で、インストール済みの全プラグイン間でユニークである必要があります。 |
-| `Config` | `pydantic.BaseModel` サブクラス | yes | このソースのレシピサブフィールドを記述します。全フィールドは YAML の `source:` 配下に `type:` と並んで表示されます。ローダーは `source:` マッピング全体を `Config.model_validate(...)` に渡します。 |
+| `Config` | `pydantic.BaseModel` サブクラス | yes | このソースのレシピサブフィールドを記述します。全フィールドは YAML の `source:` 配下に `type:` と並んで表示されます。ローダーは `source:` マッピング全体を `Config.model_validate(...)` に渡します。`Config` はディスクリミネーターフィールド `type: Literal["<type_name>"] = "<type_name>"` を**必ず**自身で宣言し、`type_name` と完全に一致させる必要があります。フィールドが欠落している場合、`typing.Literal` でない場合、または `Literal` の値が `type_name` と食い違う場合、プラグイン検出時に `DataSourceError` が発生します。 |
 | `extras_required` | `ClassVar[list[str]]` | yes | オプションの依存関係が欠落している場合に提案する pip エクストラ。純粋にドキュメント目的です — Recotem はこれらを自動インストールしません。`__init__` でインストールヒント付きの `DataSourceError` を発生させてください。 |
 | `no_expand_fields` | `ClassVar[frozenset[str]]` | yes | `Config` 内のフィールド名のうち、文字列値が `${RECOTEM_RECIPE_*}` 環境変数展開を**決して**受け取らないもの。保護が不要なフィールドには `frozenset()` を使用してください (常にガードされるグローバルベースライン `query`、`query_parameters` を超えて)。宣言が欠落または型が不正な場合、プラグイン検出時に `DataSourceError` が発生します。 |
 | `__init__(config)` | メソッド | yes | `Config` のインスタンスを受け取ります。オプションの依存関係インポートはここで行い、インポートに失敗した場合はインストールヒント付きの `DataSourceError` を発生させてください。 |

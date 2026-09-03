@@ -17,7 +17,7 @@ Recotem は Python エントリーポイントを通じて DataSource プラグ�
 from __future__ import annotations
 
 import random
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 import pandas as pd
 from pydantic import BaseModel, Field
@@ -34,13 +34,18 @@ class EchoSource:
 
     # 2. Config: pydantic BaseModel describing the recipe sub-fields for this
     #    source.  All fields appear under `source:` in the YAML alongside the
-    #    `type:` discriminator.  The loader passes the entire `source:` mapping
-    #    (including `type`) to `Config.model_validate(...)`, so either declare
-    #    `type` as a field on Config (the builtin convention — see below) or
-    #    rely on pydantic's default `extra="ignore"` to drop it.  Combining
-    #    `extra="forbid"` with no `type` field will fail recipe load with an
-    #    "unexpected key" error.
+    #    `type:` discriminator.  Config MUST declare `type` as a Literal field
+    #    whose single value equals type_name — recotem builds a pydantic
+    #    discriminated union keyed on `type` across every registered plugin,
+    #    and the training pipeline reads the field back to resolve the source
+    #    class.  Omitting it is not an option: pydantic's default
+    #    `extra="ignore"` would silently drop the YAML `type:` key and training
+    #    would fail with "Recipe source has no discriminator 'type' field."
+    #    `validate_plugin_contract` rejects a Config that omits it, types it as
+    #    anything other than `Literal`, or whose Literal disagrees with
+    #    type_name.
     class Config(BaseModel):
+        type: Literal["echo"] = "echo"
         n_users: int = Field(default=10, ge=1)
         n_items: int = Field(default=20, ge=1)
         n_rows: int = Field(default=100, ge=1)
@@ -114,6 +119,10 @@ class EchoSource:
 1. **`type_name`** はディスクリミネーター値です。レシピ内では `source.type: echo` として現れます。レジストリはこれが非空の文字列であり、ロードされたすべてのプラグイン間でユニークであることを検証します。`type_name` が重複していると `recotem train` と `recotem serve` の両方が起動時に `DataSourceError` (終了コード 3) で失敗し、競合する完全修飾クラス名がリストされます。
 
 2. **`Config`** は pydantic の `BaseModel` です。フィールドはレシピロード時に検証されます。制約には pydantic バリデーターを使用してください。デフォルト値なしの必須フィールドがレシピから欠落すると `RecipeError` が発生します。
+
+   `Config` はディスクリミネーターフィールド `type: Literal["<type_name>"] = "<type_name>"` を**必ず**宣言しなければならず、その値はクラスの `type_name` と完全に一致する必要があります。recotem は登録されたすべての `Config` を `type` をキーとする pydantic の判別可能ユニオンに組み立て (`build_source_config_union`)、`recotem.training.pipeline` がこのフィールドを読み戻してソースクラスを解決します。フィールドが欠落している場合、`typing.Literal` でない場合、または値が `type_name` と食い違う場合、`validate_plugin_contract` はプラグイン検出時に `DataSourceError` (終了コード 3) を発生させます。
+
+   代わりに pydantic のデフォルトである `extra="ignore"` に YAML の `type:` キーを吸収させることに**依存しないでください**。その組み合わせではレシピのロードは成功しますが、ディスクリミネーターが失われ、学習時に `Recipe source has no discriminator 'type' field.` (終了コード 2) で失敗します。
 
 3. **`extras_required`** は**純粋にドキュメント目的**です。レジストリはこれが `list[str]` であることのみを検証します。recotem はこれらのエクストラを自動インストールまたは自動チェックしません。`__init__` 内で役立つメッセージを自ら表示してください (以下の [遅延インポート](#遅延インポート) を参照) — 属性の値がそこで引用するものです。
 

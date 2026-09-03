@@ -218,11 +218,17 @@ training:
 
 Split scheme semantics:
 
-- `random` — interactions are held out uniformly at random per user. `time_column` is unused.
+- `random` — interactions are held out uniformly at random per user. `time_column` is unused: if `schema.time_column` is set, the `random` scheme ignores it.
 - `time_user` — for each user, the most recent `heldout_ratio` of that user's interactions (ranked by `time_column`) are held out. Cutoff is computed per user.
 - `time_global` — a single global cutoff at the `1 - heldout_ratio` quantile of `time_column` over the whole dataset; every interaction at or after the cutoff is held out, regardless of user. Users with no post-cutoff interactions become train-only.
 
 `time_user` and `time_global` require `schema.time_column`. Missing `time_column` with these schemes is a recipe validation error and exits with code 2.
+
+::: warning Behaviour change in 2.1
+Earlier releases forwarded `schema.time_column` to the splitter under every scheme, so a recipe combining `split.scheme: random` with a `schema.time_column` silently got a `time_user` (per-user recency) holdout instead of a random one. `random` now ignores `time_column`, as documented above.
+
+If your recipe sets both, the next `recotem train` produces a different split and therefore different `best_score` / `best_params` values. Existing artifacts are unaffected until you retrain. To keep the previous behaviour, set `split.scheme: time_user` explicitly.
+:::
 
 If a search produces no completed trials, training exits with code 4 and `"code": "no_completed_trials"`. If every completed trial scores exactly 0.0, exit 4 with `"code": "zero_score"` (typically caused by too short a `per_trial_timeout_seconds` or a too-small validation set).
 

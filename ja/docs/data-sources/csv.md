@@ -16,7 +16,7 @@ description: "Recotem の CSV / Parquet データソース設定。ローカル�
 | `az://` / `abfs(s)://` | `pip install "recotem[azure]"` |
 
 ::: warning Azure エクストラと公式 Docker イメージ
-公式 Docker イメージには Azure エクストラが含まれていません。`az://` または `abfs(s)://` サポートが必要な場合は、`recotem[azure]` をインストールする派生イメージをビルドしてください (例: `FROM ghcr.io/codelibs/recotem:latest` の後に `RUN pip install "recotem[azure]"`)。
+公式 Docker イメージには Azure エクストラが含まれていません。`az://` または `abfs(s)://` サポートが必要な場合は、`recotem[azure]` をインストールする派生イメージをビルドしてください (例: `FROM ghcr.io/codelibs/recotem:latest` の後に `RUN python -m ensurepip && python -m pip install "recotem[azure]"`)。イメージには意図的に pip が同梱されていないため、まず `python -m ensurepip` で復元する必要があります。
 :::
 
 `http://` および `https://` URI は追加のインストールなしで使用できます。ネットワークスキームのパスには `sha256` 整合性ピンが**必須**であり、ボディは `RECOTEM_MAX_DOWNLOAD_BYTES` (デフォルト 256 MiB) で上限が設定されます。下記の [ネットワークスキームの整合性](#ネットワークスキームの整合性-http-https) を参照してください。`file://` はベアローカルパスとして扱われ、追加のインストールは不要です。

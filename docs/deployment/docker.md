@@ -13,8 +13,8 @@ Pushed by `.github/workflows/docker.yml` to `ghcr.io/codelibs/recotem`:
 
 | Tag pattern | Mutability | Use for |
 |---|---|---|
-| `2.0.0`, `2.0.1`, ... (semver `{{version}}`) | immutable | production — pin here |
-| `2.0`, `2.1`, ... (semver `{{major}}.{{minor}}`) | mutable within a minor | rolling minor pin |
+| `2.0.0`, `2.0.1`, ... (full semver, `MAJOR.MINOR.PATCH`) | immutable | production — pin here |
+| `2.0`, `2.1`, ... (semver `MAJOR.MINOR`) | mutable within a minor | rolling minor pin |
 | `latest` | mutable, tracks `main` | quick evaluation; do not use in production |
 | `main` (branch ref) | mutable, head of `main` | smoke-tests only |
 | `sha-<short>` | immutable | reproducing a specific commit |
@@ -123,7 +123,7 @@ Named Docker volumes (as in `compose.yaml`) are pre-created with the right owner
 
 ### Image-level HEALTHCHECK
 
-The Dockerfile declares its own `HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3` that probes `urllib.request.urlopen(f'http://127.0.0.1:{RECOTEM_PORT}/health', timeout=3)` (so it picks up an overridden `RECOTEM_PORT`). Note: the image-default probe targets `/health` (no `/v1` prefix); because the v1 router is mounted at `/v1` the public health endpoint is `/v1/health`. The Compose-level healthcheck shown in the annotated example overrides the image default for the `serve` service and targets `/v1/health`; orchestrators should rely on the HTTP 200 response from `/v1/health`. For one-shot `train` containers the image healthcheck fires after the process has already exited and causes no spurious failures.
+The Dockerfile declares its own `HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3` that probes `urllib.request.urlopen(f'http://127.0.0.1:{RECOTEM_PORT}/v1/health', timeout=3)` (so it picks up an overridden `RECOTEM_PORT`). The v1 router is mounted at `/v1`, so `/v1/health` is the public health endpoint and a bare `/health` returns 404. The Compose-level healthcheck shown in the annotated example overrides the image default for the `serve` service and targets the same `/v1/health` path; orchestrators should rely on the HTTP 200 response from `/v1/health`. For one-shot `train` containers the image healthcheck fires after the process has already exited and causes no spurious failures.
 
 ### Reverse proxy binding
 

@@ -16,7 +16,7 @@ The builtin `csv` and `parquet` sources read tabular interaction data via pandas
 | `az://` / `abfs(s)://` | `pip install "recotem[azure]"` |
 
 ::: warning Azure extra and the official Docker image
-The official Docker image does not include the Azure extra. If you need `az://` or `abfs(s)://` support, build a derived image that installs `recotem[azure]` (e.g. `FROM ghcr.io/codelibs/recotem:latest` followed by `RUN pip install "recotem[azure]"`).
+The official Docker image does not include the Azure extra. If you need `az://` or `abfs(s)://` support, build a derived image that installs `recotem[azure]` (e.g. `FROM ghcr.io/codelibs/recotem:latest` followed by `RUN python -m ensurepip && python -m pip install "recotem[azure]"`). The image deliberately ships without pip, so `python -m ensurepip` is required to restore it first.
 :::
 
 `http://` and `https://` URIs are accepted without any extra install. A `sha256` integrity pin is **mandatory** for network-scheme paths, and the body is capped at `RECOTEM_MAX_DOWNLOAD_BYTES` (default 256 MiB). See [Network-scheme integrity](#network-scheme-integrity-http-https) below. `file://` is treated as a bare local path and requires no extra install.

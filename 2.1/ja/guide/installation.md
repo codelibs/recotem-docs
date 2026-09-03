@@ -34,7 +34,7 @@ recotem --help
 | Amazon S3 | `pip install "recotem[s3]"` | S3 からアーティファクトとデータを読み書きする |
 | Google Cloud Storage | `pip install "recotem[gcs]"` | GCS からアーティファクトとデータを読み書きする |
 | Azure Blob Storage | `pip install "recotem[azure]"` | Azure からアーティファクトとデータを読み書きする |
-| Prometheus メトリクス | `pip install "recotem[metrics]"` | モニタリング用のオプトイン `/metrics` エンドポイント |
+| Prometheus メトリクス | `pip install "recotem[metrics]"` | モニタリング用のオプトイン `/v1/metrics` エンドポイント (`X-API-Key` が必要) |
 
 エクストラは組み合わせて使えます: `pip install "recotem[s3,metrics]"`
 
