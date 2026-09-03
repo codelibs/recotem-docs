@@ -62,6 +62,7 @@ recotem keygen --type api
 | `user_id` | string | 必須、1〜256 文字 | — | 学習データに存在するユーザー識別子。 |
 | `limit` | integer | 1〜1000 | `10` | 返すアイテムの最大数。 |
 | `exclude_items` | string[] \| null | 任意、最大 1000 件 | null | 結果から除外するアイテム ID。 |
+| `user_features` | object \| null | 任意、最大 64 キー。キーは 1〜256 文字、文字列値は 8192 文字以下 | null | レシピの `features.user` カラム名をキーとする生のフィーチャー値。[`features:`](./recipe-reference#features) ブロックで学習したモデルに対してのみ意味を持ちます。[フィーチャーアウェアなコールドスタート](#フィーチャーアウェアなコールドスタート) を参照。 |
 
 ```json
 {
@@ -92,14 +93,17 @@ recotem keygen --type api
 | コード | 条件 | エラーコード |
 |---|---|---|
 | 200 | 成功 | — |
+| 400 | `user_features` が渡されたがモデルに対応するフィーチャー状態がない | `FEATURES_NOT_SUPPORTED` |
+| 400 | `numerical` のフィーチャー値がコールドスタートソルバーで扱えない大きさに標準化された | `FEATURE_VALUE_UNUSABLE` |
 | 401 | `X-API-Key` が欠落 | `MISSING_API_KEY` |
 | 401 | キーがどのエントリとも一致しない | `INVALID_API_KEY` |
-| 404 | `user_id` が学習時に存在しなかった | `UNKNOWN_USER` |
+| 404 | `user_id` が学習時に存在しなかった (かつ利用可能な `user_features` が渡されなかった) | `UNKNOWN_USER` |
+| 413 | リクエストボディが `RECOTEM_MAX_BODY_BYTES` を超過 | `PAYLOAD_TOO_LARGE` |
 | 422 | リクエストボディのスキーマバリデーション失敗 | `VALIDATION_ERROR` |
 | 503 | レシピがロードされていない | `RECIPE_UNAVAILABLE` |
 
 ::: tip UNKNOWN_USER はサーバーエラーではありません
-未知のユーザーに対する 404 は、学習時に存在しなかった新規ユーザーでは想定通りの動作です。アプリケーション層でこれを処理してください — 例えば人気ベースの推薦にフォールバックするなど。
+未知のユーザーに対する 404 は、学習時に存在しなかった新規ユーザーでは想定通りの動作です。アプリケーション層でこれを処理してください — 例えば人気ベースの推薦にフォールバックするなど。[`features:`](./recipe-reference#features) ブロックで学習したモデルであれば、代わりに `user_features` を渡すことでその新規ユーザーに対しても実際の推薦を得られます。[フィーチャーアウェアなコールドスタート](#フィーチャーアウェアなコールドスタート) を参照してください。
 :::
 
 **curl の例:**
@@ -126,6 +130,8 @@ curl -s -X POST http://localhost:8080/v1/recipes/purchase_log:recommend \
 | `seed_items` | string[] | 必須、1〜100 件 | — | シードとして使用するアイテム ID。 |
 | `limit` | integer | 1〜1000 | `10` | 返すアイテムの最大数。 |
 | `exclude_items` | string[] \| null | 任意 | null | 結果から除外するアイテム ID。 |
+| `user_features` | object \| null | 任意、最大 64 キー。キーは 1〜256 文字、文字列値は 8192 文字以下 | null | レシピの `features.user` カラム名をキーとする生のフィーチャー値。シード履歴のソルブにプロファイルの事前分布を加えます。[フィーチャーアウェアなコールドスタート](#フィーチャーアウェアなコールドスタート) を参照。 |
+| `item_features` | object[string, object] \| null | 任意、外側のキーは最大 100 件。各値は最大 64 キー | null | 学習時に存在しなかったシードアイテムの生のフィーチャー値。シードアイテム ID をキーとします。[フィーチャーアウェアなコールドスタート](#フィーチャーアウェアなコールドスタート) を参照。 |
 
 ```json
 {
@@ -141,11 +147,16 @@ curl -s -X POST http://localhost:8080/v1/recipes/purchase_log:recommend \
 | コード | 条件 | エラーコード |
 |---|---|---|
 | 200 | 成功 | — |
+| 400 | `user_features` / `item_features` が渡されたがモデルに対応するフィーチャー状態がない | `FEATURES_NOT_SUPPORTED` |
+| 400 | `numerical` のフィーチャー値がコールドスタートソルバーで扱えない大きさに標準化された | `FEATURE_VALUE_UNUSABLE` |
 | 401 | 認証失敗 | `MISSING_API_KEY` / `INVALID_API_KEY` |
 | 404 | シードアイテムが全てモデルに未知 | `UNKNOWN_SEED_ITEMS` |
 | 404 | シードは既知だがランキング後に候補が残らない | `NO_CANDIDATES` |
+| 413 | リクエストボディが `RECOTEM_MAX_BODY_BYTES` を超過 | `PAYLOAD_TOO_LARGE` |
 | 422 | スキーマバリデーション失敗 | `VALIDATION_ERROR` |
 | 503 | レシピがロードされていない | `RECIPE_UNAVAILABLE` |
+
+`NO_CANDIDATES` はこの動詞のすべての分岐 — 全シード既知の経路と、2 つのフィーチャーアウェアなコールドスタート分岐 — で同一に送出されます。したがってどの経路が処理したかに関わらず、クライアントは HTTP ステータスで分岐できます。
 
 **curl の例:**
 
@@ -168,8 +179,10 @@ curl -s -X POST http://localhost:8080/v1/recipes/purchase_log:recommend-related 
 
 | フィールド | 型 | 制約 | デフォルト | 説明 |
 |---|---|---|---|---|
-| `requests` | RecommendRequest[] | 1〜256 件 | — | ユーザーごとの推薦リクエスト。各要素は `:recommend` ボディと同じ形状。 |
+| `requests` | RecommendRequest[] | 1〜256 件 | — | ユーザーごとの推薦リクエスト。各要素は `:recommend` ボディと同じ形状で、任意の `user_features` コールドスタートマッピングも含みます。 |
 | `include_metadata` | boolean | — | `false` | `false` の場合、バルクパフォーマンスのためメタデータ結合フィールドが `items` から省略されます。単一ユーザーエンドポイントと同じアイテム形状を得るには `true` に設定してください。 |
+
+各要素は単一の `:recommend` エンドポイントとまったく同じように `user_features` を受け付けます ([フィーチャーアウェアなコールドスタート](#フィーチャーアウェアなコールドスタート) を参照)。対応するフィーチャー状態を持たないモデルの要素は、バッチ全体を失敗させるのではなく `status: "error"`、`code: "FEATURES_NOT_SUPPORTED"` として現れます。バルクなコールドスタートではバッチ処理が推奨経路でもあります — リクエストあたりのソルブを 300〜500 µs からユーザーあたり 8〜12 µs まで償却します。
 
 ```json
 {
@@ -209,9 +222,10 @@ curl -s -X POST http://localhost:8080/v1/recipes/purchase_log:recommend-related 
 
 - `requests` 配列は 1〜256 件でなければなりません。この範囲外の配列はリクエスト全体に対して `422` を返します。
 - 全 `requests[].limit` の合計は **5000** を超えてはなりません。合計がこの上限を超える要素は要素単位の `VALIDATION_ERROR` 結果を受け取ります。以降の要素は引き続き処理されます。
-- スキーマエラーを持つ個別の要素はバッチ全体を失敗させません。その要素は要素単位の `VALIDATION_ERROR` 結果を受け取り、HTTP レスポンス全体は `200` のままです。
+- スキーマエラーを持つ個別の要素はバッチ全体を失敗させません。その要素は要素単位の `VALIDATION_ERROR` 結果を受け取り、HTTP レスポンス全体は `200` のままです。コールドスタートのキー長・値の型・値の長さの違反も、`422` でバッチ全体を失敗させるのではなく同じ形で現れます。
 - `X-Recotem-Items-Degraded` はバッチレスポンスでは送信されません。
 - `503` が返されるのはレシピ自体が利用不可 (未ロード) の場合のみです。`UNKNOWN_USER` などの要素単位のエラーは HTTP ステータスコードに影響しません。
+- リクエストボディ全体は引き続き `RECOTEM_MAX_BODY_BYTES` (デフォルト 128 MiB) で制限されます。上限を超えるボディは JSON がパースされる前に `413 PAYLOAD_TOO_LARGE` で拒否されます。
 
 **curl の例:**
 
@@ -238,6 +252,11 @@ curl -s -X POST http://localhost:8080/v1/recipes/purchase_log:batch-recommend \
 
 **リクエストボディ:** `:batch-recommend` と同じエンベロープで、各要素は `:recommend-related` ボディの形状に従います。
 
+| フィールド | 型 | 制約 | デフォルト | 説明 |
+|---|---|---|---|---|
+| `requests` | RecommendRelatedRequest[] | 1〜256 件 | — | シードごとの関連アイテムリクエスト。各要素は `:recommend-related` ボディと同じ形状で、任意の `user_features` および `item_features` コールドスタートマッピングも含みます。 |
+| `include_metadata` | boolean | — | `false` | `false` の場合、メタデータ結合フィールドが `items` から省略されます。単一シードエンドポイントと同じアイテム形状を得るには `true` に設定してください。 |
+
 ```json
 {
   "requests": [
@@ -250,7 +269,17 @@ curl -s -X POST http://localhost:8080/v1/recipes/purchase_log:batch-recommend \
 
 **レスポンスボディ (200 OK):** `:batch-recommend` と同じエンベロープ。
 
-**バッチルール:** 上記の `:batch-recommend` と同一。
+**バッチルール:** 上記の `:batch-recommend` と同一。さらに集計上限がもう 1 つあります。
+
+::: warning 注意 — コールドシードのソルブ集計上限: 512
+この動詞には `:batch-recommend` には不要な*第 2 の*集計上限があります。[ケース C](#フィーチャーアウェアなコールドスタート) はコールドシード 1 件につき 1 回のソルブを実行するため、コールドシードの集計件数 — 各要素の `item_features` で指名されたシードの全要素にわたる `sum` — が **512** を超えてはなりません。累計がこの上限を超える要素は、集計 `limit` の上限とまったく同様に `status: "error"`、`code: "VALIDATION_ERROR"` として現れ、以降の要素は引き続き処理されます。
+
+2 つの上限は異なる次元を守っており、どちらか一方が他方を包含することはありません。`sum(limit)` はレスポンスの量を制限し、こちらはソルバーの作業量を制限します。`limit: 1` の要素からなるバッチは集計 `limit` 上限の 2% にとどまりながら 25,600 回のソルブを要求します。件数はリクエストのみから算出されます — `item_features` で指名されたシードは、結果的に既知アイテムで学習済み埋め込みが使われる場合でもカウントされます — したがって同じボディはどのモデルがロードされていても常に同一に受理または拒否されます。
+
+単一の `:recommend-related` 呼び出しがこの上限に達することはありません。`seed_items` は最大 100 件なので、最大でも 1 リクエストあたり 100 回のソルブです。
+:::
+
+各要素は単一の `:recommend-related` エンドポイントとまったく同じように `user_features` / `item_features` を受け付けます。ケース A/B/C の優先順位ルールも同じです。候補が 1 件も残らなかった要素は、どの分岐であっても `status: "error"`、`code: "NO_CANDIDATES"` として現れます。
 
 **curl の例:**
 
@@ -480,6 +509,9 @@ scrape_configs:
 | `recotem_v1_batch_element_errors_total` | Counter | `recipe`, `verb`, `code` |
 | `recotem_v1_metadata_degraded_items_total` | Counter | `recipe`, `verb`, `kind` |
 | `recotem_v1_validation_errors_outside_verb_total` | Counter | — |
+| `recotem_v1_feature_unknown_value_total` | Counter | `recipe`、`side`、`column` |
+| `recotem_v1_feature_unknown_column_total` | Counter | `recipe`、`side` |
+| `recotem_v1_cold_start_requests_total` | Counter | `recipe`、`case` |
 | `recotem_model_loaded` | Gauge | `recipe` |
 | `recotem_artifact_load_failures_total` | Counter | `recipe`, `reason` |
 | `recotem_active_recipes` | Gauge | — |
@@ -494,7 +526,11 @@ scrape_configs:
 | `recotem_bigquery_storage_fallback_total` | Counter | `reason` |
 | `recotem_recipes_dir_scan_failures_total` | Counter | `error_class` |
 
-`verb` ラベルは `recommend`、`recommend-related`、`batch-recommend`、`batch-recommend-related` の値を取ります。`recotem_v1_requests_total` の `status` ラベルは `ok`、`unknown_user`、`unknown_seed_items`、`no_candidates`、`unavailable`、`recipe_not_found`、`validation_error`、`error` の 8 値を取ります。`recotem_artifact_load_failures_total` の `reason` ラベルは `read`、`parse`、`hmac`、`header_json`、`deserialize`、`metadata`、`yaml`、`unexpected`、`dir_scan`、`timeout`、`version_skew`、`feature_version` の値を取ります。
+`verb` ラベルは `recommend`、`recommend-related`、`batch-recommend`、`batch-recommend-related` の値を取ります。`recotem_v1_requests_total` の `status` ラベルは `ok`、`unknown_user`、`unknown_seed_items`、`no_candidates`、`unavailable`、`recipe_not_found`、`validation_error`、`features_not_supported`、`feature_value_unusable`、`error` の 10 値を取ります。`recotem_artifact_load_failures_total` の `reason` ラベルは `read`、`parse`、`hmac`、`header_json`、`deserialize`、`metadata`、`yaml`、`unexpected`、`dir_scan`、`timeout`、`version_skew`、`feature_version`、`feature_state` の値を取ります。`recotem_v1_cold_start_requests_total` の `case` ラベルは `features_only` (ケース A)、`features_and_history` (ケース B)、`cold_seeds` (ケース C) の値を取ります。
+
+::: warning 注意 — `status="error"` はサーバー障害のみ
+`features_not_supported` と `feature_value_unusable` はクライアント起因の結果であり、不正なクライアントがオンコールを呼び出せないよう専用の `status` ラベルを持っています。アラートは `status="error"` に厳密に設定してください — `status!="ok"` では決して設定しないでください。
+:::
 
 **curl の例:**
 
@@ -502,6 +538,100 @@ scrape_configs:
 curl -s http://localhost:8080/v1/metrics \
   -H "X-API-Key: <plaintext>"
 ```
+
+---
+
+## フィーチャーアウェアなコールドスタート
+
+`user_features` と `item_features` は [`features:`](./recipe-reference#features) ブロックで学習したモデルに対してのみ意味を持ちます。これらはどのモデルでも受理され検証されますが、対応するフィーチャー状態を持たないモデル — あるいは探索の勝者がフィーチャー非対応であるモデル — は、フィールドを黙って無視したり推測したりせず `400 FEATURES_NOT_SUPPORTED` を返します。
+
+あるアーティファクトがこれらのケースを提供できるかどうかは、リクエストを送らずに事前に読み取れます。`recotem inspect` は `features.active` を出力し、これは探索の勝者が実際にエンコーダ状態を利用できる場合にのみ `true` になります。`features` キーをまったく持たないアーティファクト、または `"active": false` のアーティファクトは `FEATURES_NOT_SUPPORTED` を返します — [レシピリファレンス — アーティファクトヘッダーが記録する内容](./recipe-reference#アーティファクトヘッダーが記録する内容) を参照してください。
+
+### 3 つのケース
+
+| ケース | 動詞 | トリガー | 動作 |
+|---|---|---|---|
+| A — 未知ユーザー、フィーチャーのみ | `:recommend` | `user_id` が未知で `user_features` が存在 | プロファイルのみに対してすべての既知アイテムをスコアリングします (このユーザーにはまだインタラクション履歴が存在しません)。 |
+| B — 未知ユーザー、フィーチャー + アドホックな履歴 | `:recommend-related` | `user_features` が存在 | 既存経路と同じシード履歴のソルブを実行し、プロファイルを結合事前分布として加えます。これはどちらか一方ではなく真の結合ソルブであり、フィーチャーのみのスコアとも履歴のみのスコアとも相関しません。 |
+| C — 未知のシードアイテム | `:recommend-related` | 1 件以上の `seed_items` が学習時に存在せず、`item_features` に対応するエントリがある | 各コールドシードの埋め込みをそのフィーチャーから計算し、既知シードの学習済み埋め込みと平均して、アイテム間類似度としてスコアリングします。 |
+
+`:recommend-related` でコールドシードの `item_features` **と** `user_features` の両方が渡された場合は、**ケース C が優先されます**。コールドシードはケース B のソルブが使うシード履歴行列に行を持たないため、ケース B だけを実行するとそのシードの寄与が黙って失われます。コールドシードのフィーチャーを実際に利用できる経路はケース C だけです。
+
+各ケースは `recotem_v1_cold_start_requests_total` を、それぞれ `features_only`、`features_and_history`、`cold_seeds` の `case` ラベルで増加させます。
+
+::: tip ヒント — 既知の `user_id` に `user_features` を渡してもエラーにはなりません
+そのユーザーの実際のインタラクション履歴から学習された埋め込みはプロファイルの事前分布を厳密に上回るため、サーバーは常に前者を優先し、渡された `user_features` を単に**無視**します — リクエストを拒否することはありません。これによりクライアントは、そのユーザーが新規か再訪かを事前に知らなくても、常にプロファイルを送信できます。
+:::
+
+### 宣言されていないフィーチャーキーは黙って無視されます
+
+宣言されたカラムに該当しないフィーチャーキーはエラーでは**ありません**。エンコードはモデルが*宣言した* `features:` のカラムから駆動されるため、そのサイドのどの宣言済みカラムにも一致しない `user_features` / `item_features` のキーは決して読まれません。リクエストはエラーフィールドなしで `200` を返し、そのキーが拒否されたことを示すものはボディに何も含まれません。
+
+サーバー側の唯一のシグナルは `recotem_v1_feature_unknown_column_total` メトリクスです。ラベルは recipe と**サイドのみ — キー名は決して含まれません**。そうしたキーを 1 つ以上含むリクエストごと、サイドごとに 1 回増加します。これは*宣言済み*カラムにおける未知の*値* (下記) とは別で、そちらも `200` を返しますが `recotem_v1_feature_unknown_value_total` で別途カウントされます。
+
+::: danger クライアントはフィーチャーキーの検証を API に頼ってはいけません
+*すべての*キーが誤字である (あるいは誤ったサイドに向けられている) マッピングは、バイアスカラムのみにエンコードされ、**母集団の事前分布に基づく結果**を返します — 空の `user_features` が生成するのと同じ出力であり、レスポンス上では区別できません。黙って無視されたキーは、レスポンス上では、たまたま何のシグナルも追加しなかった正しいリクエストとバイト単位で同一です。
+:::
+
+### 未知のフィーチャー値は劣化するだけで、リクエストは失敗しません
+
+「劣化」が何を意味するか、そして `recotem_v1_feature_unknown_value_total` が実際にそれを捕捉するかどうかは、エンコーディングによって異なります。
+
+- `categorical` — 学習時ボキャブラリに存在しない値はそのカラムの全ゼロセグメントにエンコードされ、カウンターが増加します。
+- `multi_label` — 各トークンが独立に参照されます。既知のトークンは保持され (入力内で繰り返されていても、それぞれ自身の次元にちょうど `1.0` を寄与します)、未知のトークンは破棄されます。同じ値の中に既知のトークンがあっても、供給されたトークンの**いずれか**がボキャブラリから外れればカウンターは増加します。`"Action|Thrller"` のような混在した値は既知トークンのビットを立て、`Thrller` を破棄し、それでもカウンターを増加させます — 部分的な誤字は黙って吸収されるのではなく捕捉されます。
+- `numerical` — **欠損**値 (不在、`null`、`NaN`)、または数値としてまったくパースできない値は行に何も寄与せず、標準化された平均 (`0`) をエンコードするのと等価であり、カウンターを増加させ**ません**。数値としてパースできるが**非有限**である値 (`Infinity` / `-Infinity`、または `"nan"` のような文字列から到達する `NaN`) も行に何も寄与しませんが、このケースはカウンターを増加させ**ます**。不在の値ではなく、サーバーが利用できなかった実在する値だからです。
+
+::: warning 注意 — `numerical` カラムの汎用的な誤字検出器ではありません
+**欠損またはパース不能**な `numerical` 値は、何のシグナルもないまま推薦を劣化させ続けます — カバーされるのは上記の非有限のケースのみです。`categorical` と `multi_label` はどちらも確実にカバーされます。
+:::
+
+`multi_label` はカウントベクトルではなく multi-**hot** です。`"rock|pop|rock"` は `rock` の次元に `2.0` ではなく `1.0` を寄与します — 1 つの値の中の重複トークンは、学習時もコールドスタートリクエストでもエンコード前に重複除去されます。
+
+### 大きな数値: 広いサイレント劣化帯と、400 になる極端な裾
+
+上記の欠損・パース不能のケースとは異なり、`numerical` 値はサービング時に、そのカラムの*学習時*の平均/標準偏差でリクエスト値を割ることで標準化されます — リクエスト自身の値は含まれていないフィットです。結果として生じる大きさに上限を課すものは何もないため、挙動は「正常」と「ハード 400」のきれいな 2 分割には**なりません**。学習時標準偏差 ≈ 0.425 のカラムに対する実測のスイープでは次のようになりました。
+
+| 値 | 結果 |
+|---|---|
+| `0.3` | `200`、小さく、正常に見えるスコア |
+| `100` | `200`、ただしスコアはすでに明らかに退化している (順序のみで、プロファイルに比例しなくなっている) |
+| `1e6` – `1e18` | `200`、値が大きくなるにつれてスコアが際限なく増大する (数億以上へ) |
+| 約 `1e19` 以上 | `400 FEATURE_VALUE_UNUSABLE` — ここで初めて irspack のリクエストごとのコールドスタートソルバー自身が諦めます |
+
+::: danger およそ `1e2` から `1e18` はサイレントな劣化です
+この帯域ではレスポンスは `200` で、際限のない実質的に無意味なスコアと固定化・退化したランキングが返ります — そしてこれらの有限値はいずれも `recotem_v1_feature_unknown_value_total` に触れません (このカウンターが `numerical` 値で発火するのは非有限の場合のみです)。したがってサーバー側でも何も知らせません。
+
+400 が発生するのは、標準化後の大きさが背後の共役勾配法のソルブを特異にするほど大きくなった場合のみです。**正確な境界は固定の定数ではありません** — カラムの学習時標準偏差と、その系を解く BLAS 実装に依存するため、境界値 (例えば `1e22`) を契約としてハードコードしないでください。
+:::
+
+400 の `detail` メッセージが記述するのはクライアントの生の値ではなく**標準化後**の値です。生の値が極端である必要はないからです。学習時標準偏差が十分に小さいカラムでは、`10000` のような普通の生の値でも、通常サイズの標準偏差に対する `1e22` と同じようにソルバーを壊す大きさに標準化されえます。したがって `detail` の文字列は、渡された値そのものが極端だったとは決して主張せず、結果として生じた*標準化後*の値がこのモデルのコールドスタートスコアリングにとって数値的に利用不能だったと述べます。これはどちら側 (生の値の大きさか、極小の標準偏差か) が原因であっても真です。
+
+ほぼ定数のカラムは別のバグではなく、標準偏差が小さいケースの特殊例です。そしてその最も一般的な原因には学習側で下限が設けられています。`build_encoder_state` は、`numerical` カラムの学習時標準偏差が `1e-8 × max(abs(mean), 1.0)` 以下である場合に、それをゼロに丸めます — 実際の意図的な小さい分散を保ちつつ、現実的な浮動小数点の丸め誤差を吸収できるだけの厳密さです。この下限に捕捉されたカラムは標準化の除算にそもそも到達せず、欠損値とまったく同じように劣化します (`feature_zero_variance_column` として 1 度だけログに記録されます)。400 にはなりません。ただしこれは現象一般を解消するものではありません。丸め誤差ではない真に小さい分散を持ち、下限のわずかに上にあるカラムは、上記のスイープと同じ仕組みで普通の値を利用不能な大きさに標準化します。
+
+標準化後の大きさをソルバーに渡す前にクランプすること — これはサイレント劣化帯を塞ぎます — は見落としではなく意図的に見送られました。クランプの境界 (学習時標準偏差の何倍を「大きすぎる」とするか) を決めることは、同じエンコーディングを利用する学習を含むすべての下流に影響するモデリング上の決定であり、400 の経路のバグ修正ではないからです。
+
+いずれにせよ学習は影響を受けません。学習時のエンコードを通る同じ値はこのガードの影響を受けず、ガードはサービング時のコールドスタートのソルブのみを包みます。学習側にははるかに強い自己制約があります — `numerical` カラムの学習時の平均/標準偏差は標準化される値そのものから計算されるため、外れ値はそれ自身が割られる標準偏差を膨らませます。サービング時にはそのような自己制約はありません。リクエストの値は、それを含まずにフィットされた標準偏差に対して標準化されるからです。
+
+### コールドスタートフィールドの長さとサイズの上限
+
+コールドスタートのフィーチャーマッピングは 3 つの軸で制限され、いずれもモデルに到達する前に拒否されます。
+
+| 軸 | 上限 | 上限超過時 |
+|---|---|---|
+| キー数 | `user_features` / `item_features` マッピングごとに **64 キー**以下。`item_features` はさらに外側のシード ID キーを **100** に制限します。 | `422 VALIDATION_ERROR` |
+| キー長 | 各フィーチャー辞書のキー (`user_features` のカラム名、`item_features` の外側のシード ID、ネストされたシードごとのフィーチャーキー) は **1〜256 文字**である必要があります。 | `422`。エラーは違反した長さのみを報告し、キーのテキストは決して含みません |
+| 値の型 | 各フィーチャー値は JSON の**スカラー** (文字列、数値、真偽値、`null`) である必要があります。 | 配列やオブジェクトは `422` |
+| 値の長さ | 各*文字列*のフィーチャー値は **8192 文字以下**である必要があります (`multi_label` のトークナイズ処理を制限します)。文字列以外のスカラーは影響を受けません。 | `422`。エラーは違反したカラム名を示しますが、値そのものは決して出力しません |
+
+値の型のルールは単なるサイズガードではありません。値は `str(value)` を介してエンコードされるため、配列は Python の repr として学習時ボキャブラリと照合されることになり、決して何にも一致しません — もともと何もしない操作であり、ただコストが高いだけでした。
+
+バッチ動詞では、キー長・値の型・値の長さの違反は、バッチ全体を失敗させるのではなく `200` のバッチレスポンス内の要素ごとの `VALIDATION_ERROR` として現れます。
+
+これらのフィールドごとの上限とは独立に、**リクエストボディ全体**が `RECOTEM_MAX_BODY_BYTES` (デフォルト **128 MiB**、`[1 MiB, 2 GiB]` にクランプ) で制限されます。この上限を超えるボディは JSON がパースされる**前**に `413 PAYLOAD_TOO_LARGE` で拒否されるため、ボディがどのフィールドを持つかに関わらずすべての POST エンドポイントに適用されます。
+
+::: warning 注意 — フィーチャー値は個人データです
+`user_features` と `item_features` は構造上、個人データ (年齢層、国、デバイスカテゴリなど) を運びます。生のフィーチャー値がログに記録されることはなく、レスポンスボディに反映されることもありません。[セキュリティ — リクエスト側の PII](./security#リクエスト側の-pii-user-features-item-features) を参照してください。
+:::
 
 ---
 
@@ -543,6 +673,9 @@ curl -s http://localhost:8080/v1/metrics \
 | `UNKNOWN_USER` | 404 | `user_id` が学習の idmap に存在しなかった。 |
 | `UNKNOWN_SEED_ITEMS` | 404 | `seed_items` の全アイテムがモデルに未知。 |
 | `NO_CANDIDATES` | 404 | シードアイテムは既知だが、ランキングステージを経て候補が残らなかった。 |
+| `FEATURES_NOT_SUPPORTED` | 400 (HTTP) / 要素単位 (バッチ) | 対応するフィーチャー状態を持たないモデルに `user_features` / `item_features` が渡された — `features:` ブロックがないか、探索の勝者がエンコーダ状態を利用できない (`features.active: false`)。 |
+| `FEATURE_VALUE_UNUSABLE` | 400 | `numerical` のフィーチャー値が、リクエストごとのコールドスタートのソルブを数値的に特異にする大きさに標準化された。メッセージが示すのは*標準化後*の値であり、生の値ではない。 |
+| `PAYLOAD_TOO_LARGE` | 413 | リクエストボディが `RECOTEM_MAX_BODY_BYTES` (デフォルト 128 MiB) を超過。JSON がパースされる前に、すべての POST エンドポイントで適用される。 |
 | `VALIDATION_ERROR` | 422 (HTTP) / 要素単位 (バッチ) | リクエストまたは要素ボディのスキーマバリデーション失敗。 |
 | `MISSING_API_KEY` | 401 | `X-API-Key` ヘッダが存在しない。 |
 | `INVALID_API_KEY` | 401 | `X-API-Key` が設定済みのどのキーとも一致しない。 |

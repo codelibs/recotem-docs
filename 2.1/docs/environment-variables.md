@@ -37,13 +37,23 @@ To bind to a non-loopback interface you must configure `RECOTEM_API_KEYS`. Set `
 
 ## Limits and caps
 
-These variables control memory and download size limits. All are enforced before deserialization.
+These variables control memory, request, and download size limits. The artifact caps are enforced before deserialization.
 
 | Variable | Default | Scope | Clamping | Description |
 |---|---|---|---|---|
 | `RECOTEM_MAX_ARTIFACT_BYTES` | 2 GiB | serve | [1 MiB, 16 GiB] | Per-artifact file size cap. Enforced before any deserialization occurs. Reduce this if you have many small models to lower the memory ceiling per artifact. |
 | `RECOTEM_MAX_PAYLOAD_BYTES` | 512 MiB | serve | [1 MiB, 16 GiB] | Per-payload cap applied post-HMAC-verify during deserialization. Must be less than or equal to `RECOTEM_MAX_ARTIFACT_BYTES`; startup fails with a `ConfigError` (exit 8) if it is not. Smaller than `RECOTEM_MAX_ARTIFACT_BYTES` to bound the memory expansion from deserialization. |
+| `RECOTEM_MAX_BODY_BYTES` | 128 MiB | serve | [1 MiB, 2 GiB] | Maximum HTTP **request** body size. A `BodySizeLimitMiddleware` returns `413 PAYLOAD_TOO_LARGE` when the declared `Content-Length` exceeds the cap, and enforces a running byte count on chunked/streamed bodies with no `Content-Length` so the header cannot be omitted to bypass it. Enforced **before** Starlette buffers and JSON-parses the body. |
 | `RECOTEM_MAX_DOWNLOAD_BYTES` | 256 MiB | train | [1 MiB, 16 GiB] | Raw I/O bytes cap for HTTP/HTTPS, local file, and object-store source reads. The cap is applied mid-stream; exceeding it raises `DataSourceError` (exit 3). Does **not** cap the decompressed DataFrame — see [Security — Decompressed-size cap not enforced](./security#decompressed-size-cap-not-enforced-medium-5). |
+| `RECOTEM_MAX_FEATURE_DIM` | `5000` | train | [16, 100000] | Cap on the encoded side-feature dimension for [feature-aware iALS](./recipe-reference#features), checked independently per side (item and user). Exceeding it raises `TrainingError` (exit 4) at the point the encoder state is built. Vocabulary is built from the whole fetched feature table, so the dimension scales with **catalog size, not interaction count**; `min_frequency` is the only recipe-level lever against it. Per-trial cost is cubic in this number and multiplies with `training.parallelism` — see [Operations — Feature-aware iALS sizing](./operations#feature-aware-ials-sizing). |
+
+::: warning `RECOTEM_MAX_FEATURE_DIM` is a training-time cap only
+It is enforced in `build_encoder_state` while `recotem train` builds the encoder, and has **no serve-side effect** — `recotem serve` never reads it. Do not treat it as a serving-memory guard: the encoded feature matrix pickled into the artifact scales with `n_items × nnz_per_row`, which this variable does not bound. Use `RECOTEM_MAX_PAYLOAD_BYTES` and host sizing for the serve side.
+:::
+
+::: tip `RECOTEM_MAX_BODY_BYTES` and the batch verbs
+The 128 MiB default clears the largest schema-valid *single-verb* body (`:recommend-related` tops out near 52 MiB with maximal cold-start feature mappings) but deliberately not the largest *batch* body: `:batch-recommend` tops out near 196 MiB and `:batch-recommend-related` near 13 GiB — the latter beyond even the 2 GiB clamp. Those are refused with `413`. An operator who genuinely sends batches that large must raise the cap.
+:::
 
 ## HTTP fetcher
 
@@ -86,7 +96,8 @@ These variables configure storage paths, locking, metadata field filtering, and 
 | `RECOTEM_ARTIFACT_ROOT` | (empty) | train | — | If set, local `output.path` values in recipes must lie under this directory. Symlink escapes are rejected. Use this to confine where train processes can write artifacts on the host. |
 | `RECOTEM_LOCK_DIR` | (empty) | train | — | Override directory for per-recipe training lock files. Local `output.path` values always lock at `<output_path>.lock`. Remote `output.path` values (`s3://`, `gs://`, etc.) require a host-local lock file; if `RECOTEM_LOCK_DIR` is unset they fall back to `<tempdir>/recotem-locks/`. Note: `flock` is host-local — for cross-host single-writer guarantees use scheduler-level mutex (Kubernetes `concurrencyPolicy: Forbid`, etc.). |
 | `RECOTEM_METADATA_FIELD_DENY` | (empty) | serve | — | Comma-separated list of column names dropped from the item-metadata index at load time, so they never appear on any recommendation response (`:recommend`, `:recommend-related`, and `:batch-recommend*` when `include_metadata=true`). Matching is case-insensitive — `"Internal_ID"` in the metadata is stripped if `"internal_id"` is in the deny list. Use this to keep PII columns out of API responses. |
-| `RECOTEM_METRICS_ENABLED` | (unset) | serve | — | Truthy values: `1`, `true`, `yes`, `on`. Enables the Prometheus `/v1/metrics` endpoint. Requires the `recotem[metrics]` extra (`pip install "recotem[metrics]"`). The endpoint is opt-in and off by default. |
+| `RECOTEM_METRICS_ENABLED` | (unset) | serve | — | Truthy values: `1`, `true`, `yes`, `on`. Enables the Prometheus `/v1/metrics` endpoint. Requires the `recotem[metrics]` extra (`pip install "recotem[metrics]"`). The endpoint is opt-in and off by default. **It requires an API key like every other `/v1` route** — a scrape without a valid `X-API-Key` gets `401`, so configure the scraper with the key (or run in an unauthenticated posture, which forces the loopback-only bind). The path is `/v1/metrics`, not `/metrics`. |
+| `RECOTEM_ALLOW_IRSPACK_VERSION_SKEW` | (unset) | serve | — | Truthy values: `1`, `true`, `yes`, `on`. Downgrades the serve-side irspack version-skew check from an `ArtifactError` (recipe stays `loaded: false`) to an `irspack_version_skew_allowed` warning, letting the payload reach the deserializer. The default rule is an allow-list: the same irspack **major.minor** always loads, and a differing major.minor loads only for `(best_class, transition)` pairs Recotem has empirically verified. Use this only when you know the artifact is unaffected — it does not make an incompatible payload loadable. See [Operations — irspack version skew](./operations#irspack-version-skew). |
 
 ## Data source
 

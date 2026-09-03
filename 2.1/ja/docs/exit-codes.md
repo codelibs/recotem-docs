@@ -86,6 +86,15 @@ description: "Recotem の終了コードとエラーのリファレンス。reco
 | `excessive_per_trial_timeouts` | ほとんどのトライアルがトライアルごとのタイムアウトに達した。レシピの `training.per_trial_timeout_seconds` を増やしてください。 |
 | `final_training_error` | ハイパーパラメータ探索完了後の最終学習 (再フィット) ステップが失敗した。 |
 | `signing_key_missing` | アーティファクト書き込み時に署名鍵の設定が欠落している (一部のパスでは ConfigError も発生 — 終了コード 8 を参照)。 |
+| `datasource_error` | `DataSourceError` が学習パイプラインを通じて表面化した。 |
+| `invalid_metric` | `training.metric` がサポートされているメトリクスのいずれでもない。 |
+| `no_active_algorithms` | `training.per_algorithm_trials` によってすべてのアルゴリズムが無効化されている (すべての予算が 0)。 |
+| `time_unit_required` | `schema.time_column` が数値を保持しているが `schema.time_unit` が未設定。Unix タイムスタンプがナノ秒として黙って解釈されるのを避けるため `time_unit` (`s`、`ms`、`us`、`ns`) を設定してください。 |
+| `unknown_algorithm_in_budget` | `training.per_algorithm_trials` が解決できないアルゴリズムのエイリアスを指定している。 |
+| `cutoff_exceeds_item_count` | `training.cutoff` が正解行列のアイテム次元より大きい。 |
+| `feature_axis_error` | [`features:`](./recipe-reference#features) のいずれかのサイドのフィーチャーテーブルが、インタラクションデータと ID の重なりを**まったく**持たない。[オペレーション — recotem train が feature_axis_error で終了コード 4 で終了する](./operations#recotem-train-が-feature-axis-error-で終了コード-4-で終了する) を参照。 |
+| `feature_cholesky_error` | **最終リフィット**中にフィーチャーリッジの Cholesky 分解またはソルブが失敗した (探索中はトライアルを打ち切るだけ)。高カーディナリティのカラムで `min_frequency` を上げると通常は解決します。 |
+| `feature_table_error` | フィーチャーテーブルを取得または使用できなかった — `features.<side>.source` の `type` ディスクリミネータの欠落、取得したテーブルに存在しない `id_column`、宣言されたフィーチャーカラムの不在など。 |
 
 **推奨対応:** 一時的な問題 (ネットワーク周辺のデータロード、不安定な学習) にはリトライ。`min_data_violation` はデータソースが期待より少ない行を返していないか調査してからリトライしてください。`zero_score` や空のテスト分割の問題には、レシピの `split` または `cleansing` 設定を調整してください。
 

@@ -51,6 +51,8 @@ Recotem はレシピ駆動の推薦システムです。単一の YAML ファイ
 - **データの取得先** (`source` ブロック — CSV、Parquet、BigQuery、SQL、またはプラグイン)
 - **カラムのマッピング** (`schema` ブロック — ユーザー ID、アイテム ID、任意のタイムスタンプ)
 - **データ品質ゲート** (`cleansing` ブロック — null 除去、重複除去、最低閾値)
+- **レスポンスに含めるアイテム情報** (`item_metadata` ブロック — 推薦レスポンスに結合されるフィールド)
+- **コールドスタート用のサイドフィーチャー** (`features` ブロック — アイテム/ユーザーの属性テーブル。存在するだけでフィーチャーアウェア iALS が有効になります)
 - **学習内容** (`training` ブロック — アルゴリズム、Optuna バジェット、分割方式)
 - **書き出し先** (`output` ブロック — パスとバージョニングモード)
 
@@ -65,7 +67,7 @@ magic | version | reserved | kid | hmac | header_json | payload
 ```
 
 - **HMAC スコープ**: `kid_bytes || header_json || payload`。これらのセクション内の任意のバイトを変更すると HMAC 検証が失敗します。
-- **ヘッダー JSON** には `recipe_name`、`recipe_hash`、`best_class`、`best_params`、`best_score`、`metric`、`cutoff`、`tuning`、`data_stats`、`recotem_version`、`irspack_version`、`trained_at` が含まれます。`recotem inspect` でデシリアライズせずに参照できます。
+- **ヘッダー JSON** には `recipe_name`、`recipe_hash`、`best_class`、`best_params`、`best_score`、`metric`、`cutoff`、`tuning`、`data_stats`、`recotem_version`、`irspack_version`、`trained_at` が含まれます。`features` ブロックを持つレシピでは、さらに `features` ディスクリプタ (`version`、`active`、およびサイドごとのエンコード次元とカラム名) が含まれます。`recotem inspect` でデシリアライズせずに参照できます。
 - **ペイロード** はシリアライズされた `IDMappedRecommender` (scipy sparse 行列 + numpy 配列) を含みます。ペイロードの 1 バイトを解釈する前に HMAC が完全に検証されます。デシリアライザはアンピクリング時に FQCN 許可リストを強制します (多層防御)。
 - **Key ID (`kid`)** はどの署名鍵が HMAC を生成したかを識別します。`KeyRing` (環境変数: `RECOTEM_SIGNING_KEYS=kid1:hex,kid2:hex`) は複数の鍵を保持し、ダウンタイムなしの鍵ローテーションを実現します。
 

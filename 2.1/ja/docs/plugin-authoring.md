@@ -131,7 +131,9 @@ class EchoSource:
    - ほとんどのプラグインでは `no_expand_fields: ClassVar[frozenset[str]] = frozenset()` を宣言してください — グローバルベースライン (`query`、`query_parameters`) はレシピローダーによって常に保護されています。
    - SQL またはパラメーター化クエリフィールドを持つプラグインでは明示的にリストしてください: `no_expand_fields: ClassVar[frozenset[str]] = frozenset({"sql", "bind_params"})`。これにより多層防御が提供され、将来のメンテナーに対してセキュリティの意図が文書化されます。
 
-5. **`fetch(ctx)`** は `pandas.DataFrame` を返さなければなりません。DataFrame には `recipe.schema` で参照される列 (`user_column`、`item_column`、オプションで `time_column`) が少なくとも含まれている必要があります。学習パイプラインはフェッチ直後にそれらの列に名前でアクセスします — 列が欠落すると `KeyError` として表面化し、学習実行が終了します。
+5. **`fetch(ctx)`** は `pandas.DataFrame` を返さなければなりません。ソースがレシピのトップレベルの `source` ブロックを担う場合、DataFrame には `recipe.schema` で参照される列 (`user_column`、`item_column`、オプションで `time_column`) が少なくとも含まれている必要があります。学習パイプラインはフェッチ直後にそれらの列に名前でアクセスします — 列が欠落すると `KeyError` として表面化し、学習実行が終了します。
+
+   この `recipe.schema` のルールが適用されるのは**インタラクションソースのみ**です。同じレジストリは [`features.item.source` / `features.user.source`](./recipe-reference#features) にも使われ、そこで必要な列は代わりにそのサイドの `id_column` と宣言されたすべての `columns[].name` になります。プラグイン側で特別な対応は不要です — `FetchContext` はインタラクション固有のフィールドを持たないため、登録済みのどのソースでもフィーチャーテーブルとして機能します — が、`user_column` / `item_column` が必ず要求されるという前提をハードコードしないでください。
 
 6. **`fetch()` は外部または一時的な失敗 (認証エラー、ネットワークエラー、クエリエラー、空の結果) に対して `DataSourceError` を発生させなければなりません。** `DataSourceError` は終了コード 3 にマップされます。それ以外の例外は終了コード 1 として表面化します。サードパーティの例外を明示的にラップしてください。
 
@@ -297,6 +299,8 @@ def probe(self) -> dict:
 ```
 
 `probe()` が定義されている場合、`recotem validate` は `DataSource: probe OK (<type_name>)` を報告します。定義されていない場合は `DataSource: extras OK (<type_name>, no probe defined)` を報告します。ビルトインの `CSVSource` / `ParquetSource` は fsspec の `exists()` を使用し、`BigQuerySource` はドライランクエリジョブを使用します。
+
+**フィーチャーソースもプローブされます。** [`features:`](./recipe-reference#features) ブロックを持つレシピでは、`features.item.source` / `features.user.source` もトップレベルの `source` と同じ方法でプローブされ、報告される各行には `[<where>]` ラベル (`[features.item.source]` / `[features.user.source]`) が付くため、どのソースが失敗したかが分かります。プラグインがフィーチャーテーブルとして使われる可能性がある場合は、1 回の `recotem validate` で複数回実行されても問題ない程度に `probe()` を軽量に保ってください。
 
 ## テスト
 
