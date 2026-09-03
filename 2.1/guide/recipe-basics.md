@@ -11,7 +11,7 @@ You write a recipe once and then run `recotem train` as often as you like — on
 
 ## Top-level structure
 
-A recipe has seven sections:
+A recipe has eight sections:
 
 ```yaml
 name: my_model          # required: the endpoint name
@@ -19,6 +19,7 @@ source: ...             # required: where the interaction data comes from
 schema: ...             # required: which columns are user IDs and item IDs
 cleansing: ...          # optional: data quality checks
 item_metadata: ...      # optional: extra item details to include in predictions
+features: ...           # optional: item/user attributes for cold-start scoring
 training: ...           # required: which algorithms to try, how many trials
 output: ...             # required: where to write the trained model file
 ```
@@ -126,6 +127,47 @@ item_metadata:
 ```
 
 This section is optional. Without it, recommendation responses return only `item_id` and `score`.
+
+---
+
+## `features` — attributes for cold start
+
+Everything above trains on interactions alone, so a user or item with no interaction history cannot be scored. The `features` section fixes that: point it at a table of item or user attributes, and Recotem trains a **feature-aware iALS** model that can score a brand-new user from their profile, or a brand-new item from its attributes.
+
+There is no separate flag — the presence of this block is what turns the feature-aware path on.
+
+```yaml
+features:
+  item:
+    source: {type: csv, path: ./items.csv}   # same source types as `source`
+    id_column: item_id                       # must match schema.item_column values
+    columns:
+      - {name: genres,       encoding: multi_label, delimiter: "|"}
+      - {name: release_year, encoding: numerical}
+      - {name: country,      encoding: categorical, min_frequency: 5}
+  user:
+    source: {type: csv, path: ./users.csv}
+    id_column: user_id
+    columns:
+      - {name: age_band, encoding: categorical}
+```
+
+Declare `item`, `user`, or both. Each column gets one of three encodings:
+
+| Encoding | Use it for | Example |
+|---|---|---|
+| `categorical` | One value per row, from a fixed set | `country: JP` |
+| `numerical` | A number, standardized during training | `release_year: 1994` |
+| `multi_label` | Several tags in one cell, split on `delimiter` | `genres: "Action\|Sci-Fi"` |
+
+Two things to get right the first time:
+
+- **`training.algorithms` must include `IALS`.** It is the only feature-capable algorithm today; a `features:` block without it is rejected at recipe load.
+- **`id_column` values must match your interaction ids as strings.** `1` matches `"1"`, but `1.0` does not. A single blank cell makes pandas read an integer id column as `float64`, which turns every id into `1.0` and aborts training with `feature_axis_error`. Pin the type at the source — `dtype: {item_id: str}` on a CSV, `CAST(item_id AS STRING)` on BigQuery or SQL.
+
+Once trained, send the new user's attributes as `user_features` on `:recommend` (or a new item's as `item_features` on `:recommend-related`) and you get real recommendations instead of a `404 UNKNOWN_USER`. See [Serving API — Feature-aware cold start](/2.1/docs/serving-api#feature-aware-cold-start).
+
+This section is optional. Without it, you get plain iALS and unknown users get a `404`.
 
 ---
 

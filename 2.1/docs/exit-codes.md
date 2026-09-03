@@ -86,6 +86,15 @@ An exception was raised that does not map to any domain error class. This typica
 | `excessive_per_trial_timeouts` | Most trials hit the per-trial timeout. Increase `training.per_trial_timeout_seconds` in the recipe. |
 | `final_training_error` | The final (refit) training step failed after hyperparameter search completed. |
 | `signing_key_missing` | Signing key configuration is missing at artifact write time (also raises ConfigError in some paths — see exit 8). |
+| `datasource_error` | A `DataSourceError` surfaced through the training pipeline. |
+| `invalid_metric` | `training.metric` is not one of the supported metrics. |
+| `no_active_algorithms` | Every algorithm is disabled by `training.per_algorithm_trials` (all budgets are 0). |
+| `time_unit_required` | `schema.time_column` holds numeric values but `schema.time_unit` is unset. Set `time_unit` (`s`, `ms`, `us`, or `ns`) to avoid silent nanosecond interpretation of Unix timestamps. |
+| `unknown_algorithm_in_budget` | `training.per_algorithm_trials` names an algorithm alias that does not resolve. |
+| `cutoff_exceeds_item_count` | `training.cutoff` is larger than the item dimension of the ground-truth matrix. |
+| `feature_axis_error` | A [`features:`](./recipe-reference#features) side's feature table has **zero** id overlap with the interaction data. See [Operations — recotem train exits 4 with feature_axis_error](./operations#recotem-train-exits-4-with-feature-axis-error). |
+| `feature_cholesky_error` | The feature-ridge Cholesky decomposition or solve failed during the **final refit** (during the search it only prunes the trial). Raising `min_frequency` on high-cardinality columns usually resolves it. |
+| `feature_table_error` | The feature table could not be fetched or used — a missing `type` discriminator on `features.<side>.source`, an `id_column` absent from the fetched table, or a declared feature column that is not present. |
 
 **Recommended action:** Retry for transient issues (network-adjacent data loads, flaky training). Do not retry `min_data_violation` without first investigating whether the data source is providing fewer rows than expected. For `zero_score` or empty test split issues, adjust the recipe's `split` or `cleansing` settings.
 

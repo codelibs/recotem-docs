@@ -51,6 +51,8 @@ The recipe captures:
 - **Where to get data** (`source` block — CSV, Parquet, BigQuery, SQL, or plugin)
 - **How to map columns** (`schema` block — user ID, item ID, optional timestamp)
 - **Data quality gates** (`cleansing` block — null-drop, dedup, minimum thresholds)
+- **Item details to return** (`item_metadata` block — fields joined into recommendation responses)
+- **Side features for cold start** (`features` block — item/user attribute tables; its presence enables feature-aware iALS)
 - **What to train** (`training` block — algorithms, Optuna budget, split scheme)
 - **Where to write** (`output` block — path and versioning mode)
 
@@ -65,7 +67,7 @@ magic | version | reserved | kid | hmac | header_json | payload
 ```
 
 - **HMAC scope**: `kid_bytes || header_json || payload`. Modification of any byte in any of these sections fails HMAC verification.
-- **Header JSON** carries `recipe_name`, `recipe_hash`, `best_class`, `best_params`, `best_score`, `metric`, `cutoff`, `tuning`, `data_stats`, `recotem_version`, `irspack_version`, and `trained_at`. Readable without deserialization via `recotem inspect`.
+- **Header JSON** carries `recipe_name`, `recipe_hash`, `best_class`, `best_params`, `best_score`, `metric`, `cutoff`, `tuning`, `data_stats`, `recotem_version`, `irspack_version`, and `trained_at`. A recipe with a `features` block additionally carries a `features` descriptor (`version`, `active`, and the encoded dimension and column names per side). Readable without deserialization via `recotem inspect`.
 - **Payload** contains the serialized `IDMappedRecommender` (scipy sparse matrices + numpy arrays). HMAC is verified in full before a single byte of the payload is interpreted. The deserializer enforces an FQCN allow-list during unpickling as defence-in-depth.
 - **Key ID (`kid`)** identifies which signing key produced the HMAC. The `KeyRing` (env: `RECOTEM_SIGNING_KEYS=kid1:hex,kid2:hex`) holds multiple keys, enabling zero-downtime key rotation.
 

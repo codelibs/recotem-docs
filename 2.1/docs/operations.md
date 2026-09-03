@@ -312,6 +312,48 @@ For large models (IALS with many components, large item sets), use `recotem insp
 
 ---
 
+## Feature-aware iALS sizing
+
+A recipe's [`features:`](./recipe-reference#features) block adds costs that scale differently from the rest of a Recotem recipe. Everything below applies only when `features:` is present.
+
+### Vocabulary scales with catalog size, not interaction count
+
+The most surprising operational property of this feature: the encoded dimension is built from the **whole fetched feature table**, not from the subset of items/users that actually appear in the interaction data — this is what lets a cold-start item or user be scored at serve time even though it never appears in training. The consequence is that a 1M-item catalog whose interactions cover only 1,000 of those items still pays the full encoded dimension — and the full per-trial training cost below — for the other 999,000 items, even though their columns are only ever useful for cold-start requests that may never arrive.
+
+`RECOTEM_MAX_FEATURE_DIM` (default 5000, clamped [16, 100000]) caps the encoded dimension per side (item and user are checked independently); exceeding it raises `TrainingError` (exit 4) at the point the encoder state is built. `min_frequency` (recipe-level, per column) is the operator's **only** lever against this cap — raise it on high-cardinality `categorical` / `multi_label` columns to shrink the vocabulary. There is no way to restrict the vocabulary to interaction-covered rows from the recipe.
+
+::: warning `min_frequency` bounds the dimension, not the memory spent discovering it
+The vocabulary builder counts every token of the fetched column into a dict and only then prunes, and the `multi_label` branch first flattens every row's tokens into a single list. A high-cardinality column therefore pays its full transient counting cost no matter how aggressive `min_frequency` is — a column with hundreds of thousands of distinct values costs tens of MB to count even when the pruned vocabulary comes back empty. The `RECOTEM_MAX_FEATURE_DIM` check runs **after** every column's vocabulary is built, so that transient is paid in full even on the run the cap then rejects. `min_frequency` protects the trials; it does not protect the encoder-state build.
+:::
+
+### Per-trial time is cubic, memory is quadratic, and both multiply with `training.parallelism`
+
+irspack forms a dense `Fᵀ F` Gram matrix per side and solves it by Cholesky decomposition. The two costs scale differently and are worth keeping apart when sizing a host: **time** grows **cubically** with the encoded dimension (the decomposition itself), while **memory** grows only **quadratically** — the Gram matrix is `dim² × 8` bytes at float64, which closely tracks the Memory column below (the formula gives 200 MB / 800 MB / 3.2 GB against the measured 200 MB / 771 MB / 3 GB — the Gram dominates but is not the only allocation). irspack never errors from either — it only degrades. Measured per trial:
+
+| Encoded dimension | Time | Memory |
+|---|---|---|
+| 5,000 | ~0.6 s | ~200 MB |
+| 10,000 | ~4.2 s | ~771 MB |
+| 20,000 | ~43 s | ~3 GB |
+
+`training.parallelism` is Optuna `n_jobs` — **in-process threads**, not processes — so each concurrently-running trial builds and solves its own dense Gram matrix independently. At `parallelism=4, dim=10k` that is roughly 4 × 771 MB ≈ 3 GB of Gram matrices alone, on top of everything else the search holds in memory. Size training hosts (or set `parallelism` and `RECOTEM_MAX_FEATURE_DIM`) with this multiplication in mind.
+
+### Payload and serve-side RSS grow with catalog size, not just dimension
+
+irspack retains `self.item_features` (and `self.user_features`) on the trained recommender and defines no `__getstate__`, so the encoded feature matrix is serialized into the artifact payload verbatim. Size scales with `n_items × nnz_per_row`, not with the encoded dimension alone: projected, 1M items × 500 encoded dimensions × 5 non-zero entries/row ≈ 42 MiB; 1M items × 5,000 dimensions × 10 non-zero entries/row ≈ 80 MiB — material against the 512 MiB `RECOTEM_MAX_PAYLOAD_BYTES` default but not by itself fatal.
+
+`RECOTEM_MAX_FEATURE_DIM` caps **columns**; nothing caps `n_items × nnz_per_row`, so a very large catalog with dense per-row encodings (many `multi_label` tags, low `min_frequency`) can still produce a large payload even with a modest encoded dimension. The identical bytes also count against serve-side resident memory (see [Sizing recotem serve memory](#sizing-recotem-serve-memory) above) once the artifact is loaded.
+
+### Cold-start latency, and `n_threads`
+
+Cold-start scoring is an iterative conjugate-gradient solve, not a matrix lookup. Measured latency (1,000 items, 64 components): a single cold-start request takes 300–500 µs median; batching amortizes this to **8–12 µs/user** — a 30–40× per-user improvement, which is why the batch verbs (`:batch-recommend` / `:batch-recommend-related`) are the recommended path for any bulk cold-start workload.
+
+::: warning A high `n_threads` hurts single-request latency
+Median 734–857 µs and p95 2.0–2.2 ms at `n_threads=16`, versus faster at `n_threads` 1–4. irspack has no fixed default here — `IALSRecommender(n_threads=None)` resolves through irspack's threading helper to `$IRSPACK_NUM_THREADS_DEFAULT`, falling back to `os.cpu_count()`, so the effective default is the training host's core count. Recotem never sets `n_threads`, and the resolved value is baked into the serialized model at training time — there is no serve-time override. If single-request cold-start latency matters for your workload, set `IRSPACK_NUM_THREADS_DEFAULT` in the **training** environment; it is a training-time decision, not a serving-time one.
+:::
+
+---
+
 ## SLOs
 
 Recotem does not enforce SLOs internally. Recommended baseline targets for production:
@@ -381,6 +423,8 @@ The high-signal metrics for production alerting:
 | Recipe is unloaded | `recotem_model_loaded{recipe=...} == 0` for > `RECOTEM_WATCH_INTERVAL × 3` | page on-call |
 | Hot-swap failures | `rate(recotem_swap_total{result="error"}[5m]) > 0` | warn |
 | Artifact load failures since restart | `recotem_artifact_load_failures_total{recipe=...}` increase | warn |
+| irspack version skew | `rate(recotem_artifact_load_failures_total{reason="version_skew"}[5m])` | warn — train and serve have drifted apart. A hot-swap skew keeps serving the old model, but the same artifact fails the recipe at the next restart; see [irspack version skew](#irspack-version-skew) |
+| Cold-start client errors | `rate(recotem_v1_requests_total{status=~"features_not_supported\|feature_value_unusable"}[5m])` | warn only, never page — a sustained rate means a client is sending `user_features`/`item_features` to a recipe without a matching `features:` block, or values that cannot be standardized. The remedy is on the caller's side; the model is healthy |
 | Artifact stat failures (watcher poll) | `recotem_artifact_stat_failures_total{recipe=...}` increase | warn |
 | Watcher unhandled errors | `recotem_watcher_unhandled_errors_total` increase | warn |
 | Predict error rate | `rate(recotem_v1_requests_total{status="error"}[5m]) / rate(recotem_v1_requests_total[5m])` | warn at 1%, page at 10% |
@@ -400,8 +444,16 @@ Recotem follows semver. Within a major version (`2.x`):
 - Recipes remain valid; the recipe loader is backward-compatible.
 - The artifact format version is `1`. Older readers refuse newer formats with `unsupported format version`. When the format bumps, retrain after upgrading the writer; readers can be upgraded first.
 - The FQCN allow-list is frozen per release; changes appear in the CHANGELOG. Re-train if your artifacts encode a class that has been removed.
+- **The irspack serialization format is not covered by any of the above.** irspack does not keep its format stable across its own minors, so a Recotem upgrade that moves irspack across a minor can refuse existing artifacts — by algorithm, per transition. This axis is **bidirectional**: it cannot be staged serve-first, and it does not roll back. See [irspack version skew](#irspack-version-skew) for the allow-list rule, which algorithms are refused, and the upgrade procedure.
+- **scikit-learn is a further axis, unguarded.** `TruncatedSVD` artifacts embed an sklearn estimator; sklearn does not guarantee correctness when deserializing across its own minors. Recotem range-pins `scikit-learn>=1.8,<1.10`, which narrows the window but does not close it (two installs inside the range can differ), and no runtime check covers it.
 
 For zero-downtime upgrade of the serve fleet, deploy new pods with both the old and new signing kids configured (rotation-style), let new pods become healthy, then drain old pods (relying on `RECOTEM_DRAIN_SECONDS`).
+
+::: danger This procedure assumes the new pods can load the existing artifacts
+It holds for a signing-key rotation, but **not across an irspack minor**. Recotem 2.1.0 moves irspack from 0.4.x to 0.5.x: new pods running irspack 0.5.x will never become healthy against 0.4.x-trained IALS artifacts — they are refused before deserialization, the recipe stays `loaded: false`, and `/v1/health` returns 503, so no new pod ever passes its readiness probe.
+
+Retrain those recipes on the new irspack version *first*, or upgrade train and serve together and accept the retrain window. Check [irspack version skew](#irspack-version-skew) before any upgrade that moves irspack.
+:::
 
 ---
 
@@ -427,6 +479,64 @@ Causes and fixes:
 | `magic bytes mismatch` | Corrupt or truncated artifact | Retrain |
 | `payload exceeds max bytes` | Payload exceeds `RECOTEM_MAX_PAYLOAD_BYTES` (512 MiB default) or artifact exceeds `RECOTEM_MAX_ARTIFACT_BYTES` (2 GiB default) | Increase the relevant cap or reduce model size |
 | `header JSON too large` | Malformed artifact | Retrain |
+| `irspack version skew: ...` | The artifact's algorithm is not verified compatible across the irspack **major.minor** transition between train and serve (e.g. an IALS artifact across 0.4 ↔ 0.5) | Retrain the recipe on the serving host's irspack version. See [irspack version skew](#irspack-version-skew) |
+| `feature version check failed: ...` | The artifact's `features.version` is missing, non-integer, or not the encoder-state version this build implements (reason `feature_version`) | Retrain on the serving build's Recotem version. See [Security — Feature-encoder version gate](./security#feature-encoder-version-gate) |
+| `feature state check failed: ...` | The `features` header disagrees with the encoder state in the payload (reason `feature_state`) — a mis-built or partially-tampered artifact | Retrain. See [Security — Feature header/payload reconciliation](./security#feature-header-payload-reconciliation) |
+
+### irspack version skew
+
+irspack does not guarantee a stable serialization format across minor releases. Recotem records the training-time `irspack_version` in every artifact header and checks it against the running irspack **before** deserializing the payload.
+
+The rule is an **allow-list**, not a deny-list:
+
+- **Same major.minor** → always loaded. Patch drift (`0.5.0` → `0.5.3`) is tolerated and the verified table is never consulted.
+- **Different major.minor** → loaded only if the artifact's `best_class` *and* that exact transition appear in Recotem's verified-compatible table. Anything absent is refused.
+
+Verified compatible across **0.4 ↔ 0.5, in both directions**: `CosineKNNRecommender`, `TopPopRecommender`, `RP3betaRecommender`, `DenseSLIMRecommender`, `TruncatedSVDRecommender`. A row earns its place only when an artifact trained under one version was loaded under the other — irspack the only variable — and the recommendation scores compared bit-exact.
+
+Refused across 0.4 ↔ 0.5:
+
+| `best_class` | Why |
+|--------------|-----|
+| `IALSRecommender` | **Known break**, both directions. 0.5.0 added feature-aware iALS, growing `IALSModelConfig`'s serialized state from a 7-tuple to a 10-tuple; `__setstate__` is a strict-arity binding. |
+| `BPRFMRecommender` | **Unverifiable** — irspack gates it behind the separately installed `lightfm` package, which has no Python 3.12-compatible release, so irspack does not export the class and Recotem cannot train it. Absence from the table means *unproven*, not known-broken. |
+| missing / non-string `best_class` | Fails **closed**: a header that cannot name its algorithm cannot match the table. |
+
+On a refusal the recipe is marked `loaded: false` with reason `version_skew` and this error (recipe `news`, an IALS artifact trained on 0.4.2, served by 0.5.0):
+
+```
+irspack version skew: retrain recipe 'news' with irspack 0.5.0 — IALSRecommender
+0.4.2→0.5.0 is not verified compatible. Recotem allows only (algorithm, irspack
+transition) pairs it has empirically verified load correctly; unverified is not
+proof of breakage — the one known break is IALSRecommender at irspack 0.5.0,
+whose serialized model state changed shape. Retrain and redeploy, or if you know
+this artifact is unaffected set RECOTEM_ALLOW_IRSPACK_VERSION_SKEW=1 to
+downgrade this to a warning.
+```
+
+The remedy is deliberately front-loaded: serve truncates the stored `last_load_error` to 200 characters before it surfaces as `error` in `/v1/health/details`, so the fix, the recipe name, the algorithm, and both versions all have to land inside that budget. The full text still reaches the logs.
+
+**Every future irspack minor starts out refused.** Because the guard consults a table of *verified* pairs, a later 0.5 → 0.6 upgrade refuses artifacts for **all** algorithms — including the five listed above — until someone verifies that transition and adds the rows. This is intended: it keeps the safety default of refusing what has not been tested.
+
+**Fail-open cases.** A header with no `irspack_version` (pre-2.0 artifacts) or an unparseable version on either side logs a warning and loads: an unverifiable version is not evidence of incompatibility, and the deserializer remains the backstop. Note the asymmetry — an unusable *version* fails open, an unusable *`best_class`* on a real skew fails closed.
+
+**Why the check exists.** Without it the failure surfaces from inside irspack's C++ layer as a bare `TypeError: __setstate__(): incompatible function arguments`, which names neither the recipe nor the remedy.
+
+**Upgrade procedure.** Upgrade train and serve together, then retrain every IALS and BPRFM recipe. The break is bidirectional, so you cannot stage the upgrade by moving serve first, and you cannot roll serve back to 0.4.x once artifacts are retrained on 0.5.x. There is no in-place artifact migration: the missing fields are internal C++ state that only a retrain produces correctly.
+
+::: danger Blast radius — degraded now, down later
+Serve does not crash; the affected recipe is marked failed and every other recipe keeps serving. During a **hot-swap** the previously loaded model stays in memory (the load error is annotated onto the entry without clearing its `loaded` flag), so a skewed artifact dropped into a running fleet degrades to "still serving the old model" rather than an outage, and the count-based `/v1/health` stays `200`. Only `/v1/health/details`, which also scans error strings, reports `degraded`.
+
+That resilience is **per-process and does not survive a restart.** At startup there is no previously loaded model to fall back on: the recipe is registered as a stub with `loaded: false`, `/v1/health` returns **503**, and any readiness or liveness probe pointed at `/v1/health` fails. So a skewed artifact sits harmless in a running fleet and takes pods down at the next restart, node drain, or scale-up — potentially long after the deploy that introduced it.
+
+For the shipped Helm chart (`replicaCount: 2`, no `strategy:` block) Kubernetes' rolling-update defaults give `maxUnavailable = floor(0.25 × 2) = 0`, so a rolling update **stalls** with the old pods still serving rather than causing an immediate outage — new pods never become ready, and no old pod may be torn down to make room. The hazard is not the stalled rollout; it is that the degraded state ends at the next *involuntary* restart. The chart also ships `pdb.enabled: false`, so a node drain can take both replicas at once.
+:::
+
+**Escape hatch.** `RECOTEM_ALLOW_IRSPACK_VERSION_SKEW=1` downgrades the refusal to an `irspack_version_skew_allowed` warning and lets the payload reach the deserializer. Use it only when you know the artifact is unaffected — most defensibly for an algorithm that is merely *unverified* rather than known-broken. It does not make an incompatible payload loadable: a genuinely broken artifact then fails with the bare `TypeError` this guard exists to replace.
+
+Monitor `recotem_artifact_load_failures_total{reason="version_skew"}` to catch fleets where train and serve have drifted apart.
+
+**A separate axis the guard does not cover: scikit-learn.** `TruncatedSVDRecommender` embeds an sklearn estimator in the payload, and sklearn warns (`InconsistentVersionWarning`) that deserializing across its own minors "might lead to breaking code or invalid results". Recotem range-pins `scikit-learn>=1.8,<1.10` to bound this, but a range **narrows the axis without closing it** — two installs inside the range can still differ, and the irspack guard never inspects the sklearn version. If TruncatedSVD artifacts must be reproducible bit-exact, pin sklearn exactly or build train and serve from the same lock file.
 
 ### recotem train exits 3 (DataSourceError)
 
@@ -465,6 +575,30 @@ All Optuna trials scored 0.0. Common causes:
 - The split produced an empty test set (too few users or interactions). Try `split.scheme: random` or lower `split.heldout_ratio`.
 - The data after cleansing has too few items for the cutoff. Lower `training.cutoff`.
 
+### recotem train exits 4 with feature_axis_error
+
+A [`features:`](./recipe-reference#features) side's feature table has **zero** id overlap with the interaction data — not one id matched. This aborts a run that previously succeeded if the id column's type changed at the source, so it is worth recognising on sight. The message samples ids from both sides, which usually names the cause by itself:
+
+```
+features.item: none of the 1200 item ids in the interaction data were found in
+the feature table's 'item_id' column, so every item would encode to the bias
+column alone ... feature-table ids look like ['1.0', '2.0', '3.0']; interaction
+ids look like ['1', '2', '3'].
+```
+
+It is fatal rather than a warning because the failure is otherwise **silent**: every entity would encode to the bias column alone, so training would run to completion and sign an artifact whose header advertises `features` for what is really plain iALS. The model would serve, and score worse, with nothing in the logs to say why.
+
+Two causes account for essentially all occurrences:
+
+- **Id dtype mismatch** — what the sample above shows. A single blank cell in an otherwise-integer id column makes pandas infer `float64`, so `1` reads back as `1.0` while the interaction axis carries `"1"`. Pin the type at the source rather than cleaning the data: on a `csv` feature table add `dtype: {item_id: str}`. `dtype` is csv-only — on `bigquery` / `sql` cast in the query (`CAST(item_id AS STRING)`), and on `parquet` fix the type in the file's schema.
+- **A wrong-but-existing `id_column`** — a column that exists but does not hold the entity id passes the presence check at fetch time and fails only here. Check that `features.<side>.id_column` names the same id space as `schema.item_column` / `schema.user_column`.
+
+Recotem deliberately does not coerce the id column for you. By the time the frame is fetched, pandas has already inferred `float64` and the original text is unrecoverable — a column reading `1.0` is indistinguishable from one whose ids are literally `"1.0"` — so reformatting integral floats back to ints would silently rewrite ids on a catalog that legitimately uses that form, trading a detectable failure for a quiet corruption. It would also not catch the wrong-`id_column` case at all.
+
+::: tip Only zero overlap aborts
+Partial coverage is legitimate and expected: an id absent from the feature table encodes to bias-only and degrades to plain iALS for that one entity, which is the same mechanism that makes cold-start scoring possible. There is deliberately no low-coverage warning threshold — a dtype or `id_column` mistake is a property of the whole column and always lands at exactly 0%, so any threshold above zero would fire on correct configurations. Alert on the `feature_axis_coverage` event (`side`, `matched`, `total`) yourself if you want to track coverage.
+:::
+
 ### 401 on recommendation endpoints
 
 - Trailing or leading whitespace in the `X-API-Key` header is treated as part of the key and will not match. Trim client-side.
@@ -476,7 +610,26 @@ The recipe is unhealthy (`loaded: false`). See `/v1/health/details` for the erro
 
 ### 404 UNKNOWN_USER on /v1/recipes/{name}:recommend
 
-The `user_id` in the request was not present in training data. This is expected for new users. Handle it in your application layer (fall back to popularity-based recommendations, for example).
+The `user_id` in the request was not present in training data. This is expected for new users. Handle it in your application layer (fall back to popularity-based recommendations, for example). On a model trained with a [`features:`](./recipe-reference#features) block, supplying `user_features` returns a real recommendation for that user instead — see [Serving API — Feature-aware cold start](./serving-api#feature-aware-cold-start).
+
+### 404 on /v1/recipes/{name}:recommend-related
+
+Two distinct codes share this status:
+
+- `UNKNOWN_SEED_ITEMS` — none of the supplied `seed_items` are known to the trained model. Typically a client-side data issue.
+- `NO_CANDIDATES` — at least one seed was known, but the ranker produced no survivors after its internal filtering. Typically a data-distribution issue rather than a client mistake. Every branch of this verb raises it the same way, including both feature-aware cold-start branches, so an empty result is reported identically regardless of which path served the request.
+
+### 422 on any /v1/recipes/{name} verb
+
+Request validation failed before the handler executed. The body is `{"detail": "Request validation failed", "code": "VALIDATION_ERROR", "errors": [...]}` and the request is counted as `status="validation_error"` in `recotem_v1_requests_total`.
+
+On the cold-start fields this is also how a key-count, key-length, value-type, or value-length violation surfaces — see [Serving API — Length and size bounds on cold-start fields](./serving-api#length-and-size-bounds-on-cold-start-fields).
+
+### Partial failure in /v1/recipes/{name}:batch-recommend or :batch-recommend-related
+
+Batch endpoints accept up to 256 requests per call and return per-element `status` so a single bad input does not fail the whole batch. The HTTP response is **200** when *any* element succeeded (failed elements carry `status: "error"` with a `code` field). HTTP **503** is reserved for the case where the recipe itself is unavailable (no element can be served).
+
+Watch `recotem_v1_batch_element_errors_total` per `code` to tell a client-side data problem apart from a model problem.
 
 ### Watcher does not pick up new artifact
 
