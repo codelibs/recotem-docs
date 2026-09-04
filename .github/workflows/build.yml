@@ -1,0 +1,48 @@
+# Build gate for the documentation site.
+#
+# The site is deployed by copying `.vitepress/dist/` to the web server by hand,
+# so a broken `main` does not publish itself — but nothing else checks a pull
+# request either, and the two failures below are both invisible until someone
+# runs the commands locally. `docs:check-anchors` in particular is a separate
+# command that the build does not imply, and `main` has carried four broken
+# heading anchors because of that.
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: yarn
+
+      - name: Install
+        run: yarn install --frozen-lockfile
+
+      # VitePress fails the build on a dead internal link (a `](/path)` with no
+      # page behind it). It does NOT validate `#fragment`s — that is the next
+      # step.
+      - name: Build
+        run: yarn docs:build
+        env:
+          NODE_ENV: production
+
+      # Every internal `#fragment` must resolve to a heading id that the build
+      # actually emitted. Reads `.vitepress/dist/`, so it must run after Build.
+      - name: Check heading anchors
+        run: yarn docs:check-anchors
