@@ -81,7 +81,7 @@ description: "Recotem の終了コードとエラーのリファレンス。reco
 |------------|------|
 | `min_data_violation` | クレンジング後のデータセットが `min_rows`、`min_users`、`min_items` を下回った。`train_error` イベントには `n_rows`、`n_users`、`n_items`、`min_rows`、`min_users`、`min_items` が含まれます。 |
 | `time_column_parse_error` | タイムスタンプカラムをパースできなかった。 |
-| `split_error` | 学習/検証の分割が失敗したか、使用できない結果になった — ホールドアウトのテスト集合が空、`time_user` / `time_global` スキームなのに `schema.time_column` が未設定、あるいは irspack のスプリッタ内部での失敗。`split.heldout_ratio` を下げるか、より大きなデータセットを使用してください。 |
+| `split_error` | 学習/検証の分割が失敗したか、使用できない結果になった — ホールドアウトのテスト集合が空、`time_user` / `time_global` スキームなのに `schema.time_column` が未設定、あるいは irspack のスプリッタ内部での失敗。`split.heldout_ratio` を**上げて**ください — ホールドアウトは**ユーザーごと**に `floor(インタラクション数 * heldout_ratio)` なので、比率を下げると必要な1 ユーザーあたりの深さが*増え*ます。ユーザー数を増やしても解決しません。エラーメッセージには、実際のデータで有効になる最小の比率が示されます。深いユーザーは存在するのに検証ユーザーとして抽出されなかった場合は、代わりに `split.test_user_ratio` を上げてください。 |
 | `no_completed_trials` | 完了前に全 Optuna トライアルが失敗した。 |
 | `zero_score` | 完了した全トライアルのスコアが 0.0 だった。テスト分割が空である場合に多い。 |
 | `excessive_per_trial_timeouts` | ほとんどのトライアルがトライアルごとのタイムアウトに達した。レシピの `training.per_trial_timeout_seconds` を増やしてください。 |

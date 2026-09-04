@@ -66,7 +66,7 @@ An artifact is a binary container with the layout:
 magic | version | reserved | kid | hmac | header_json | payload
 ```
 
-- **HMAC scope**: `kid_bytes || header_json || payload`. Modification of any byte in any of these sections fails HMAC verification.
+- **HMAC scope**: `kid_bytes || header_json || payload`. Modification of any byte in any of these sections fails HMAC verification. The 4-byte `header_len` field is **not** covered — it only says where the header stops and the payload starts, and both halves are authenticated as one run of bytes, so moving the boundary still passes `verify_hmac` (`recotem inspect` prints `HMAC: OK`) and is caught one layer later, reported as exit 5.
 - **Header JSON** carries `recipe_name`, `recipe_hash`, `best_class`, `best_params`, `best_score`, `metric`, `cutoff`, `tuning`, `data_stats`, `recotem_version`, `irspack_version`, and `trained_at`. A recipe with a `features` block additionally carries a `features` descriptor (`version`, `active`, and the encoded dimension and column names per side). Readable without deserialization via `recotem inspect`.
 - **Payload** contains the serialized `IDMappedRecommender` (scipy sparse matrices + numpy arrays). HMAC is verified in full before a single byte of the payload is interpreted. The deserializer enforces an FQCN allow-list during unpickling as defence-in-depth.
 - **Key ID (`kid`)** identifies which signing key produced the HMAC. The `KeyRing` (env: `RECOTEM_SIGNING_KEYS=kid1:hex,kid2:hex`) holds multiple keys, enabling zero-downtime key rotation.
@@ -83,7 +83,7 @@ magic | version | reserved | kid | hmac | header_json | payload
 | Training host | Reads source data, writes signed artifact | Trusted (operator-controlled) |
 | Serving host | Reads artifact directory, serves `/v1/recipes/{name}:<verb>` | Trusted (operator-controlled) |
 | API client | Sends `/v1/recipes/{name}:<verb>` requests with an API key | Untrusted user input |
-| Artifact file | Immutable signed binary; any tamper fails HMAC | Authenticated by HMAC |
+| Artifact file | Signed binary. Tampering inside `kid_bytes \|\| header_json \|\| payload` fails HMAC verification. The 4-byte `header_len` field is outside that scope: moving it passes `verify_hmac` and is caught one layer later by the header JSON parse or the deserializer, reported as exit 5. It shifts a split point; it cannot inject a byte. | Authenticated by HMAC |
 
 Recipes can reference environment variables for dynamic values (via `${RECOTEM_RECIPE_*}` expansion). The expansion mechanism is restricted to that prefix and never applied inside `source.query` or `source.query_parameters` to foreclose SQL injection.
 

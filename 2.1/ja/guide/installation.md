@@ -35,8 +35,16 @@ recotem --help
 | Google Cloud Storage | `pip install "recotem[gcs]"` | GCS からアーティファクトとデータを読み書きする |
 | Azure Blob Storage | `pip install "recotem[azure]"` | Azure からアーティファクトとデータを読み書きする |
 | Prometheus メトリクス | `pip install "recotem[metrics]"` | モニタリング用のオプトイン `/v1/metrics` エンドポイント (`X-API-Key` が必要) |
+| `BPRFM` アルゴリズム | `pip install "recotem[bprfm]"` | `training.algorithms` で `BPRFM` を使えるようにする |
+| すべて | `pip install "recotem[all]"` | 上記すべてを一度に導入 |
 
 エクストラは組み合わせて使えます: `pip install "recotem[s3,metrics]"`
+
+::: warning `BPRFM` にはエクストラが必要です
+irspack は `BPRFMRecommender` を別途インストールする `lightfm` パッケージの背後にゲートしており、そのインポートに失敗するとクラスをエクスポートしません。`bprfm` エクストラなしで `training.algorithms` に `BPRFM` を指定すると、`recotem validate` も `recotem train` もデータ取得の前に終了コード **4** と `irspack does not know recommender class 'BPRFMRecommender'` で失敗します。公式 Docker イメージには既に含まれています。
+
+依存パッケージは [`lightfm-next`](https://pypi.org/project/lightfm-next/) で、同じ `lightfm` モジュールを提供する保守されたフォークです (本家 `lightfm` は 1.17 以降リリースがなく、Python 3.12 でビルドできません)。注意点が 2 つあります。linux/aarch64 のホイールが公開されていないため、arm64 では `pip install "recotem[bprfm]"` がソースからビルドされ C コンパイラが必要です (公開 Docker イメージは両アーキテクチャでビルド済みのため影響を受けません)。また macOS では OpenMP なしでビルドされるため、BPRFM の学習はシングルスレッドになります。
+:::
 
 ## オプション B — Docker
 

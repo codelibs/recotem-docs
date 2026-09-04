@@ -9,6 +9,17 @@ This tutorial walks you through a complete Recotem run: fetch data, train a mode
 
 **Prerequisites:** either Docker with the Compose plugin, or Python 3.12+ with Recotem installed. About 50 MB of disk and network access to `raw.githubusercontent.com`.
 
+## Step 0 — Get the repository {#step-0-get-the-repository}
+
+Both paths below run commands from the repository root: the recipe, and (for Path A) `compose.yaml`, are files in the repository, not part of the `pip install`. Clone it first:
+
+```bash
+git clone https://github.com/codelibs/recotem.git
+cd recotem
+```
+
+Every command on this page assumes that directory is your working directory.
+
 Choose your path:
 
 - [Path A — Docker Compose](#path-a-docker-compose) (recommended; no Python install needed)
@@ -240,6 +251,8 @@ curl -sX POST http://127.0.0.1:8080/v1/recipes/purchase_log:recommend \
 | `503 RECIPE_UNAVAILABLE` immediately after training | The watcher has not polled yet | Wait up to `RECOTEM_WATCH_INTERVAL` seconds (default 5 s; the tutorial compose sets 10 s). Check `/v1/health`. |
 | Path B: artifact written to the wrong directory | The recipe's `output.path` is relative to the working directory | Run `recotem train` from the repository root, or change `output.path` to an absolute path |
 | `recotem: command not found` after pip install | The venv is not activated | Activate the venv, or run `python -m recotem ...` |
+| `Error: Invalid value: File 'examples/tutorial-purchase-log/recipe.yaml' does not exist` | `pip install recotem` does not ship `examples/`; the working directory is not a clone | Run [Step 0](#step-0-get-the-repository) and re-run from the repository root |
+| `no configuration file provided: not found` from `docker compose` | Same cause — `compose.yaml` lives in the repository | Run [Step 0](#step-0-get-the-repository) |
 
 ---
 

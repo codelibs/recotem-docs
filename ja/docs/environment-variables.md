@@ -7,14 +7,18 @@ description: "Recotem のすべての RECOTEM_* 環境変数リファレンス�
 
 このページはすべての `RECOTEM_*` 環境変数の公式リファレンスです。`train` スコープの変数は `recotem train` のみが読み取ります。`serve` スコープの変数は `recotem serve` のみが読み取ります。`both` スコープの変数は両方のコマンドが読み取ります。
 
+::: warning パースに失敗した値は、変数によって致命的にも無視にもなります
+以下で **⚠** が付いた変数は、プロセスの起動そのものを拒否します (`ConfigError` / `KeyRingConfigError`、終了コード **8**、ポートをバインドする前)。**それ以外の数値変数は `env_var_unparseable` 警告をログに出してデフォルト値に黙ってフォールバックします**。したがって、たとえば `RECOTEM_MAX_PAYLOAD_BYTES` のタイプミスは、意図しない上限のままサーバーが動き続ける結果になります。クランプ対象の変数における範囲外の値も致命的ではなく、`env_var_clamped` 警告とともにクランプされます。変更後は起動ログで `env_var_unparseable` と `env_var_clamped` を確認してください。
+:::
+
 ## 認証と署名
 
 これらの変数はアーティファクトの整合性 (署名鍵) と API 認証を制御します。シークレットとして扱う必要があります。保管の推奨事項については [セキュリティ — シークレットの取り扱い](./security#シークレットの取り扱い) を参照してください。
 
 | 変数 | デフォルト | スコープ | クランプ | 説明 |
 |---|---|---|---|---|
-| `RECOTEM_SIGNING_KEYS` | (必須) | both | — | `kid:hex64,kid2:hex64` — HMAC-SHA256 署名/検証鍵 (64 hex 文字 = 32 生バイト)。複数エントリによりゼロダウンタイムのローテーションが可能。`recotem train` は常に**最初**のエントリで署名する。設定ミスまたは欠落した値はフェールクローズ — 未署名フォールバックなし。 |
-| `RECOTEM_API_KEYS` | (空) | serve | — | `kid:sha256:hex64,...` — API キー許可リスト。各エントリは kid と scrypt ダイジェストのペア (`sha256:` はダイジェストファミリーラベルであり、アルゴリズムではない)。空の値はバインドアドレスを `RECOTEM_HOST` の設定に関わらず `127.0.0.1` に強制する。 |
+| ⚠ `RECOTEM_SIGNING_KEYS` | (必須) | both | — | `kid:hex64,kid2:hex64` — HMAC-SHA256 署名/検証鍵 (64 hex 文字 = 32 生バイト)。複数エントリによりゼロダウンタイムのローテーションが可能。`recotem train` は常に**最初**のエントリで署名する。設定ミスまたは欠落した値はフェールクローズ — 未署名フォールバックなし。 |
+| ⚠ `RECOTEM_API_KEYS` | (空) | serve | — | `kid:sha256:hex64,...` — API キー許可リスト。各エントリは kid と scrypt ダイジェストのペア (`sha256:` はダイジェストファミリーラベルであり、アルゴリズムではない)。空の値はバインドアドレスを `RECOTEM_HOST` の設定に関わらず `127.0.0.1` に強制する。 |
 
 ::: tip ヒント — 鍵の生成
 これらの変数の正しいフォーマットの値を生成するには `recotem keygen --type signing` および `recotem keygen --type api` を使用してください。正確な出力フォーマットについては [セキュリティ — `recotem keygen` 出力フォーマット](./security#recotem-keygen-出力フォーマット) を参照してください。
@@ -27,7 +31,7 @@ description: "Recotem のすべての RECOTEM_* 環境変数リファレンス�
 | 変数 | デフォルト | スコープ | クランプ | 説明 |
 |---|---|---|---|---|
 | `RECOTEM_HOST` | `127.0.0.1` | serve | — | uvicorn バインドホスト。`RECOTEM_API_KEYS` が設定されている場合、Docker または Kubernetes 内では `0.0.0.0` にする必要がある。API キーが設定されていない場合は強制的に `127.0.0.1` に戻される (`host_forced_to_loopback` 警告あり)。 |
-| `RECOTEM_PORT` | `8080` | serve | — | uvicorn バインドポート。 |
+| ⚠ `RECOTEM_PORT` | `8080` | serve | 1–65535 (**致命的**) | uvicorn バインドポート。他の数値変数と異なり、範囲はクランプではなく強制されます。整数でない値や範囲外の値は `ConfigError` となり、ポートをバインドする前に終了コード **8** で停止します (`RECOTEM_PORT must be in range 1–65535, got 99999`)。 |
 | `RECOTEM_ALLOWED_HOSTS` | `127.0.0.1,localhost` | serve | — | `TrustedHostMiddleware` に渡すカンマ区切りのリスト。未認識の `Host` ヘッダーを持つリクエストは拒否される。空白のみのカンマ入力はデフォルトにフォールバック。本番環境ではクライアントが使用する正確なホスト名を明示的に設定すること。 |
 | `RECOTEM_ALLOWED_ORIGINS` | (空) | serve | — | カンマ区切りの CORS 許可リスト。空はすべてのクロスオリジンリクエストを拒否することを意味する。ブラウザクライアントが CORS リクエストを送信する場合に設定する。 |
 
@@ -41,7 +45,7 @@ description: "Recotem のすべての RECOTEM_* 環境変数リファレンス�
 
 | 変数 | デフォルト | スコープ | クランプ | 説明 |
 |---|---|---|---|---|
-| `RECOTEM_MAX_ARTIFACT_BYTES` | 2 GiB | serve | [1 MiB, 16 GiB] | アーティファクトファイルごとのサイズ上限。デシリアライズが発生する前に適用される。小さなモデルが多い場合はメモリ上限を下げるために削減する。 |
+| `RECOTEM_MAX_ARTIFACT_BYTES` | 2 GiB | serve | [1 MiB, 16 GiB] | アーティファクトファイルごとのサイズ上限。デシリアライズが発生する前に適用される。**ペイロード上限を一度も設定していなくても、これをペイロード上限より下げると致命的**です — クロスチェックは*解決後*の 2 つの値を比較するため、`RECOTEM_MAX_ARTIFACT_BYTES=268435456` (256 MiB) だけでも、オペレーターが設定していない `RECOTEM_MAX_PAYLOAD_BYTES` (デフォルト 512 MiB) を名指しして終了コード 8 で停止します。ちょうど 512 MiB は許容されます。下げる場合はペイロード側から両方まとめて下げてください。 |
 | `RECOTEM_MAX_PAYLOAD_BYTES` | 512 MiB | serve | [1 MiB, 16 GiB] | HMAC 検証後のデシリアライズ中に適用されるペイロードごとの上限。`RECOTEM_MAX_ARTIFACT_BYTES` 以下でなければならない。そうでない場合は起動時に `ConfigError` (終了コード 8) で失敗する。デシリアライズによるメモリ展開を制限するため `RECOTEM_MAX_ARTIFACT_BYTES` より小さく設定されている。 |
 | `RECOTEM_MAX_DOWNLOAD_BYTES` | 256 MiB | train | [1 MiB, 16 GiB] | HTTP/HTTPS、ローカルファイル、オブジェクトストアのソース読み取りにおける生 I/O バイト上限。上限はストリーム途中で適用される。超過すると `DataSourceError` (終了コード 3) が発生する。解凍後の DataFrame はキャップ**しない** — [セキュリティ — 解凍後サイズ上限の未適用](./security#解凍後サイズ上限の未適用-medium-5) を参照。 |
 
@@ -64,7 +68,7 @@ description: "Recotem のすべての RECOTEM_* 環境変数リファレンス�
 
 | 変数 | デフォルト | スコープ | クランプ | 説明 |
 |---|---|---|---|---|
-| `RECOTEM_WATCH_INTERVAL` | `5` | serve | [1, 30] | アーティファクトウォッチャーのポーリングインターバル (秒)。ウォッチャーは新しいまたは変更されたアーティファクトファイルを検知し、プロセスを再起動せずにモデルをホットスワップする。 |
+| ⚠ `RECOTEM_WATCH_INTERVAL` | `5` | serve | [1, 30] | アーティファクトウォッチャーのポーリングインターバル (秒)。範囲外の値はクランプされますが、ここにある他の数値変数と異なり、**数値でない値は致命的**です (`ConfigError`、終了コード 8)。ウォッチャーは新しいまたは変更されたアーティファクトファイルを検知し、プロセスを再起動せずにモデルをホットスワップする。 |
 | `RECOTEM_STARTUP_PARALLELISM` | (自動) | serve | [1, 32] | 起動時にアーティファクトを並列ロードするスレッド数。デフォルトの自動サイジングは `min(len(recipes), 8)`。`0` の設定はセンチネルではなく — 1 にクランプして `env_var_clamped` 警告を出力する。デバッグには `1` に設定して逐次ロードを強制する。 |
 
 ## ライフサイクル
@@ -75,7 +79,7 @@ description: "Recotem のすべての RECOTEM_* 環境変数リファレンス�
 |---|---|---|---|---|
 | `RECOTEM_ENV` | (空) | serve | — | デプロイメント環境タグ。`--insecure-no-auth` は `development`、`dev`、または `test` に設定した場合のみ許可される。`--dev-allow-unsigned` は `development` に設定した場合のみ許可される。`/docs`、`/redoc`、`/openapi.json` エンドポイントはフェールセキュアで、この変数が `development`、`dev`、または `test` のときのみ有効になる。それ以外の値 (未設定、`production`、`prod`、`staging`、またはカスタムタグ) の場合、これらのパスは 404 を返す。 |
 | `RECOTEM_DRAIN_SECONDS` | `30` | serve | [1, 300] | SIGTERM グレースフルドレインウィンドウ (秒)。進行中のリクエストはこのウィンドウが完了するまで待機でき、その後 uvicorn は残りの接続を閉じる。Kubernetes では `terminationGracePeriodSeconds` を少なくとも `RECOTEM_DRAIN_SECONDS + 5` に設定すること。 |
-| `RECOTEM_LOG_FORMAT` | `auto` | both | — | ログ出力フォーマット。`auto` は stderr が TTY でない場合は JSON、それ以外はコンソール形式を使用する。`json` は構造化 JSON を強制する。`console` は人間が読める出力を強制する。 |
+| ⚠ `RECOTEM_LOG_FORMAT` | `auto` | both | — | ログ出力フォーマット。以下の 3 つ以外の値は致命的です (`ConfigError`、終了コード 8)。`auto` は stderr が TTY でない場合は JSON、それ以外はコンソール形式を使用する。`json` は構造化 JSON を強制する。`console` は人間が読める出力を強制する。 |
 
 ## 運用
 

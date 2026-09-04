@@ -185,11 +185,12 @@ FQCN リストに加えて、定義モジュールが以下の狭いプレフィ
 ```
 numpy._core.       numpy 2.x 再構築ヘルパー + スカラー / dtype 機構
 numpy.core.        numpy 1.x 同等物 (2.x 以前のアーティファクトとの前方互換)
-numpy.dtypes.      numpy 2.x パラメトリック dtype クラス (Float64DType、BoolDType、...)
 scipy.sparse._csr. CSR 行列再構築器 + ヘルパー
 scipy.sparse._csc. CSC 同等物
 scipy.sparse._coo. COO 同等物
 ```
+
+`numpy.dtypes` はこのリストに**含まれていません**。numpy 2.x のパラメトリック dtype クラス (`Float64DType`、`BoolDType` など) はこのモジュール直下にあり、ドットで終わるプレフィックスはサブモジュールにしかマッチしないため、エントリを置いても何にもマッチしません。必要でもありません。numpy は配列と dtype を、個別列挙された `numpy.dtype` と `numpy._core.multiarray._frombuffer` を経由してラウンドトリップします。将来の numpy がこれらの FQCN を出力するようになった場合は、個別のクラスを列挙リストに追加すべきです。プレフィックスをモジュール全体に広げると、クラスでない 2 つの呼び出し可能オブジェクトまで許可してしまいます。
 
 トップレベルのベアモジュール (`numpy`、`scipy.sparse`) は意図的にプレフィックスリストに**含まれていません**。正当なトップレベル FQCN (`numpy.ndarray`、`numpy.dtype`) は手動列挙リストによってピン留めされているため、`numpy.frompyfunc`、`numpy.vectorize`、`numpy.piecewise`、`scipy.sparse.load_npz` などの呼び出し可能/ファイル I/O ガジェットは、同じパッケージ「配下」に存在してもブロックされます。
 

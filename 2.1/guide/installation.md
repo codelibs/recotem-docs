@@ -35,8 +35,16 @@ The core package ships with CSV and Parquet data sources. Install extras for add
 | Google Cloud Storage | `pip install "recotem[gcs]"` | Read/write artifacts and data from GCS |
 | Azure Blob Storage | `pip install "recotem[azure]"` | Read/write artifacts and data from Azure |
 | Prometheus metrics | `pip install "recotem[metrics]"` | Opt-in `/v1/metrics` endpoint for monitoring (requires `X-API-Key`) |
+| `BPRFM` algorithm | `pip install "recotem[bprfm]"` | Makes the `BPRFM` algorithm available to `training.algorithms` |
+| Everything | `pip install "recotem[all]"` | All of the above at once |
 
 Extras can be combined: `pip install "recotem[s3,metrics]"`.
+
+::: warning `BPRFM` needs its extra
+irspack gates `BPRFMRecommender` behind the separately installed `lightfm` package and drops the class from its exports when that import fails. Listing `BPRFM` in `training.algorithms` without the `bprfm` extra makes both `recotem validate` and `recotem train` exit **4** with `irspack does not know recommender class 'BPRFMRecommender'`, before any data is fetched. The official Docker image already includes it.
+
+The dependency is [`lightfm-next`](https://pypi.org/project/lightfm-next/), a maintained fork that installs the same `lightfm` module — upstream `lightfm` has shipped no release since 1.17 and does not build on Python 3.12. Two caveats: it publishes no linux/aarch64 wheel, so on arm64 `pip install "recotem[bprfm]"` builds it from source and needs a C compiler (the published image is unaffected, having compiled it at build time on both architectures); and on macOS it is built without OpenMP, so BPRFM training there is single-threaded.
+:::
 
 ## Option B — Docker
 

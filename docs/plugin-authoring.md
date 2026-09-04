@@ -126,7 +126,7 @@ class EchoSource:
 
    Do **not** rely on pydantic's default `extra="ignore"` to absorb the YAML `type:` key instead. That combination loads the recipe successfully but drops the discriminator, and training then fails with `Recipe source has no discriminator 'type' field.` (exit code 2).
 
-3. **`extras_required`** is **purely documentation**. The registry only validates that it is a `list[str]`; recotem never auto-installs or auto-checks these extras. Surface a helpful message yourself in `__init__` (see [Deferred imports](#deferred-imports)) — the value of the attribute is what you cite there.
+3. **`extras_required`** is **purely documentation**. The registry only validates that it is a `list[str]`; recotem never auto-installs or auto-checks these extras. Surface a helpful message yourself in `__init__` (see [Deferred imports](#rules)) — the value of the attribute is what you cite there.
 
 4. **`no_expand_fields`** is **required** and must be a `frozenset[str]`. It names every field in the source `Config` whose string values must **never** receive `${RECOTEM_RECIPE_*}` environment-variable expansion. `validate_plugin_contract` checks that this attribute is present and is a `frozenset`; a missing or wrong-type declaration raises `DataSourceError` at plugin-discovery time with a pointer to this doc.
 
