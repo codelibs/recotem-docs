@@ -77,7 +77,24 @@ spec:
 永続的なデータ問題でのリトライループを防ぐため、本番 CronJob では `backoffLimit: 2` を設定してください — バンドルされた Helm CronJob テンプレートは `backoffLimit` を設定しないため、values オーバーレイ (またはプレーンマニフェスト) で追加してください。バンドルされた Helm CronJob は `activeDeadlineSeconds: 3600` (1 時間ハードキル) を設定しています; Optuna の探索予算やデータソースが遅い場合は値を上げてください。
 :::
 
-`failOnBusy: false` (チャートのデフォルト) の場合、`concurrencyPolicy: Forbid` からのロック競合は K8s レイヤーでは発生しませんが、`concurrencyPolicy: Allow` に設定すると、2 回目の呼び出しでプロセス内ファイルロックが終了コード 0 で終了します。CronJob は成功としてマークされます — 重複した実行をアラートで検知したい場合は `failOnBusy: true` (これにより `--fail-on-busy` が追加される) を設定してください。
+`concurrencyPolicy: Forbid` が防ぐのは CronJob が*それ自身*と重なることだけです。同じレシピのロックを他のプロセスが保持している場合については何も保証しません。しかも、チャート自身の初回インストール手順がそのプロセスを作ります — `values.yaml` が案内するブートストラップ Job は `kubectl create job bootstrap-0 --from=cronjob/<release>-train` であり、これは同じレシピ・同じ `<output.path>.lock` に対する 2 つ目の学習プロセスです。クラスター外の cron、手動の `recotem train`、アーティファクトストアを共有する 2 つ目のクラスターも同じ形です。
+
+`failOnBusy: false` (チャートのデフォルト) でこれが起きたとき、ロックを取れなかった実行は**失敗しません**。INFO レベルで `recipe_lock_contended_skipping` を出力して終了コード 0 で終了し、Job は `succeeded: 1` の `Complete` としてマークされます — 本来書き出されるはずだったアーティファクトは書かれないままです:
+
+```console
+$ kubectl -n recotem create job scheduled-run --from=cronjob/recotem-train
+$ kubectl -n recotem get job scheduled-run \
+    -o custom-columns='COND:.status.conditions[*].type,SUCCEEDED:.status.succeeded'
+COND                          SUCCEEDED
+SuccessCriteriaMet,Complete   1
+$ kubectl -n recotem logs job/scheduled-run | tail -1
+{"recipe": "slow_recipe", "event": "recipe_lock_contended_skipping", "level": "info", ...}
+# アーティファクトのポインタは実行前とバイト単位で同一
+```
+
+::: danger Job の成功を監視してもモデルの陳腐化は見えません
+`failOnBusy: true` (これにより `--fail-on-busy` が追加されます) を設定してロックを取れなかった実行を終了コード **6** で失敗させるか、Job のステータスではなくアーティファクトの `trained_at` を監視してください。`concurrencyPolicy: Allow` にすると、CronJob 自身の重複実行も同じ「静かにスキップ」の経路に加わります。
+:::
 
 完全な終了コードリファレンスについては [終了コードとエラー](../exit-codes) を参照してください。
 
