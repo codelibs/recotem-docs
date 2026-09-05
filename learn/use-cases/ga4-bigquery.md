@@ -162,8 +162,9 @@ What the important blocks do:
 - **`training.algorithms`** runs an Optuna search across IALS (implicit-feedback
   matrix factorization), RP3beta (a random-walk graph model), and TopPop (a
   popularity baseline). Recotem tunes each and keeps the best-scoring model by
-  `ndcg@20`. TopPop guarantees the search never scores worse than "just show the
-  bestsellers."
+  `ndcg@20`. TopPop is one of the candidates, not a floor: if it
+  scores highest it is what ships, and **clearing popularity is not evidence
+  the model is good** — see [Is the model any good?](/learn/basics/collaborative-filtering#is-the-model-any-good).
 - **`split.scheme: time_user`** holds out each user's most recent 10% of
   interactions for evaluation, which mirrors how the model is used in
   production: predict the future from the past.
