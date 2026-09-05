@@ -101,6 +101,17 @@ function articleJsonLd(o: {
 }
 
 // ---------------------------------------------------------------------------
+// Version directories
+// ---------------------------------------------------------------------------
+
+// `1.0/`, `2.0/`, `2.1/`, … — archives and in-development previews. They stay
+// served (the product links to them) but are kept out of every discovery
+// surface: `noindex` + self-canonical in `transformPageData`, dropped from
+// `sitemap.xml`, and excluded from the local search index. One regex so those
+// three cannot drift apart.
+const VERSION_DIR_RE = /^\d+\.\d+\//
+
+// ---------------------------------------------------------------------------
 // Sidebar helpers
 // ---------------------------------------------------------------------------
 
@@ -409,7 +420,7 @@ export default defineConfig({
       items.filter((i) => {
         const u = i.url.replace(/^\//, '')
         return (
-          !/^\d+\.\d+\//.test(u) && u !== 'CLAUDE.html' && u !== 'README.html'
+          !VERSION_DIR_RE.test(u) && u !== 'CLAUDE.html' && u !== 'README.html'
         )
       }),
   },
@@ -435,7 +446,7 @@ export default defineConfig({
     // Version-pinned directories (1.0/, 2.0/, 2.1/, …): kept accessible (the
     // product links to them; the current stable lives unversioned at the root)
     // but removed from search via noindex; self-canonical, no bilingual pairing.
-    if (/^\d+\.\d+\//.test(rel)) {
+    if (VERSION_DIR_RE.test(rel)) {
       head.push(['meta', { name: 'robots', content: 'noindex, follow' }])
       head.push(['link', { rel: 'canonical', href: SITE + url }])
       return
@@ -562,6 +573,90 @@ export default defineConfig({
   themeConfig: {
     logo: '/recotem-header.png',
     pageIds: PAGE_IDS,
+    search: {
+      provider: 'local',
+      options: {
+        // Index only the current stable tree. Version directories (1.0/, 2.1/,
+        // …) are excluded here for the same reason `transformPageData` gives
+        // them `noindex` and `sitemap.transformItems` drops them: they are
+        // archives and previews, not the canonical docs, and mixing three
+        // copies of "Recipe Reference" into one result list makes the search
+        // worse than no search. Returning '' from `_render` keeps a page out
+        // of the index. Uses the same `/^\d+\.\d+\//` shape as those two rules
+        // so the three cannot drift apart.
+        _render(src, env, md) {
+          if (VERSION_DIR_RE.test(env.relativePath ?? '')) return ''
+          return md.render(src, env)
+        },
+        detailedView: true,
+        miniSearch: {
+          options: {
+            // MiniSearch's default tokenizer splits on whitespace and
+            // punctuation, which returns exactly one token for a Japanese
+            // sentence — so the JA half of the site would be unsearchable.
+            // Emit character bigrams for CJK runs, and split
+            // `RECOTEM_SIGNING_KEYS` / `item-metadata` / `split.scheme` into
+            // their parts as well as keeping the whole name, so both the full
+            // identifier and any component of it find the page.
+            //
+            // Must stay a self-contained expression: VitePress serialises
+            // these functions into the client bundle (`_vp-fn_`) and rebuilds
+            // them with `new Function`, so it cannot close over anything
+            // defined outside.
+            tokenize: (text: string): string[] => {
+              const CJK =
+                /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f]/
+              const out: string[] = []
+              for (const chunk of text.split(/[^\p{L}\p{N}_.-]+/u)) {
+                if (!chunk) continue
+                out.push(chunk)
+                if (/[_.-]/.test(chunk)) {
+                  for (const part of chunk.split(/[_.-]+/)) {
+                    if (part) out.push(part)
+                  }
+                }
+                if (CJK.test(chunk)) {
+                  for (let i = 0; i < chunk.length - 1; i++) {
+                    out.push(chunk.slice(i, i + 2))
+                  }
+                }
+              }
+              return out
+            },
+          },
+          searchOptions: {
+            fuzzy: 0.2,
+            prefix: true,
+            boost: { title: 4, text: 2, titles: 1 },
+          },
+        },
+        locales: {
+          ja: {
+            translations: {
+              button: {
+                buttonText: '検索',
+                buttonAriaLabel: 'ドキュメントを検索',
+              },
+              modal: {
+                displayDetails: '詳細を表示',
+                resetButtonTitle: '検索をリセット',
+                backButtonTitle: '閉じる',
+                noResultsText: '見つかりませんでした:',
+                footer: {
+                  selectText: '選択',
+                  selectKeyAriaLabel: 'Enter',
+                  navigateText: '移動',
+                  navigateUpKeyAriaLabel: '上矢印',
+                  navigateDownKeyAriaLabel: '下矢印',
+                  closeText: '閉じる',
+                  closeKeyAriaLabel: 'Esc',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     socialLinks: [
       { icon: 'github', link: 'https://github.com/codelibs/recotem' },
     ],
