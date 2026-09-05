@@ -146,9 +146,11 @@ output:
 アルゴリズム名はこのページの内容と一対一に対応します。`IALS` は暗黙的
 フィードバック向けの行列分解、`CosineKNN` はアイテムベースの近傍法 CF、
 `RP3beta` は人気減衰付きのグラフ系変種、`TopPop` はすべての実験に含める
-べき人気順ベースラインです。`DenseSLIM`、`TruncatedSVD`、`BPRFM`（BPR 損失の
-行列分解）も利用できます — 全リストは
-[レシピリファレンス](/ja/docs/recipe-reference#training)を参照してください。
+べき人気順ベースラインです。`DenseSLIM`、`TruncatedSVD` も利用でき、
+`BPRFM`（BPR 損失の行列分解）は Recotem と併せて `lightfm` を入れれば
+利用できます — 全リストは
+[レシピリファレンス](/ja/docs/recipe-reference#training)、`BPRFM` の注意点は
+[インストール](/ja/guide/installation#オプションエクストラ)を参照してください。
 コールドスタートのフォールバックは配信 API 側にも組み込まれています。未知の
 ユーザーには明示的な `404 UNKNOWN_USER` が返るのでアプリケーション側で
 フォールバックでき、

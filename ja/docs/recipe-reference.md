@@ -202,7 +202,7 @@ training:
 
 | フィールド | 型 | デフォルト | 備考 |
 |------------|-----|-----------|------|
-| `algorithms` | list[string] | required | `IALS`、`CosineKNN` (エイリアス `CosinekNN`)、`TopPop`、`RP3beta`、`DenseSLIM`、`TruncatedSVD`、および `BPRFM` (**`bprfm` エクストラが必要** — これがないと `validate` も `train` もデータ取得前に終了コード 4 と `irspack does not know recommender class 'BPRFMRecommender'` で失敗します。[インストール](/ja/guide/installation#オプションエクストラ) を参照)。irspack のフルクラス名 (例: `IALSRecommender`) も受け付けます。ハイパーパラメータの範囲は irspack の各レコメンダーの `default_suggest_parameter` から取得され、レシピからは変更できません。 |
+| `algorithms` | list[string] | required | `IALS`、`CosineKNN` (エイリアス `CosinekNN`)、`TopPop`、`RP3beta`、`DenseSLIM`、`TruncatedSVD`、および `BPRFM` (**このリリースでは選択できません** — Recotem はここで `bprfm` エクストラを宣言しておらず、公式イメージにも `lightfm` は含まれないため、`validate` も `train` もデータ取得前に終了コード 4 と `irspack does not know recommender class 'BPRFMRecommender'` で失敗します。`lightfm-next` を自分でインストールすれば選択できるようになります。[インストール](/ja/guide/installation#オプションエクストラ) を参照)。irspack のフルクラス名 (例: `IALSRecommender`) も受け付けます。ハイパーパラメータの範囲は irspack の各レコメンダーの `default_suggest_parameter` から取得され、レシピからは変更できません。 |
 | `metric` | string | `ndcg` | `ndcg`、`map`、`recall`、`hit` のいずれか。 |
 | `cutoff` | int | `20` | 評価時の推薦リスト長 (1 以上)。 |
 | `n_trials` | int | `40` | Optuna の総トライアルバジェット (1 以上)。 |

@@ -134,7 +134,7 @@ output:
 上記の選択について補足します:
 
 - `schema.time_column: ordered_at` は、分割が `scheme: time_user` を使うため必須です。`ordered_at` は本物のタイムスタンプ列なので `time_unit` は不要です（時刻列が数値の Unix タイムスタンプの場合は `time_unit: s` を追加します）。
-- `algorithms` には暗黙的フィードバック向けの学習器を 3 つ挙げています。Recotem は Optuna 探索でそれらを横断し、`ndcg@20` で最良のものを残します。`TopPop` は安価な人気度ベースラインで、「単に売れ筋を出すだけ」に勝てないモデルを検知するための歯止めになります。他に `CosineKNN`・`DenseSLIM`・`TruncatedSVD`・`BPRFM` も選べます。
+- `algorithms` には暗黙的フィードバック向けの学習器を 3 つ挙げています。Recotem は Optuna 探索でそれらを横断し、`ndcg@20` で最良のものを残します。`TopPop` は安価な人気度ベースラインで、「単に売れ筋を出すだけ」に勝てないモデルを検知するための歯止めになります。他に `CosineKNN`・`DenseSLIM`・`TruncatedSVD` も選べます。`BPRFM` は Recotem と併せて `lightfm` のインストールが必要で、related 系の動詞に応答できないため、挙げる前に [インストール](/ja/guide/installation#オプションエクストラ) を確認してください。
 - `cleansing.min_rows` / `min_users` / `min_items` はデータの事前条件です。クエリの返す行数が少なすぎる場合、弱いモデルを作る前に学習を早期失敗させます。
 
 各フィールドは [レシピリファレンス](/ja/docs/recipe-reference) に、SQL 固有の詳細（タイムアウト、行数上限、エラーコード）は [SQL ソースリファレンス](/ja/docs/data-sources/sql) にすべて記載されています。

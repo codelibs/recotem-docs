@@ -49,7 +49,7 @@ Personalize の概念をどう移行できるかを示します。
 | **ホスティング** | フルマネージドの AWS サービス。運用するサーバーは不要。 | セルフホスト。任意のクラウド・オンプレミス・Docker/Kubernetes で自分で動かす。 |
 | **データの所在** | 行動データを AWS（S3 + Personalize データセット、AWS リージョン内）へ取り込む。 | データは自社環境に留まる。CSV/Parquet・BigQuery・SQL から読み込み、アーティファクトは自社ストレージに出力。 |
 | **料金モデル** | 従量課金。データ取り込み（約 $0.05/GB）、学習、推論（1,000 リクエスト単位）、ユーザー数に応じたレコメンダーの時間課金。リアルタイムのキャンペーンは無トラフィックでも課金される最低スループットを予約。*（2026-07 時点）* | 無料の OSS（Apache-2.0）。すでに動かしている計算資源とストレージの費用のみ。リクエスト単位・時間単位のライセンス料はなし。 |
-| **アルゴリズム** | AWS 独自の「レシピ」: User-Personalization / -v2（Transformer/HRNN）、Similar-Items、SIMS、Personalized-Ranking、Popularity-Count など。 | OSS の [irspack](https://github.com/tohtsky/irspack) アルゴリズム: IALS、CosineKNN、RP3beta、DenseSLIM、TruncatedSVD、BPRFM、TopPop。列挙したものを Optuna が自動でハイパーパラメータ探索。 |
+| **アルゴリズム** | AWS 独自の「レシピ」: User-Personalization / -v2（Transformer/HRNN）、Similar-Items、SIMS、Personalized-Ranking、Popularity-Count など。 | OSS の [irspack](https://github.com/tohtsky/irspack) アルゴリズム: IALS、CosineKNN、RP3beta、DenseSLIM、TruncatedSVD、TopPop、および BPRFM（`lightfm` のインストールが必要）。列挙したものを Optuna が自動でハイパーパラメータ探索。 |
 | **API** | AWS SDK / `GetRecommendations`・`GetPersonalizedRanking`。AWS SigV4 で認証。 | 自前の FastAPI サービス: `POST /v1/recipes/{name}:recommend`（ほかに `:recommend-related`・`:batch-recommend`）。`X-API-Key` ヘッダで認証。[Serving API](/ja/docs/serving-api) を参照。 |
 | **運用負荷** | 低い。学習基盤・配信・スケーリング・再学習のオーケストレーションを AWS が担う。 | 自分で持つ。学習ホストと配信ホストを運用し、署名鍵を管理し、サービスをスケールさせる——その代わりに完全な制御と可搬性を得る。 |
 

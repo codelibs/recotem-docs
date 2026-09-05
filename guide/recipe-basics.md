@@ -156,7 +156,7 @@ training:
 | `RP3beta` | Graph-based random-walk algorithm |
 | `DenseSLIM` | Dense variant of the SLIM item-to-item model |
 | `TruncatedSVD` | Dimensionality reduction via Singular Value Decomposition |
-| `BPRFM` | Bayesian Personalized Ranking with factorization machines — **requires the `bprfm` extra** ([Installation](./installation#optional-extras)) |
+| `BPRFM` | Bayesian Personalized Ranking with factorization machines — **not selectable on this release** without installing `lightfm-next` yourself ([Installation](./installation#optional-extras)) |
 
 You do not need to pick a winner upfront. List several candidates and let Optuna explore the space within your trial budget (`n_trials`). Including `TopPop` costs only a few trials and gives you a working baseline even if the more complex algorithms struggle on small datasets.
 
