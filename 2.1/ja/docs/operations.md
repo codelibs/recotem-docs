@@ -265,7 +265,7 @@ recotem inspect https://host/artifacts/my.recotem        # HTTPS URI
 - **`--fail-on-busy`**: これを終了コード 6 (`LockContestedError`) に変更し、オーケストレーターが作業を他の場所に委任できるようにします。`LockContestedError` は意図的に `TrainingError` 階層の外にあります — これはオーケストレーションの状態であり、学習の失敗ではありません。
 - **`--no-lock`**: ロック取得を完全にスキップします。他のメカニズムで同時書き込みがないことを保証できる場合のみ安全です。
 
-単一ホストまたは分散クラスター上での複数プロセスの Optuna 探索 (並列化) には、レシピに `training.storage_path` を設定してください。受け入れられる形式: 裸のパス (SQLite)、または `sqlite://`、`postgresql://`、`postgres://`、`mysql://` で始まる URL。同じレシピに対する複数の `recotem train` 呼び出しは、作業を重複させるのではなく共有トライアルプールに収束します。スタディ名は `recotem_<recipe.name>_<run_id>` です。
+単一ホストまたは分散クラスター上での複数プロセスの Optuna 探索 (並列化) には、レシピに `training.storage_path` を設定してください。受け入れられる形式: 裸のパス (SQLite)、または `sqlite://`、`postgresql+psycopg://`、`mysql+pymysql://` で始まる URL。`+driver` サフィックスは必須です: この URL は Optuna の `RDBStorage` にそのまま渡され、`RDBStorage` はドライバの事前チェックを行いません。そのため裸の `postgresql://` (インストールされていない `psycopg2` にルーティングされます) は Optuna 内部で `ImportError: Failed to import DB access module for the specified storage URL` として失敗し、`postgres://` (SQLAlchemy 2.x で削除されたダイアレクト) は `NoSuchModuleError` として失敗します。どちらのメッセージも対処方法を示さず、`recotem validate` でも検出されません。同じレシピに対する複数の `recotem train` 呼び出しは、作業を重複させるのではなく共有トライアルプールに収束します。スタディ名は `recotem_<recipe.name>_<run_id>` です。
 
 ---
 
