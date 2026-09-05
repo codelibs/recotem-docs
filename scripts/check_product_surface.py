@@ -82,6 +82,17 @@ NOT_AN_ERROR_CODE = {
 }
 
 
+def _pages(
+    tree: pathlib.Path, exclude: frozenset[str] = frozenset()
+) -> list[pathlib.Path]:
+    """Every markdown page under `tree`, skipping the named subdirectories."""
+    return [
+        p
+        for p in tree.rglob("*.md")
+        if not (set(p.relative_to(tree).parts[:-1]) & exclude)
+    ]
+
+
 def product_surface() -> dict[str, set[str]]:
     """Read the four surfaces out of the installed recotem."""
     os.environ.setdefault("RECOTEM_SIGNING_KEYS", "ci:" + "ab" * 32)
@@ -128,10 +139,17 @@ def product_surface() -> dict[str, set[str]]:
     }
 
 
-def site_surface(tree: pathlib.Path) -> tuple[dict[str, set[str]], str]:
-    """Read the same four surfaces out of the markdown under `tree`."""
+def site_surface(
+    tree: pathlib.Path, exclude: frozenset[str] = frozenset()
+) -> tuple[dict[str, set[str]], str]:
+    """Read the same four surfaces out of the markdown under `tree`.
+
+    `exclude` names immediate subdirectories to skip, so a translated subtree
+    can be checked on its own instead of covering for the original.
+    """
     text = "\n".join(
-        p.read_text(errors="replace") for p in sorted(tree.rglob("*.md"))
+        p.read_text(errors="replace")
+        for p in sorted(_pages(tree, exclude))
     )
 
     routes = set()
@@ -151,9 +169,13 @@ def site_surface(tree: pathlib.Path) -> tuple[dict[str, set[str]], str]:
         if not m.group(1).startswith("RECOTEM_")
     } - NOT_AN_ERROR_CODE
 
-    cli = {
-        m.group(1) for m in re.finditer(r"`?recotem (train|serve|inspect|validate|schema|keygen)\b", text)
-    }
+    # Deliberately NOT an alternation of the six known commands. Spelling the
+    # product's own command list into the site-side regex made the PHANTOM
+    # direction dead code -- a page could invent `recotem migrate` and the
+    # token could never enter this set -- and would have raised a false
+    # UNDOCUMENTED for a newly added command that the site *did* document.
+    # Anchored on a backtick so prose ("recotem then loads ...") cannot match.
+    cli = {m.group(1) for m in re.finditer(r"`recotem ([a-z][a-z0-9-]*)", text)}
 
     env = {m.group(0) for m in re.finditer(r"\bRECOTEM_[A-Z0-9_]+", text)}
     env = {e for e in env if not e.startswith("RECOTEM_RECIPE_")}
@@ -164,6 +186,14 @@ def site_surface(tree: pathlib.Path) -> tuple[dict[str, set[str]], str]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tree", default="2.1", help="documentation tree to check")
+    ap.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="DIR",
+        help="subdirectory to skip (repeatable); use it to check one language "
+        "at a time so a translation cannot stand in for the original",
+    )
     args = ap.parse_args()
 
     tree = REPO / args.tree
@@ -171,8 +201,9 @@ def main() -> int:
         print(f"no such tree: {tree}", file=sys.stderr)
         return 2
 
+    exclude = frozenset(args.exclude)
     prod = product_surface()
-    site, site_text = site_surface(tree)
+    site, site_text = site_surface(tree, exclude)
 
     failures: list[str] = []
 
@@ -198,8 +229,9 @@ def main() -> int:
             )
 
     counts = "  ".join(f"{k}={len(prod[k])}" for k in sorted(prod))
+    skipped = f"  (excluding {'/, '.join(sorted(exclude))}/)" if exclude else ""
     print(f"product surface: {counts}")
-    print(f"site tree: {args.tree}/  ({len(list(tree.rglob('*.md')))} pages)")
+    print(f"site tree: {args.tree}/  ({len(_pages(tree, exclude))} pages){skipped}")
 
     if failures:
         print()

@@ -45,10 +45,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `cache: pip`. This repository has no requirements.txt and no
+      # pyproject.toml, and setup-python treats a cache with nothing to key on
+      # as a hard error ("No file ... matched to [**/requirements.txt or
+      # **/pyproject.toml]"), which killed this job before it installed
+      # anything. There is nothing to cache here anyway: the one dependency is
+      # installed from a git ref that moves.
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: pip
 
       # The metrics extra is what registers /v1/metrics; without it the
       # endpoint the site documents would not exist to compare against.
@@ -61,5 +66,13 @@ jobs:
         run: |
           python -c "import recotem; print('recotem', recotem.__version__)"
 
-      - name: Check the 2.1 preview against it
-        run: python scripts/check_product_surface.py --tree 2.1
+      # Once per language. Checking `2.1/` as one tree concatenates every page
+      # in both languages, so a surface documented only in Japanese counts as
+      # documented in English and vice versa -- the whole English
+      # environment-variables page could be deleted with the job still green.
+      - name: Check the 2.1 preview (English) against it
+        run: python scripts/check_product_surface.py --tree 2.1 --exclude ja
+
+      - name: Check the 2.1 preview (Japanese) against it
+        if: always()
+        run: python scripts/check_product_surface.py --tree 2.1/ja
