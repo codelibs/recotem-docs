@@ -388,8 +388,20 @@ curl -s http://localhost:8080/v1/recipes/purchase_log \
 | 200 | 全レシピがロード済み。 |
 | 503 | 1 件以上のレシピが未ロード。 |
 
-::: tip Kubernetes readiness プローブ
-`503` レスポンスは Pod を Service エンドポイントから除外します。これは意図的な動作です — 全ての推薦リクエストが `503` を返す Pod にはトラフィックを送るべきではありません。readiness プローブと liveness プローブの両方に `GET /v1/health` を使用してください。
+::: warning このエンドポイントに `livenessProbe` を設定しないでください
+`total` が数えるのはロード可能なモデルではなくレシピです。そのため、**まだ学習されていないレシピが 1 つあるだけでプロセス全体が `503`** になります — 他のレシピはすべて `200` を返し続けているのに、です。`503` は Pod を Service エンドポイントから除外します。readiness であればこれは妥当です。しかし `livenessProbe` では妥当ではありません。kubelet が Pod を再起動し、置き換わった Pod も同じレシピディレクトリを読んで同じように失敗し、CrashLoopBackOff になります。再起動のたびに、ロード済みだったモデルまで失われます。存在しないアーティファクトは再起動では生まれません。
+
+このリリースには「プロセスが生きているか」だけを答えるエンドポイントがないため、アーティファクトの状態を読まないプローブを使ってください:
+
+```yaml
+livenessProbe:
+  tcpSocket:
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 30
+```
+
+`GET /v1/health` は `readinessProbe`、`startupProbe`、ダッシュボード、アラートには引き続き適切です。
 :::
 
 **curl の例:**

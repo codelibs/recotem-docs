@@ -388,8 +388,20 @@ Overall liveness and readiness status. Suitable for Kubernetes liveness and read
 | 200 | All recipes are loaded. |
 | 503 | One or more recipes are not loaded. |
 
-::: tip Kubernetes readiness probes
-A `503` response removes the pod from the Service endpoints. This is intentional — a pod where every recommendation request would return `503` should not receive traffic. Use `GET /v1/health` for both readiness and liveness probes.
+::: warning Do not put a `livenessProbe` on this endpoint
+`total` counts recipes, not loadable models, so **one recipe whose artifact has not been trained yet turns this endpoint `503` for the whole process** — while every other recipe keeps answering `200`. A `503` removes the pod from the Service endpoints, which is defensible for readiness. On a `livenessProbe` it is not: the kubelet restarts the pod, the replacement reads the same recipes directory, fails identically, and CrashLoopBackOffs — dropping the models that *were* loaded on every restart. A restart cannot conjure a missing artifact.
+
+On this release there is no endpoint that answers "is the process alive?" separately, so use a probe that does not read artifact state at all:
+
+```yaml
+livenessProbe:
+  tcpSocket:
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 30
+```
+
+`GET /v1/health` remains the right target for `readinessProbe`, `startupProbe`, dashboards, and alerting.
 :::
 
 **curl example:**

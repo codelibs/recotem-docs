@@ -152,13 +152,15 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
+          # NOT an httpGet on /v1/health: that endpoint answers 503 whenever
+          # any one recipe is unloaded, so one untrained recipe would restart
+          # every pod in a loop that a restart cannot fix.  A TCP probe asks
+          # only "is the process still listening", which is what liveness
+          # means.  (It sends no Host header, so TrustedHostMiddleware is not
+          # involved either.)
           livenessProbe:
-            httpGet:
-              path: /v1/health
+            tcpSocket:
               port: 8080
-              httpHeaders:
-                - name: Host
-                  value: localhost
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 10
@@ -228,11 +230,11 @@ spec:
 Expose externally via an Ingress or a LoadBalancer. Do not expose the pod port directly without a TLS-terminating proxy in front.
 
 ::: warning RECOTEM_ALLOWED_HOSTS and Ingress
-`TrustedHostMiddleware` defaults to `127.0.0.1,localhost` when `RECOTEM_ALLOWED_HOSTS` is empty — that is just enough for the in-pod liveness/readiness probes (which use a `Host: localhost` header). Any request reaching the pod under a different hostname — typically the Ingress host — will return **400 Bad Request**.
+`TrustedHostMiddleware` defaults to `127.0.0.1,localhost` when `RECOTEM_ALLOWED_HOSTS` is empty — that is just enough for the in-pod readiness probe (which uses a `Host: localhost` header; the `tcpSocket` liveness probe sends no HTTP request at all). Any request reaching the pod under a different hostname — typically the Ingress host — will return **400 Bad Request**.
 
 The bundled Helm chart (`helm/recotem/templates/deployment.yaml`) auto-derives `RECOTEM_ALLOWED_HOSTS` from `ingress.hosts[*].host` when `ingress.enabled=true`, and prepends `localhost` to whatever list it renders — including an explicit `env.RECOTEM_ALLOWED_HOSTS` override.
 
-**If you write the env var yourself, outside the chart, `localhost` is yours to include.** The three probes send `Host: localhost`, so a list without it makes every readiness and liveness check return 400 and the Deployment never becomes ready. It CrashLoops with no clue in the application log, because a 400 from `TrustedHostMiddleware` looks like an ordinary rejected request:
+**If you write the env var yourself, outside the chart, `localhost` is yours to include.** Every HTTP probe sends `Host: localhost`, so a list without it makes every readiness check return 400 and the Deployment never becomes ready. It CrashLoops with no clue in the application log, because a 400 from `TrustedHostMiddleware` looks like an ordinary rejected request:
 
 ```yaml
 - name: RECOTEM_ALLOWED_HOSTS
