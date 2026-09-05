@@ -40,7 +40,7 @@ Recotem (the framework built on it). Maintenance facts are marked as of
 
 | Dimension | LightFM | implicit | irspack | Recotem (on irspack) |
 |---|---|---|---|---|
-| Algorithms | Hybrid matrix factorization with BPR / WARP / WARP-kOS / logistic loss; can use item and user side-features | iALS, BPR, Logistic MF, and item-item KNN (cosine / TF-IDF / BM25) | IALS, KNN, RP3beta, DenseSLIM, TruncatedSVD, BPRFM, Mult-VAE | The irspack algorithms, selected per recipe (IALS, CosineKNN, TopPop, RP3beta, DenseSLIM, TruncatedSVD, BPRFM) |
+| Algorithms | Hybrid matrix factorization with BPR / WARP / WARP-kOS / logistic loss; can use item and user side-features | iALS, BPR, Logistic MF, and item-item KNN (cosine / TF-IDF / BM25) | IALS, KNN, RP3beta, DenseSLIM, TruncatedSVD, BPRFM, Mult-VAE | The irspack algorithms, selected per recipe (IALS, CosineKNN, TopPop, RP3beta, DenseSLIM, TruncatedSVD, and BPRFM once `lightfm` is installed) |
 | Hyperparameter tuning | Bring your own (e.g. Optuna, grid search) | Bring your own | Built-in Optuna search with early-stopping pruning per model | Recipe-driven multi-algorithm Optuna search with per-algorithm trial budgets |
 | Evaluation | `precision_at_k`, `recall_at_k`, `auc_score`, reciprocal rank | `ranking_metrics_at_k` (precision, MAP, NDCG, AUC) | Fast C++/Eigen ranking metrics (NDCG, MAP, recall, hit, precision) | Uses irspack evaluation; picks the winning trial by the recipe's `metric` |
 | Data loading | You build the sparse matrix | You build the sparse matrix | You build the sparse matrix | CSV / Parquet / BigQuery / SQL / plugins, declared in the recipe |
@@ -66,7 +66,12 @@ on rich side-features, LightFM remains a strong, well-documented choice.
 Worth noting: irspack — and therefore Recotem — can use LightFM directly. The
 `BPRFM` algorithm is an irspack wrapper around LightFM's BPR/WARP factorization,
 so choosing Recotem does not mean giving up LightFM's model; it means getting it
-tuned and served for you alongside other algorithms.
+tuned and served for you alongside other algorithms. Two conditions apply:
+`lightfm` must be installed alongside Recotem — irspack drops the class from its
+exports otherwise, and `train` exits 4 — and a recipe whose search winner is
+`BPRFM` cannot answer `:recommend-related` or `:batch-recommend-related`, the
+only supported algorithm in that position. See
+[Installation](/guide/installation#optional-extras).
 
 ## implicit
 

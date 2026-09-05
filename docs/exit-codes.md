@@ -61,15 +61,17 @@ An exception was raised that does not map to any domain error class. This typica
 
 ### 3 — DataSourceError
 
-`DataSourceError` is raised by the data source layer (not during HTTP fetch — that is exit 7). Common causes:
+`DataSourceError` is raised by the data source layer. Common causes:
 
 - CSV or Parquet format error (malformed file, wrong delimiter, encoding issue).
 - A required column is missing from the source data.
 - A local-FS path referenced in the recipe does not exist or is not readable.
 - A BigQuery schema mismatch (column name or type does not match the recipe's expected schema).
 - BigQuery API permission error (the service account cannot read the table).
+- **Every SQL DSN the SSRF guard refuses** — a private/loopback host, a libpq `?service=` or absolute-path host, a MySQL `?unix_socket=`, or a network DSN with no host at all. See [SQL source — Errors and exit codes](./data-sources/sql#errors-and-exit-codes).
+- **A `sha256` mismatch on a non-HTTP path** — a local file, `s3://`, `gs://`, `az://`. Only the `http://` / `https://` fetch pipeline reports a mismatch as exit 7.
 
-**Recommended action:** Inspect the `train_error` log event for the `error` field. CSV/Parquet format errors and missing columns are persistent — fix the source or the recipe. BigQuery permission errors require IAM fixes. Network-level failures during the source fetch are exit 7, not exit 3.
+**Recommended action:** Inspect the `train_error` log event for the `error` field. CSV/Parquet format errors and missing columns are persistent — fix the source or the recipe. BigQuery permission errors require IAM fixes. Exit 7 is scoped to the `http://` / `https://` fetch pipeline; a network failure reached through any other transport — a refused SQL host, an object-store read — reports **3**.
 
 ---
 
@@ -133,7 +135,7 @@ The per-recipe lock uses POSIX `flock` and only coordinates writers on the **sam
 
 ### 7 — HttpFetchError
 
-`HttpFetchError` is raised by the SSRF-guarded HTTP/HTTPS fetcher when a network source cannot be fetched. This is distinct from `DataSourceError` (exit 3): exit 7 covers failures during the HTTP fetch itself, while exit 3 covers failures in parsing or interpreting the data after it arrives.
+`HttpFetchError` is raised by the SSRF-guarded HTTP/HTTPS fetcher when a network source cannot be fetched. It is scoped to that pipeline: the *same guards* reached through another transport report `DataSourceError` (exit 3) instead. A SQL DSN the SSRF guard refuses is exit 3; a `sha256` mismatch on a local or object-store path is exit 3. **Exit 7 never means "a database refused to connect"** — retry logic keyed on it should not expect to see one.
 
 Common causes:
 

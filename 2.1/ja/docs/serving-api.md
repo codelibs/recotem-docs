@@ -9,7 +9,7 @@ description: "recotem サービング API の完全リファレンス — 全エ
 
 ## 認証
 
-`GET /v1/health` を除く全エンドポイントは、プレーンテキストの API キーを持つ `X-API-Key` リクエストヘッダを必要とします。
+認証不要の 3 つのプローブ (`GET /v1/health`、`GET /v1/health/live`、`GET /v1/health/ready`) を除く全エンドポイントは、プレーンテキストの API キーを持つ `X-API-Key` リクエストヘッダを必要とします。
 
 キーは `RECOTEM_API_KEYS` にカンマ区切りの `<kid>:sha256:<hex64>` エントリのリストとして設定します。サーバーは送信されたプレーンテキストを、エントリに格納された scrypt 派生ハッシュと照合します (scrypt パラメータ: N=2, r=8, p=1, salt=`recotem.api-key.v1`)。キーの長さは 32〜256 文字でなければなりません。
 
@@ -34,7 +34,7 @@ recotem keygen --type api
 
 | ヘッダ | 方向 | 説明 |
 |---|---|---|
-| `X-API-Key` | リクエスト | 認証トークン (プレーンテキスト)。`GET /v1/health` を除く全エンドポイントで必須。 |
+| `X-API-Key` | リクエスト | 認証トークン (プレーンテキスト)。3 つのプローブ `GET /v1/health`、`GET /v1/health/live`、`GET /v1/health/ready` を除く全エンドポイントで必須。 |
 | `X-Request-ID` | リクエスト / レスポンス | クライアントが指定するリクエスト識別子。`^[A-Za-z0-9_-]{1,128}$` に一致する必要があります。一致しない値または省略された値の場合、サーバーは新たに 12 桁の 16 進数識別子を生成します。実際に使用された値はレスポンスにエコーされます。 |
 | `X-Recotem-Model-Version` | レスポンス | リクエストを処理したレシピのモデルバージョンハッシュ (`sha256:<64-hex>`)。全ての推薦レスポンスに付与されます。レスポンスボディの `model_version` フィールドと同じ値です。 |
 | `X-Recotem-Items-Degraded` | レスポンス | 単一推薦エンドポイントのみ。メタデータの結合がフォールバックになった、またはドロップされたアイテムの総数が設定されます。レスポンスが完全にクリーンな場合は付与されません。バッチエンドポイントでは送信されません。 |
@@ -154,7 +154,25 @@ curl -s -X POST http://localhost:8080/v1/recipes/purchase_log:recommend \
 | 404 | シードは既知だがランキング後に候補が残らない | `NO_CANDIDATES` |
 | 413 | リクエストボディが `RECOTEM_MAX_BODY_BYTES` を超過 | `PAYLOAD_TOO_LARGE` |
 | 422 | スキーマバリデーション失敗 | `VALIDATION_ERROR` |
+| 501 | 学習済みアルゴリズムが `seed_items` から作る合成ユーザーをスコアリングできない | `RELATED_NOT_SUPPORTED` |
 | 503 | レシピがロードされていない | `RECIPE_UNAVAILABLE` |
+
+::: warning BPRFM のレシピは related 系の動詞に応答できません
+`BPRFMRecommender` は、サポート対象アルゴリズムの中で唯一 `get_score_cold_user` を実装していません。これはこの動詞が `seed_items` から作る合成ユーザーをスコアリングするために必要なものです。探索の勝者が BPRFM になったレシピは、ここでは **`501 RELATED_NOT_SUPPORTED`** を返し、[`:batch-recommend-related`](#post-v1-recipes-name-batch-recommend-related) では `200` の中に要素ごとの `RELATED_NOT_SUPPORTED` を返します。`:recommend` と `:batch-recommend` は影響を受けません:
+
+```console
+$ curl -s -w '\nHTTP=%{http_code}\n' -X POST ".../v1/recipes/bprfm_demo:recommend-related" \
+    -H "X-API-Key: <plaintext>" -H "Content-Type: application/json" \
+    -d '{"seed_items":["291"],"limit":3}'
+{"detail":"BPRFMRecommender cannot score a synthetic user built from seed_items, so this
+recipe supports :recommend and :batch-recommend only. Retrain the recipe with an algorithm
+that does (every supported algorithm except BPRFM) if the related verbs are required.",
+ "code":"RELATED_NOT_SUPPORTED"}
+HTTP=501
+```
+
+アルゴリズムは Optuna の探索が選ぶため、`training.algorithms` に `BPRFM` を他と並べて挙げると、この動詞が使えるかどうかはどれが勝つかに依存します。アプリケーションが関連アイテムを必要とするなら `BPRFM` を挙げないでください。それでも勝った場合は、デプロイ前に `recotem inspect` の `best_class` で確認できます。クライアントのリトライロジックでは `503` と `501` を分けてください。`503` はアーティファクトがロードされれば解消しますが、`501` は再学習しない限り決して解消しません。
+:::
 
 `NO_CANDIDATES` はこの動詞のすべての分岐 — 全シード既知の経路と、2 つのフィーチャーアウェアなコールドスタート分岐 — で同一に送出されます。したがってどの経路が処理したかに関わらず、クライアントは HTTP ステータスで分岐できます。
 
@@ -281,6 +299,8 @@ curl -s -X POST http://localhost:8080/v1/recipes/purchase_log:batch-recommend \
 
 各要素は単一の `:recommend-related` エンドポイントとまったく同じように `user_features` / `item_features` を受け付けます。ケース A/B/C の優先順位ルールも同じです。候補が 1 件も残らなかった要素は、どの分岐であっても `status: "error"`、`code: "NO_CANDIDATES"` として現れます。
 
+学習済みアルゴリズムが合成ユーザーをスコアリングできないレシピ (該当するのは BPRFM のみ) では、**すべての** 要素が `status: "error"`、`code: "RELATED_NOT_SUPPORTED"` として現れ、HTTP ステータスは `200` のままです。単一動詞の形では代わりに `501` が返ります。[`:recommend-related`](#post-v1-recipes-name-recommend-related) の警告を参照してください。
+
 **curl の例:**
 
 ```bash
@@ -392,9 +412,11 @@ curl -s http://localhost:8080/v1/recipes/purchase_log \
 
 ### ヘルスとメトリクス
 
+認証不要のプローブ用エンドポイントが 3 つあり、それぞれ別の問いに答えます。Kubernetes の各プローブは対応するものに向けてください — [`GET /v1/health/ready`](#get-v1-health-ready) の下の表を参照。
+
 #### GET /v1/health
 
-全体の liveness および readiness ステータス。Kubernetes の liveness プローブおよび readiness プローブに対応しています。
+「設定された**すべての**レシピが揃っているか?」— 厳格なカウントベースのゲート。`startupProbe` に使ってください。liveness / readiness には使わないでください。
 
 **認証:** なし (認証不要)。
 
@@ -418,10 +440,24 @@ curl -s http://localhost:8080/v1/recipes/purchase_log \
 | 200 | 全レシピがロード済み。`skipped` が 0 でなくてもこれは変わらない。 |
 | 503 | 1 件以上のレシピが未ロード。 |
 
-::: tip Kubernetes readiness プローブ
-`503` レスポンスは Pod を Service エンドポイントから除外します。これは意図的な動作です — 全ての推薦リクエストが `503` を返す Pod にはトラフィックを送るべきではありません。readiness プローブと liveness プローブの両方に `GET /v1/health` を使用してください。
+::: warning liveness / readiness をこのエンドポイントに向けないでください
+`total` が数えるのはロード可能なモデルではなくレシピです。そのため、**まだ学習されていないレシピが 1 つあるだけでプロセス全体が `503`** になります — 他のレシピはすべて `200` を返し続けているのに、です:
 
-レシピの 2 つの失敗モードはここで挙動が分かれます。**パースできないレシピファイル** は `skipped` カウント付きの `200` を返し、Pod はトラフィックを受け続けます。**アーティファクトをロードできない正常なレシピ** は `503 degraded` を返し、Pod は外されます。`skipped` はページング (呼び出し) ではなく警告として通知してください。
+```console
+$ curl -s -w ' HTTP=%{http_code}\n' localhost:8080/v1/health
+{"status":"degraded","total":2,"loaded":1} HTTP=503
+
+$ curl -s -w '\nHTTP=%{http_code}\n' -X POST \
+    "localhost:8080/v1/recipes/purchase_log:recommend" \
+    -H "X-API-Key: <plaintext>" -H "Content-Type: application/json" \
+    -d '{"user_id":"1","limit":3}'
+{"request_id":"c2bc70c2c907","recipe":"purchase_log", ... }
+HTTP=200
+```
+
+`readinessProbe` に使うと全レプリカが Service から外れます — すべて同じレシピディレクトリを読むため、同時に落ちます。`livenessProbe` ではさらに悪く、kubelet が Pod を再起動し、置き換わった Pod も同じディレクトリを読んで同じように失敗し、CrashLoopBackOff になります。再起動のたびにロード済みだったモデルまで失われます。存在しないアーティファクトは再起動では生まれません。この 2 つのプローブには [`/v1/health/ready`](#get-v1-health-ready) と [`/v1/health/live`](#get-v1-health-live) を使い、`/v1/health` は厳格なゲートが望ましい `startupProbe` に残してください。
+
+レシピの 2 つの失敗モードはここで挙動が分かれます。**パースできないレシピファイル** は `skipped` カウント付きの `200` を返します。**アーティファクトをロードできない正常なレシピ** は `503 degraded` を返します。`skipped` はページング (呼び出し) ではなく警告として通知してください。
 :::
 
 **curl の例:**
@@ -429,6 +465,75 @@ curl -s http://localhost:8080/v1/recipes/purchase_log \
 ```bash
 curl -s http://localhost:8080/v1/health | jq .
 ```
+
+---
+
+#### GET /v1/health/live
+
+「再起動すれば直るか?」— liveness プローブ用。プロセスが応答できる限り常に `200` を返します。アーティファクトの状態を一切読まず、レジストリのロックも取らないため、ホットスワップの背後でブロックして健全なプロセスを死亡と報告することがありません。
+
+**認証:** なし (認証不要)。
+
+**レスポンスボディ:**
+
+```json
+{"status": "alive"}
+```
+
+**ステータスコード:**
+
+| コード | 条件 |
+|---|---|
+| 200 | プロセスが HTTP に応答している。 |
+
+失敗レスポンスはありません。アーティファクトが欠落している/ロードできない場合、「再起動すれば直るか?」の答えは常に「いいえ」だからです。
+
+**curl の例:**
+
+```bash
+curl -s http://localhost:8080/v1/health/live | jq .
+```
+
+---
+
+#### GET /v1/health/ready
+
+「このレプリカに Service のトラフィックを流してよいか?」— readiness プローブ用。レシピが 1 つ以上ロードされていれば `200`、1 つもなければ `503`。
+
+**認証:** なし (認証不要)。
+
+**レスポンスボディ:**
+
+```json
+{"status": "ready", "total": 3, "loaded": 3}
+```
+
+フィールドは `GET /v1/health` と同じで、`status` が `"ok"` / `"degraded"` ではなく `"ready"` / `"unready"` を取ります。`skipped` は 0 でない場合のみ現れます。
+
+**ステータスコード:**
+
+| コード | 条件 |
+|---|---|
+| 200 | レシピが 1 つ以上ロード済み、またはレジストリが空 (`total == 0`)。 |
+| 503 | `total > 0` かつ 1 つもロードされていない — `train` が一度も動いていないコールドなフリート。 |
+
+14 個中 13 個のモデルを保持しているレプリカは、その 13 個を配信できます。それを Service から外しても誰の役にも立ちません。コールドなフリートは引き続き失敗し、これが初回インストール時の保証を守ります: `train` が何かを生成するまで `serve` は Service に入りません。
+
+**curl の例:**
+
+```bash
+curl -s http://localhost:8080/v1/health/ready | jq .
+```
+
+::: tip どのプローブにどのエンドポイントか
+| プローブ | エンドポイント | 答える問い |
+|---|---|---|
+| `startupProbe` | `/v1/health` | 設定された全レシピが揃っているか (初回起動時の厳格なゲート) |
+| `readinessProbe` | `/v1/health/ready` | このレプリカは何か 1 つでも配信できるか |
+| `livenessProbe` | `/v1/health/live` | プロセスはまだ応答しているか |
+
+同梱の Helm チャートがレンダリングするのはこの構成で、[Kubernetes デプロイのページ](./deployment/kubernetes#deployment-serve) が示すのも同じです。3 つとも `Host: localhost` を送るため、`RECOTEM_ALLOWED_HOSTS` にはこれを含める必要があります。
+:::
 
 ---
 
@@ -678,6 +783,7 @@ curl -s http://localhost:8080/v1/metrics \
 | `NO_CANDIDATES` | 404 | シードアイテムは既知だが、ランキングステージを経て候補が残らなかった。 |
 | `FEATURES_NOT_SUPPORTED` | 400 (HTTP) / 要素単位 (バッチ) | 対応するフィーチャー状態を持たないモデルに `user_features` / `item_features` が渡された — `features:` ブロックがないか、探索の勝者がエンコーダ状態を利用できない (`features.active: false`)。 |
 | `FEATURE_VALUE_UNUSABLE` | 400 | `numerical` のフィーチャー値が、リクエストごとのコールドスタートのソルブを数値的に特異にする大きさに標準化された。メッセージが示すのは*標準化後*の値であり、生の値ではない。 |
+| `RELATED_NOT_SUPPORTED` | 501 (HTTP) / 要素ごと (バッチ) | レシピの学習済みアルゴリズムが `seed_items` から作る合成ユーザーをスコアリングできないため、related 系 2 動詞が使えない。この位置に来るサポート対象アルゴリズムは `BPRFMRecommender` だけ。リトライしても決して解消せず、別のアルゴリズムでの再学習が必要。 |
 | `PAYLOAD_TOO_LARGE` | 413 | リクエストボディが `RECOTEM_MAX_BODY_BYTES` (デフォルト 128 MiB) を超過。JSON がパースされる前に、すべての POST エンドポイントで適用される。 |
 | `VALIDATION_ERROR` | 422 (HTTP) / 要素単位 (バッチ) | リクエストまたは要素ボディのスキーマバリデーション失敗。 |
 | `MISSING_API_KEY` | 401 | `X-API-Key` ヘッダが存在しない。 |

@@ -152,13 +152,15 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
+          # /v1/health への httpGet にはしないこと: このエンドポイントは
+          # レシピが 1 つでも未ロードなら 503 を返すため、未学習のレシピが
+          # 1 つあるだけで全 Pod が再起動ループに入り、再起動では直らない。
+          # TCP プローブは「プロセスがまだ listen しているか」だけを問う。
+          # これが liveness の意味である。(Host ヘッダを送らないため
+          # TrustedHostMiddleware も関与しない。)
           livenessProbe:
-            httpGet:
-              path: /v1/health
+            tcpSocket:
               port: 8080
-              httpHeaders:
-                - name: Host
-                  value: localhost
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 10
@@ -228,11 +230,11 @@ spec:
 Ingress または LoadBalancer を通じて外部に公開してください。TLS を終端するプロキシなしで Pod ポートを直接公開しないでください。
 
 ::: warning 注意 — RECOTEM_ALLOWED_HOSTS と Ingress
-`TrustedHostMiddleware` は `RECOTEM_ALLOWED_HOSTS` が空の場合、デフォルトで `127.0.0.1,localhost` に設定されます — これは Pod 内の liveness/readiness プローブ (`Host: localhost` ヘッダーを使用) には十分です。ただし、異なるホスト名 (通常は Ingress ホスト) で Pod に届くリクエストは **400 Bad Request** を返します。
+`TrustedHostMiddleware` は `RECOTEM_ALLOWED_HOSTS` が空の場合、デフォルトで `127.0.0.1,localhost` に設定されます — これは Pod 内の readiness プローブ (`Host: localhost` ヘッダーを使用) には十分です (`tcpSocket` の liveness プローブは HTTP リクエストを送りません)。ただし、異なるホスト名 (通常は Ingress ホスト) で Pod に届くリクエストは **400 Bad Request** を返します。
 
 バンドルされた Helm チャート (`helm/recotem/templates/deployment.yaml`) は `ingress.enabled=true` のとき `ingress.hosts[*].host` から `RECOTEM_ALLOWED_HOSTS` を自動導出し、レンダリングしたリストの先頭に `localhost` を付加します — `env.RECOTEM_ALLOWED_HOSTS` による明示的な上書きに対しても同様です。
 
-**チャートの外で自分で環境変数を書く場合、`localhost` を含めるのはあなたの責任です。** 3 つのプローブはいずれも `Host: localhost` を送るため、`localhost` を含まないリストにすると readiness/liveness チェックがすべて 400 を返し、Deployment は永久に Ready になりません。`TrustedHostMiddleware` の 400 は通常の拒否リクエストと区別がつかないため、アプリケーションログには手がかりが残らないまま CrashLoop します。
+**チャートの外で自分で環境変数を書く場合、`localhost` を含めるのはあなたの責任です。** HTTP プローブはいずれも `Host: localhost` を送るため、`localhost` を含まないリストにすると readiness チェックが 400 を返し、Deployment は永久に Ready になりません。`TrustedHostMiddleware` の 400 は通常の拒否リクエストと区別がつかないため、アプリケーションログには手がかりが残らないまま CrashLoop します。
 
 ```yaml
 - name: RECOTEM_ALLOWED_HOSTS

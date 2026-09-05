@@ -134,7 +134,7 @@ output:
 A few notes on the choices above:
 
 - `schema.time_column: ordered_at` is required because the split uses `scheme: time_user`. Because `ordered_at` is a real timestamp column, no `time_unit` is needed. (If your time column is a numeric Unix timestamp, add `time_unit: s`.)
-- `algorithms` lists three implicit-feedback learners; Recotem runs an Optuna search across them and keeps the best by `ndcg@20`. `TopPop` is a cheap popularity baseline that guards against a model that never beats "just show the bestsellers". Other options include `CosineKNN`, `DenseSLIM`, `TruncatedSVD`, and `BPRFM`.
+- `algorithms` lists three implicit-feedback learners; Recotem runs an Optuna search across them and keeps the best by `ndcg@20`. `TopPop` is a cheap popularity baseline that guards against a model that never beats "just show the bestsellers". Other options include `CosineKNN`, `DenseSLIM`, and `TruncatedSVD`; `BPRFM` needs `lightfm` installed alongside Recotem and cannot answer the related verbs, so check [Installation](/guide/installation#optional-extras) before listing it.
 - `cleansing.min_rows` / `min_users` / `min_items` are data preconditions — if the query returns too little data, training fails fast instead of producing a weak model.
 
 Every field is documented in the [Recipe Reference](/docs/recipe-reference), and every SQL-specific detail (timeouts, row cap, error codes) in the [SQL source reference](/docs/data-sources/sql).

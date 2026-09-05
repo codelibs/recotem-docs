@@ -148,7 +148,7 @@ cleansing:
 |----|------|
 | `keep_first` | (user, item) ペアの最初の出現を残します。 |
 | `keep_last` | ソース DataFrame の行順で (user, item) ペアの最後の出現を残します。 |
-| `none` | 重複除去なし。 |
+| `none` | 重複除去なし — すべての行が残ります。ただしどちらにせよインタラクション行列は**バイナリ**のままです。重複する `(user, item)` ペアはモデル構築時に 1 つの `1` にまとめられ、これは探索でも最終リフィットでも同じです。したがって `none` が変えるのはスキャンされる行数と `data_stats.n_rows` の値であって、モデルが何で学習されるかではありません。繰り返しのインタラクションに重みを持たせたい場合は、ソースクエリ側で集計し、`user_column` / `item_column` として使わない列に入れてください。recotem には信頼度重み付けの設定はありません。 |
 
 `keep_first` / `keep_last` はデータソースが返した行順を使用します。`time_column` でソートは**しません**。時刻順での重複除去が必要な場合は、ソースクエリでソートするか (BigQuery `ORDER BY ts`)、学習前に CSV を事前ソートしてください。
 
@@ -350,7 +350,7 @@ training:
 
 | フィールド | 型 | デフォルト | 備考 |
 |------------|-----|-----------|------|
-| `algorithms` | list[string] | required | `IALS`、`CosineKNN` (エイリアス `CosinekNN`)、`TopPop`、`RP3beta`、`DenseSLIM`、`TruncatedSVD`、および `BPRFM` (**`bprfm` エクストラが必要** — これがないと `validate` も `train` もデータ取得前に終了コード 4 と `irspack does not know recommender class 'BPRFMRecommender'` で失敗します。[インストール](/2.1/ja/guide/installation#オプションエクストラ) を参照)。irspack のフルクラス名 (例: `IALSRecommender`) も受け付けます。ハイパーパラメータの範囲は irspack の各レコメンダーの `default_suggest_parameter` から取得され、レシピからは変更できません。 |
+| `algorithms` | list[string] | required | `IALS`、`CosineKNN` (エイリアス `CosinekNN`)、`TopPop`、`RP3beta`、`DenseSLIM`、`TruncatedSVD`、および `BPRFM` (**`bprfm` エクストラが必要** — これがないと `validate` も `train` もデータ取得前に終了コード 4 と `irspack does not know recommender class 'BPRFMRecommender'` で失敗します。[インストール](/2.1/ja/guide/installation#オプションエクストラ) を参照)。**BPRFM のレシピは `:recommend-related` と `:batch-recommend-related` に応答できません** — サポート対象で唯一 `get_score_cold_user` を持たないため、この 2 つの動詞は `501 RELATED_NOT_SUPPORTED` を返します ([サービング API](/2.1/ja/docs/serving-api#post-v1-recipes-name-recommend-related) を参照)。irspack のフルクラス名 (例: `IALSRecommender`) も受け付けます。ハイパーパラメータの範囲は irspack の各レコメンダーの `default_suggest_parameter` から取得され、レシピからは変更できません。 |
 | `metric` | string | `ndcg` | `ndcg`、`map`、`recall`、`hit` のいずれか。 |
 | `cutoff` | int | `20` | 評価時の推薦リスト長 (1 以上)。 |
 | `n_trials` | int | `40` | Optuna の総トライアルバジェット (1 以上)。 |

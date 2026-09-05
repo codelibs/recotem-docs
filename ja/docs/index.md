@@ -64,7 +64,7 @@ Recotem はレシピ駆動の推薦システムです。単一の YAML ファイ
 magic | version | reserved | kid | hmac | header_json | payload
 ```
 
-- **HMAC スコープ**: `kid_bytes || header_json || payload`。これらのセクション内の任意のバイトを変更すると HMAC 検証が失敗します。
+- **HMAC スコープ**: `kid_bytes || header_json || payload`。これらのセクション内の任意のバイトを変更すると HMAC 検証が失敗します。4 バイトの `header_len` フィールドは**対象外**です — これはヘッダーがどこで終わりペイロードがどこから始まるかを示すだけで、両者は 1 つの連続したバイト列として認証されます。したがってこの境界を動かしても `verify_hmac` は通り (`recotem inspect` は `HMAC: OK` と表示します)、1 層下で検出されて終了コード 5 として報告されます。
 - **ヘッダー JSON** には `recipe_name`、`recipe_hash`、`best_class`、`best_params`、`best_score`、`metric`、`cutoff`、`tuning`、`data_stats`、`recotem_version`、`irspack_version`、`trained_at` が含まれます。`recotem inspect` でデシリアライズせずに参照できます。
 - **ペイロード** はシリアライズされた `IDMappedRecommender` (scipy sparse 行列 + numpy 配列) を含みます。ペイロードの 1 バイトを解釈する前に HMAC が完全に検証されます。デシリアライザはアンピクリング時に FQCN 許可リストを強制します (多層防御)。
 - **Key ID (`kid`)** はどの署名鍵が HMAC を生成したかを識別します。`KeyRing` (環境変数: `RECOTEM_SIGNING_KEYS=kid1:hex,kid2:hex`) は複数の鍵を保持し、ダウンタイムなしの鍵ローテーションを実現します。

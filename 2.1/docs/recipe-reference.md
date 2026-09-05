@@ -148,7 +148,7 @@ Violation of any `min_*` threshold exits with code 4 and `"code": "min_data_viol
 |-------|-----------|
 | `keep_first` | Keep the first occurrence of each (user, item) pair. |
 | `keep_last` | Keep the last occurrence of each (user, item) pair by row order in the source DataFrame. |
-| `none` | No deduplication. |
+| `none` | No deduplication — every row is kept. The interaction matrix stays **binary** either way: duplicate `(user, item)` pairs are collapsed to a single 1 when the model is built, in both the search and the final refit, so `none` changes how many rows are scanned and what `data_stats.n_rows` reports, not what the model is trained on. If you want repeat interactions to carry weight, aggregate them in the source query into a column the recipe does not use as `user_column`/`item_column`; recotem has no confidence-weighting setting. |
 
 `keep_first` / `keep_last` use the row order returned by the data source — they do **not** sort by `time_column`. If you need time-ordered deduplication, sort in the source query (BigQuery `ORDER BY ts`) or pre-sort the CSV before training.
 
@@ -350,7 +350,7 @@ training:
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `algorithms` | list[string] | required | `IALS`, `CosineKNN` (alias `CosinekNN`), `TopPop`, `RP3beta`, `DenseSLIM`, `TruncatedSVD`, and `BPRFM` (**requires the `bprfm` extra** — without it `validate` and `train` both exit 4 with `irspack does not know recommender class 'BPRFMRecommender'`, before any data is fetched; see [Installation](/2.1/guide/installation#optional-extras)). Full irspack class names (e.g. `IALSRecommender`) are also accepted. Hyperparameter ranges come from each recommender's `default_suggest_parameter` in irspack — they are not user-tunable from the recipe. |
+| `algorithms` | list[string] | required | `IALS`, `CosineKNN` (alias `CosinekNN`), `TopPop`, `RP3beta`, `DenseSLIM`, `TruncatedSVD`, and `BPRFM` (**requires the `bprfm` extra** — without it `validate` and `train` both exit 4 with `irspack does not know recommender class 'BPRFMRecommender'`, before any data is fetched; see [Installation](/2.1/guide/installation#optional-extras)). **A BPRFM recipe cannot answer `:recommend-related` or `:batch-recommend-related`** — it is the only supported algorithm without `get_score_cold_user`, so those two verbs return `501 RELATED_NOT_SUPPORTED`; see [Serving API](/2.1/docs/serving-api#post-v1-recipes-name-recommend-related). Full irspack class names (e.g. `IALSRecommender`) are also accepted. Hyperparameter ranges come from each recommender's `default_suggest_parameter` in irspack — they are not user-tunable from the recipe. |
 | `metric` | string | `ndcg` | One of `ndcg`, `map`, `recall`, `hit`. |
 | `cutoff` | int | `20` | Recommendation list length for evaluation (must be ≥ 1). |
 | `n_trials` | int | `40` | Total Optuna trial budget (must be ≥ 1). |
