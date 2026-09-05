@@ -71,8 +71,44 @@ jobs:
       # documented in English and vice versa -- the whole English
       # environment-variables page could be deleted with the job still green.
       - name: Check the 2.1 preview (English) against it
+        id: drift_en
         run: python scripts/check_product_surface.py --tree 2.1 --exclude ja
 
       - name: Check the 2.1 preview (Japanese) against it
+        id: drift_ja
         if: always()
         run: python scripts/check_product_surface.py --tree 2.1/ja
+
+      # Distinguish "the product drifted" from "this job broke".
+      #
+      # Both are a red X, and for a monitor that is a real problem: a drift
+      # checker going red is exactly what a working drift checker looks like.
+      # This job spent its entire life red without ever running the check --
+      # setup-python failed, the three steps that matter reported no
+      # conclusion at all, and a red X on a newly added drift monitor is
+      # plausible enough to be read as "it found something".
+      #
+      # A step that never ran has no `outcome`; one that ran has `success` or
+      # `failure`. So anything else here means the job died on the way.
+      - name: The check must actually have run
+        if: always()
+        env:
+          EN: ${{ steps.drift_en.outcome }}
+          JA: ${{ steps.drift_ja.outcome }}
+        run: |
+          fatal=0
+          for pair in "English:$EN" "Japanese:$JA"; do
+            lang=${pair%%:*}
+            outcome=${pair#*:}
+            case "$outcome" in
+              success|failure) ;;
+              *)
+                echo "::error::the $lang drift check never executed" \
+                     "(outcome='$outcome'). This is an infrastructure failure" \
+                     "in this workflow, NOT documentation drift -- fix the job," \
+                     "do not go looking for a stale page."
+                fatal=1
+                ;;
+            esac
+          done
+          exit "$fatal"
