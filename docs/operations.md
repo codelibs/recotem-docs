@@ -265,7 +265,7 @@ Lock behaviour defaults:
 - **`--fail-on-busy`** flips this to exit 6 (`LockContestedError`) so an orchestrator can route the work elsewhere. `LockContestedError` is intentionally outside the `TrainingError` hierarchy — it is an orchestration condition, not a training failure.
 - **`--no-lock`** skips lock acquisition entirely. Only safe when you guarantee no concurrent writers via some other mechanism.
 
-For multi-process Optuna search (parallelism on a single host or a distributed cluster), set `training.storage_path` in the recipe. Accepted forms: a bare path (SQLite), or a URL beginning with `sqlite://`, `postgresql://`, `postgres://`, or `mysql://`. Multiple `recotem train` invocations against the same recipe converge on a shared trial pool rather than duplicating work. The study name is `recotem_<recipe.name>_<run_id>`.
+For multi-process Optuna search (parallelism on a single host or a distributed cluster), set `training.storage_path` in the recipe. Accepted forms: a bare path (SQLite), or a URL beginning with `sqlite://`, `postgresql+psycopg://`, or `mysql+pymysql://`. The `+driver` suffix is required: this URL is handed straight to Optuna's `RDBStorage`, which has no driver preflight, so a bare `postgresql://` (which routes to the uninstalled `psycopg2`) fails inside Optuna with `ImportError: Failed to import DB access module for the specified storage URL`, and `postgres://` — a dialect SQLAlchemy 2.x removed — with `NoSuchModuleError`. Neither names the fix, and neither is caught by `recotem validate`. Multiple `recotem train` invocations against the same recipe converge on a shared trial pool rather than duplicating work. The study name is `recotem_<recipe.name>_<run_id>`.
 
 ---
 
