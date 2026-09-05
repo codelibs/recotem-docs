@@ -41,7 +41,7 @@ The core package ships with CSV and Parquet data sources. Install extras for add
 Extras can be combined: `pip install "recotem[s3,metrics]"`.
 
 ::: warning `BPRFM` needs its extra
-irspack gates `BPRFMRecommender` behind the separately installed `lightfm` package and drops the class from its exports when that import fails. Listing `BPRFM` in `training.algorithms` without the `bprfm` extra makes both `recotem validate` and `recotem train` exit **4** with `irspack does not know recommender class 'BPRFMRecommender'`, before any data is fetched. The official Docker image already includes it.
+irspack gates `BPRFMRecommender` behind the separately installed `lightfm` package and drops the class from its exports when that import fails. Listing `BPRFM` in `training.algorithms` without the `bprfm` extra makes both `recotem validate` and `recotem train` exit **4** with `irspack does not know recommender class 'BPRFMRecommender'`, before any data is fetched. The official Docker image already includes it. One serving limitation comes with it: a recipe whose search winner is BPRFM cannot answer `:recommend-related` or `:batch-recommend-related`, which return `501 RELATED_NOT_SUPPORTED` (see [Serving API](/2.1/docs/serving-api#post-v1-recipes-name-recommend-related)).
 
 The dependency is [`lightfm-next`](https://pypi.org/project/lightfm-next/), a maintained fork that installs the same `lightfm` module — upstream `lightfm` has shipped no release since 1.17 and does not build on Python 3.12. Two caveats: it publishes no linux/aarch64 wheel, so on arm64 `pip install "recotem[bprfm]"` builds it from source and needs a C compiler (the published image is unaffected, having compiled it at build time on both architectures); and on macOS it is built without OpenMP, so BPRFM training there is single-threaded.
 :::
@@ -91,7 +91,7 @@ export RECOTEM_SIGNING_KEYS="prod:<64-char hex string>"
 
 ### API key
 
-The API key controls who can call the serving API: every endpoint except `GET /v1/health` requires it, including `/v1/recipes/{name}:recommend` and the other recipe verbs. Clients send it as an `X-API-Key` HTTP header. The server stores only a hash of the key, not the plaintext.
+The API key controls who can call the serving API: every endpoint except the three unauthenticated probes (`GET /v1/health`, `GET /v1/health/live`, `GET /v1/health/ready`) requires it, including `/v1/recipes/{name}:recommend` and the other recipe verbs. Clients send it as an `X-API-Key` HTTP header. The server stores only a hash of the key, not the plaintext.
 
 ```bash
 recotem keygen --type api --kid client-a
@@ -121,7 +121,7 @@ If `RECOTEM_API_KEYS` is not set, the server binds to `127.0.0.1` only (loopback
 |---|---|---|
 | `RECOTEM_SIGNING_KEYS` | `train` and `serve` | HMAC sign and verify artifact files |
 | `RECOTEM_API_KEYS` | `serve` | Authenticate `/v1` API callers (server stores hash only) |
-| `X-API-Key: <plaintext>` | HTTP clients | Sent on every `/v1` request except `GET /v1/health` |
+| `X-API-Key: <plaintext>` | HTTP clients | Sent on every `/v1` request except the three probes `GET /v1/health`, `GET /v1/health/live`, `GET /v1/health/ready` |
 
 Both `RECOTEM_SIGNING_KEYS` and `RECOTEM_API_KEYS` accept multiple comma-separated entries (`kid1:value,kid2:value`) to enable key rotation without downtime. See the [Operations](/2.1/docs/operations) guide for the rotation procedure.
 

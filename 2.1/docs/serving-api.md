@@ -9,7 +9,7 @@ description: "Complete reference for the recotem serving API — all endpoints, 
 
 ## Authentication
 
-All endpoints except `GET /v1/health` require the `X-API-Key` request header carrying a plaintext API key.
+All endpoints except the three unauthenticated probes (`GET /v1/health`, `GET /v1/health/live`, `GET /v1/health/ready`) require the `X-API-Key` request header carrying a plaintext API key.
 
 Keys are configured via `RECOTEM_API_KEYS` as a comma-separated list of `<kid>:sha256:<hex64>` entries. The server verifies the submitted plaintext against a scrypt-derived hash stored in the entry (scrypt parameters: N=2, r=8, p=1, salt=`recotem.api-key.v1`). Key length must be between 32 and 256 characters.
 
@@ -34,7 +34,7 @@ Trailing or leading whitespace in the `X-API-Key` header is treated as part of t
 
 | Header | Direction | Description |
 |---|---|---|
-| `X-API-Key` | Request | Authentication token (plaintext). Required on all endpoints except `GET /v1/health`. |
+| `X-API-Key` | Request | Authentication token (plaintext). Required on all endpoints except the three probes `GET /v1/health`, `GET /v1/health/live`, and `GET /v1/health/ready`. |
 | `X-Request-ID` | Request / Response | Client-supplied request identifier. Must match `^[A-Za-z0-9_-]{1,128}$`. Values that do not match, or absent values, cause the server to generate a fresh 12-hex identifier. The value actually used is echoed in the response. |
 | `X-Recotem-Model-Version` | Response | The model version hash (`sha256:<64-hex>`) of the recipe that served the request. Present on all recommendation responses. Mirrors the `model_version` field in the response body. |
 | `X-Recotem-Items-Degraded` | Response | Single-recommendation endpoints only. Set to the total count of items whose metadata join produced a fallback or was dropped. Absent when the response is fully clean. Not sent on batch endpoints. |
@@ -154,7 +154,25 @@ Get items related to one or more seed items.
 | 404 | Seeds are known but no candidates survive ranking | `NO_CANDIDATES` |
 | 413 | Request body exceeds `RECOTEM_MAX_BODY_BYTES` | `PAYLOAD_TOO_LARGE` |
 | 422 | Schema validation failure | `VALIDATION_ERROR` |
+| 501 | The recipe's trained algorithm cannot score a synthetic user built from `seed_items` | `RELATED_NOT_SUPPORTED` |
 | 503 | Recipe is not loaded | `RECIPE_UNAVAILABLE` |
+
+::: warning A BPRFM recipe cannot answer the related verbs
+`BPRFMRecommender` is the only supported algorithm that does not implement `get_score_cold_user`, which is what this verb needs to score the synthetic user built from `seed_items`. A recipe whose search winner is BPRFM answers **`501 RELATED_NOT_SUPPORTED`** here, and a per-element `RELATED_NOT_SUPPORTED` inside a `200` on [`:batch-recommend-related`](#post-v1-recipes-name-batch-recommend-related). `:recommend` and `:batch-recommend` are unaffected:
+
+```console
+$ curl -s -w '\nHTTP=%{http_code}\n' -X POST ".../v1/recipes/bprfm_demo:recommend-related" \
+    -H "X-API-Key: <plaintext>" -H "Content-Type: application/json" \
+    -d '{"seed_items":["291"],"limit":3}'
+{"detail":"BPRFMRecommender cannot score a synthetic user built from seed_items, so this
+recipe supports :recommend and :batch-recommend only. Retrain the recipe with an algorithm
+that does (every supported algorithm except BPRFM) if the related verbs are required.",
+ "code":"RELATED_NOT_SUPPORTED"}
+HTTP=501
+```
+
+Because the algorithm is chosen by the Optuna search, listing `BPRFM` alongside others in `training.algorithms` means the verb's availability depends on which one wins. If your application needs related items, do not list `BPRFM`; if it wins anyway, `recotem inspect` shows `best_class` before you deploy. Search `503` and `501` differently in client retry logic: `503` clears when the artifact loads, `501` never clears without a retrain.
+:::
 
 `NO_CANDIDATES` is raised identically on every branch of this verb — the all-seeds-known path and both feature-aware cold-start branches — so a client may branch on HTTP status regardless of which path served the request.
 
@@ -281,6 +299,8 @@ A single `:recommend-related` call cannot reach this cap: `seed_items` is capped
 
 Each element accepts `user_features` / `item_features` exactly as the single `:recommend-related` endpoint does, including the case A/B/C precedence rules. An element that produces no survivors surfaces as `status: "error"` with `code: "NO_CANDIDATES"`, on every branch.
 
+On a recipe whose trained algorithm cannot score a synthetic user — BPRFM is the only one — **every** element surfaces as `status: "error"` with `code: "RELATED_NOT_SUPPORTED"` and the HTTP status stays `200`. The single-verb form returns `501` instead; see the warning under [`:recommend-related`](#post-v1-recipes-name-recommend-related).
+
 **curl example:**
 
 ```bash
@@ -392,9 +412,11 @@ curl -s http://localhost:8080/v1/recipes/purchase_log \
 
 ### Health and Metrics
 
+Three unauthenticated probe endpoints answer three different questions. Point each Kubernetes probe at the one that matches it — see the table under [`GET /v1/health/ready`](#get-v1-health-ready).
+
 #### GET /v1/health
 
-Overall liveness and readiness status. Suitable for Kubernetes liveness and readiness probes.
+"Is **every** configured recipe present?" — the strict, count-based gate. Use it for a `startupProbe`, not for liveness or readiness.
 
 **Authentication:** None (unauthenticated).
 
@@ -418,10 +440,24 @@ Overall liveness and readiness status. Suitable for Kubernetes liveness and read
 | 200 | All recipes are loaded. A non-zero `skipped` count does not change this. |
 | 503 | One or more recipes are not loaded. |
 
-::: tip Kubernetes readiness probes
-A `503` response removes the pod from the Service endpoints. This is intentional — a pod where every recommendation request would return `503` should not receive traffic. Use `GET /v1/health` for both readiness and liveness probes.
+::: warning Do not point liveness or readiness at this endpoint
+`total` counts recipes, not loadable models, so **one recipe whose artifact has not been trained yet turns this endpoint `503` for the whole process** — while every other recipe keeps answering `200`:
 
-The two recipe failure modes differ here. An **unparseable recipe file** returns `200` with a `skipped` count and the pod keeps its traffic; a **valid recipe whose artifact cannot load** returns `503 degraded` and the pod is taken out. Alert on `skipped` as a warning, not as a page.
+```console
+$ curl -s -w ' HTTP=%{http_code}\n' localhost:8080/v1/health
+{"status":"degraded","total":2,"loaded":1} HTTP=503
+
+$ curl -s -w '\nHTTP=%{http_code}\n' -X POST \
+    "localhost:8080/v1/recipes/purchase_log:recommend" \
+    -H "X-API-Key: <plaintext>" -H "Content-Type: application/json" \
+    -d '{"user_id":"1","limit":3}'
+{"request_id":"c2bc70c2c907","recipe":"purchase_log", ... }
+HTTP=200
+```
+
+On a `readinessProbe` that removes every replica from the Service — they all read the same recipes directory, so they all fail together. On a `livenessProbe` it is worse: the kubelet restarts the pod, the replacement reads the same directory, fails the same way, and CrashLoopBackOffs — dropping the models that *were* loaded on every restart. A restart cannot conjure a missing artifact. Use [`/v1/health/ready`](#get-v1-health-ready) and [`/v1/health/live`](#get-v1-health-live) for those two probes and keep `/v1/health` for the `startupProbe`, where the strict gate is what you want.
+
+The two recipe failure modes differ here. An **unparseable recipe file** returns `200` with a `skipped` count and the pod keeps its traffic; a **valid recipe whose artifact cannot load** returns `503 degraded`. Alert on `skipped` as a warning, not as a page.
 :::
 
 **curl example:**
@@ -429,6 +465,75 @@ The two recipe failure modes differ here. An **unparseable recipe file** returns
 ```bash
 curl -s http://localhost:8080/v1/health | jq .
 ```
+
+---
+
+#### GET /v1/health/live
+
+"Would a restart help?" — the liveness probe. Always `200` while the process can answer; it never reads artifact state and never takes the registry lock, so a probe cannot block behind a hot-swap and report a healthy process as dead.
+
+**Authentication:** None (unauthenticated).
+
+**Response body:**
+
+```json
+{"status": "alive"}
+```
+
+**Status codes:**
+
+| Code | Condition |
+|---|---|
+| 200 | The process is answering HTTP. |
+
+There is no failure response: for a missing or unloadable artifact the answer to "would a restart help?" is always no.
+
+**curl example:**
+
+```bash
+curl -s http://localhost:8080/v1/health/live | jq .
+```
+
+---
+
+#### GET /v1/health/ready
+
+"Should the Service send traffic to this replica?" — the readiness probe. `200` when at least one recipe is loaded, `503` when none is.
+
+**Authentication:** None (unauthenticated).
+
+**Response body:**
+
+```json
+{"status": "ready", "total": 3, "loaded": 3}
+```
+
+Same fields as `GET /v1/health`, with `status` taking `"ready"` / `"unready"` instead of `"ok"` / `"degraded"`. `skipped` appears only when non-zero.
+
+**Status codes:**
+
+| Code | Condition |
+|---|---|
+| 200 | At least one recipe is loaded, or the registry is empty (`total == 0`). |
+| 503 | `total > 0` and nothing is loaded — a cold fleet that `train` has never fed. |
+
+A replica holding 13 of 14 models can serve 13 of them; taking it out of the Service serves nobody. A cold fleet still fails, which is what keeps the first-install guarantee: `serve` does not enter the Service before `train` has produced something.
+
+**curl example:**
+
+```bash
+curl -s http://localhost:8080/v1/health/ready | jq .
+```
+
+::: tip Which probe gets which endpoint
+| Probe | Endpoint | Question it answers |
+|---|---|---|
+| `startupProbe` | `/v1/health` | Is every configured recipe present? (strict first-start gate) |
+| `readinessProbe` | `/v1/health/ready` | Can this replica serve anything at all? |
+| `livenessProbe` | `/v1/health/live` | Is the process still answering? |
+
+This is what the bundled Helm chart renders and what the [Kubernetes deployment page](./deployment/kubernetes#deployment-serve) shows. All three send `Host: localhost`, so `RECOTEM_ALLOWED_HOSTS` must include it.
+:::
 
 ---
 
@@ -678,6 +783,7 @@ All error responses use a flat JSON body with at minimum `detail` (human-readabl
 | `NO_CANDIDATES` | 404 | Seed items are known but no candidates survive the ranking stage. |
 | `FEATURES_NOT_SUPPORTED` | 400 (HTTP) / per-element (batch) | `user_features` / `item_features` were supplied to a model with no matching feature state — no `features:` block, or a search winner that cannot consume the encoder state (`features.active: false`). |
 | `FEATURE_VALUE_UNUSABLE` | 400 | A `numerical` feature value standardizes to a magnitude that makes the per-request cold-start solve numerically singular. The message describes the *standardized* value, not the raw one. |
+| `RELATED_NOT_SUPPORTED` | 501 (HTTP) / per-element (batch) | The recipe's trained algorithm cannot score a synthetic user built from `seed_items`, so the two related verbs are unavailable on it. `BPRFMRecommender` is the only supported algorithm in this position. Never clears on retry — it needs a retrain with a different algorithm. |
 | `PAYLOAD_TOO_LARGE` | 413 | Request body exceeds `RECOTEM_MAX_BODY_BYTES` (default 128 MiB). Enforced before the JSON is parsed, on every POST endpoint. |
 | `VALIDATION_ERROR` | 422 (HTTP) / per-element (batch) | Request or element body failed schema validation. |
 | `MISSING_API_KEY` | 401 | `X-API-Key` header is absent. |

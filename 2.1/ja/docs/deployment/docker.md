@@ -200,6 +200,6 @@ curl http://localhost:8080/v1/health
 }
 ```
 
-いずれかのレシピのロードに失敗した場合、`status` は `degraded` (HTTP 503) になります。このエンドポイントを対象に Kubernetes の readiness probe または Docker の HEALTHCHECK を設定してください。完全なレスポンス仕様については [Serving API](../serving-api) を参照してください。
+いずれかのレシピのロードに失敗した場合 — まだ学習されていないだけのレシピも含みます — `status` は `degraded` (HTTP 503) になります。そのため、このエンドポイントは Docker の `HEALTHCHECK` と Kubernetes の `startupProbe` には適していますが、Kubernetes の `readinessProbe` / `livenessProbe` には**適していません**。そちらには `/v1/health/ready` と `/v1/health/live` を使ってください。[Kubernetes — Deployment (serve)](./kubernetes#deployment-serve) と [Serving API](../serving-api#ヘルスとメトリクス) を参照してください。
 
 `kid`、`trained_at`、`best_class` などレシピごとの詳細については、認証が必要な `/v1/health/details` エンドポイントを使用してください。

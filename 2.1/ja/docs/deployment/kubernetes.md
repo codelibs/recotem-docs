@@ -141,9 +141,24 @@ spec:
                 secretKeyRef:
                   name: recotem-auth
                   key: RECOTEM_API_KEYS
-          readinessProbe:
+          # 3 つのプローブ、3 つのエンドポイント、3 つの問い。startupProbe は
+          # 厳格なカウントベースのゲートを維持する: 新規 Pod は全レシピに
+          # アーティファクトが揃うまで Service に入らない。readiness と
+          # liveness に /v1/health を使ってはいけない — 1 つでも未ロードの
+          # レシピがあれば 503 を返すため、稼働中のフリートに未学習のレシピを
+          # 追加すると全レプリカが Service から外れ、さらに CrashLoop する。
+          startupProbe:
             httpGet:
               path: /v1/health
+              port: 8080
+              httpHeaders:
+                - name: Host
+                  value: localhost
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /v1/health/ready
               port: 8080
               httpHeaders:
                 - name: Host
@@ -154,7 +169,7 @@ spec:
             failureThreshold: 3
           livenessProbe:
             httpGet:
-              path: /v1/health
+              path: /v1/health/live
               port: 8080
               httpHeaders:
                 - name: Host
@@ -171,6 +186,20 @@ spec:
           persistentVolumeClaim:
             claimName: recotem-artifacts
 ```
+
+::: warning `livenessProbe` / `readinessProbe` を `/v1/health` に向けないでください
+`/v1/health` はロード可能なモデル数ではなくレシピ数を数えます。ディレクトリ内のレシピが 1 つでもアーティファクトを持たなければ、他のレシピが正常に応答していても **503** を返します。稼働中のフリートに未学習のレシピを 1 つ追加するだけで起こります。`readinessProbe` に使うと全レプリカが同時に Service から外れます (すべて同じレシピディレクトリを読むため)。`livenessProbe` ではさらに悪く、kubelet が Pod を再起動し、置き換わった Pod も同じディレクトリを読んで同じように失敗し、CrashLoopBackOff になります。再起動のたびに、ロード済みだったモデルまで失われます。存在しないアーティファクトは再起動では生まれません。
+
+3 つの問いには 3 つのエンドポイントを使ってください:
+
+| プローブ | エンドポイント | 問い |
+|---|---|---|
+| `startupProbe` | `/v1/health` | 設定された全レシピが揃っているか (厳格なゲート。新規 Pod のみ) |
+| `readinessProbe` | `/v1/health/ready` | このレプリカは何か 1 つでも応答できるか (レシピが 1 つ以上ロード済みなら `200`) |
+| `livenessProbe` | `/v1/health/live` | プロセスはまだ応答しているか (アーティファクトの状態を読まない) |
+
+`/v1/health` は `startupProbe`、ダッシュボード、アラートには引き続き適切です — レシピの欠落を教えてくれるのはこれだけです。同梱の Helm チャートはまさにこの分割をレンダリングします。[サービング API — ヘルスとメトリクス](../serving-api#ヘルスとメトリクス) を参照してください。
+:::
 
 複数レプリカについての注意: 各 Pod はすべてのモデルの独自のインメモリコピーを保持し、独自のウォッチャースレッドを実行します。これは意図的な設計であり、共有キャッシュはありません。最大アーティファクトサイズ 2 GiB で 10 レシピの場合、レプリカを割り当てる前に Pod あたり最大 20 GiB を計画してください。
 
@@ -194,7 +223,7 @@ securityContext:                 # コンテナレベル
 
 ### ローリングアップデートとウォームアップ
 
-各新しい Pod は、readinessProbe が通過する前 (デフォルト `initialDelaySeconds: 10`) に、起動時にすべてのアーティファクトを再フェッチして HMAC 検証します。レシピ数が多い場合や大きなアーティファクトがある場合は、`initialDelaySeconds` を増やし、ロールアウトが希望のレプリカ数を下回らないように `maxSurge` / `maxUnavailable` を調整してください。ウォッチャーは各 Pod 内で共有インターバルでポーリングします — `train` が新しいアーティファクトを書き込むと、すべてのレプリカは `RECOTEM_WATCH_INTERVAL` 秒以内にそれを検知します。ホットスワップにロールアウトは不要です。
+各新しい Pod は、`startupProbe` が通過し (`periodSeconds: 5`、`failureThreshold: 60` — 5 分の猶予) readinessProbe が通過する前に、起動時にすべてのアーティファクトを再フェッチして HMAC 検証します。レシピ数が多い場合や大きなアーティファクトがある場合は、`startupProbe` の `failureThreshold` と readiness の `initialDelaySeconds` を増やし、ロールアウトが希望のレプリカ数を下回らないように `maxSurge` / `maxUnavailable` を調整してください。ウォッチャーは各 Pod 内で共有インターバルでポーリングします — `train` が新しいアーティファクトを書き込むと、すべてのレプリカは `RECOTEM_WATCH_INTERVAL` 秒以内にそれを検知します。ホットスワップにロールアウトは不要です。
 
 ### Secret のローテーション
 
