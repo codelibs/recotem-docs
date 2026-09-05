@@ -416,7 +416,7 @@ curl -s http://localhost:8080/v1/recipes/purchase_log \
 
 #### GET /v1/health
 
-「設定された**すべての**レシピが揃っているか?」— 厳格なカウントベースのゲート。`startupProbe` に使ってください。liveness / readiness には使わないでください。
+「設定された**すべての**レシピが揃っているか?」— 厳格なカウントベースのゲート。ダッシュボードとアラートに使い、どのプローブにも使わないでください。
 
 **認証:** なし (認証不要)。
 
@@ -455,7 +455,7 @@ $ curl -s -w '\nHTTP=%{http_code}\n' -X POST \
 HTTP=200
 ```
 
-`readinessProbe` に使うと全レプリカが Service から外れます — すべて同じレシピディレクトリを読むため、同時に落ちます。`livenessProbe` ではさらに悪く、kubelet が Pod を再起動し、置き換わった Pod も同じディレクトリを読んで同じように失敗し、CrashLoopBackOff になります。再起動のたびにロード済みだったモデルまで失われます。存在しないアーティファクトは再起動では生まれません。この 2 つのプローブには [`/v1/health/ready`](#get-v1-health-ready) と [`/v1/health/live`](#get-v1-health-live) を使い、`/v1/health` は厳格なゲートが望ましい `startupProbe` に残してください。
+`readinessProbe` に使うと全レプリカが Service から外れます — すべて同じレシピディレクトリを読むため、同時に落ちます。`livenessProbe` ではさらに悪く、kubelet が Pod を再起動し、置き換わった Pod も同じディレクトリを読んで同じように失敗し、CrashLoopBackOff になります。再起動のたびにロード済みだったモデルまで失われます。存在しないアーティファクトは再起動では生まれません。`startupProbe` も同様に安全ではありません。失敗するとやはりコンテナを再起動するため、`/v1/health` に向けると未学習のレシピが 1 つあるだけで新規 Pod が再起動ループに陥り、ローリングアップデートや HPA のスケールアウトが収束しなくなります。startup と readiness には [`/v1/health/ready`](#get-v1-health-ready) を、liveness には [`/v1/health/live`](#get-v1-health-live) を使い、`/v1/health` はダッシュボードとアラートに残してください。
 
 レシピの 2 つの失敗モードはここで挙動が分かれます。**パースできないレシピファイル** は `skipped` カウント付きの `200` を返します。**アーティファクトをロードできない正常なレシピ** は `503 degraded` を返します。`skipped` はページング (呼び出し) ではなく警告として通知してください。
 :::
@@ -528,7 +528,7 @@ curl -s http://localhost:8080/v1/health/ready | jq .
 ::: tip どのプローブにどのエンドポイントか
 | プローブ | エンドポイント | 答える問い |
 |---|---|---|
-| `startupProbe` | `/v1/health` | 設定された全レシピが揃っているか (初回起動時の厳格なゲート) |
+| `startupProbe` | `/v1/health/ready` | この新規 Pod はロードを終えたか |
 | `readinessProbe` | `/v1/health/ready` | このレプリカは何か 1 つでも配信できるか |
 | `livenessProbe` | `/v1/health/live` | プロセスはまだ応答しているか |
 
