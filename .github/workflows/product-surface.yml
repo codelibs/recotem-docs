@@ -45,10 +45,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `cache: pip`. This repository has no requirements.txt and no
+      # pyproject.toml, and setup-python treats a cache with nothing to key on
+      # as a hard error ("No file ... matched to [**/requirements.txt or
+      # **/pyproject.toml]"), which killed this job before it installed
+      # anything. There is nothing to cache here anyway: the one dependency is
+      # installed from a git ref that moves.
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: pip
 
       # The metrics extra is what registers /v1/metrics; without it the
       # endpoint the site documents would not exist to compare against.
@@ -61,5 +66,49 @@ jobs:
         run: |
           python -c "import recotem; print('recotem', recotem.__version__)"
 
-      - name: Check the 2.1 preview against it
-        run: python scripts/check_product_surface.py --tree 2.1
+      # Once per language. Checking `2.1/` as one tree concatenates every page
+      # in both languages, so a surface documented only in Japanese counts as
+      # documented in English and vice versa -- the whole English
+      # environment-variables page could be deleted with the job still green.
+      - name: Check the 2.1 preview (English) against it
+        id: drift_en
+        run: python scripts/check_product_surface.py --tree 2.1 --exclude ja
+
+      - name: Check the 2.1 preview (Japanese) against it
+        id: drift_ja
+        if: always()
+        run: python scripts/check_product_surface.py --tree 2.1/ja
+
+      # Distinguish "the product drifted" from "this job broke".
+      #
+      # Both are a red X, and for a monitor that is a real problem: a drift
+      # checker going red is exactly what a working drift checker looks like.
+      # This job spent its entire life red without ever running the check --
+      # setup-python failed, the three steps that matter reported no
+      # conclusion at all, and a red X on a newly added drift monitor is
+      # plausible enough to be read as "it found something".
+      #
+      # A step that never ran has no `outcome`; one that ran has `success` or
+      # `failure`. So anything else here means the job died on the way.
+      - name: The check must actually have run
+        if: always()
+        env:
+          EN: ${{ steps.drift_en.outcome }}
+          JA: ${{ steps.drift_ja.outcome }}
+        run: |
+          fatal=0
+          for pair in "English:$EN" "Japanese:$JA"; do
+            lang=${pair%%:*}
+            outcome=${pair#*:}
+            case "$outcome" in
+              success|failure) ;;
+              *)
+                echo "::error::the $lang drift check never executed" \
+                     "(outcome='$outcome'). This is an infrastructure failure" \
+                     "in this workflow, NOT documentation drift -- fix the job," \
+                     "do not go looking for a stale page."
+                fatal=1
+                ;;
+            esac
+          done
+          exit "$fatal"
