@@ -81,7 +81,7 @@ An exception was raised that does not map to any domain error class. This typica
 |---------|---------|
 | `min_data_violation` | The cleaned dataset fell below `min_rows`, `min_users`, or `min_items`. The `train_error` event includes `n_rows`, `n_users`, `n_items`, `min_rows`, `min_users`, `min_items`. |
 | `time_column_parse_error` | The timestamp column could not be parsed. |
-| `split_error` | The train/validation split failed or produced nothing usable — an empty held-out test set, a `time_user` / `time_global` scheme with no `schema.time_column`, or a failure inside the irspack splitter. Lower `split.heldout_ratio` or use a larger dataset. |
+| `split_error` | The train/validation split failed or produced nothing usable — an empty held-out test set, a `time_user` / `time_global` scheme with no `schema.time_column`, or a failure inside the irspack splitter. **Raise** `split.heldout_ratio` — the holdout is `floor(n_interactions * heldout_ratio)` **per user**, so a lower ratio needs *deeper* users, not more of them. Adding users does not help; the error message names the smallest ratio that would have worked on the data it saw. If deep users exist but were not drawn as validation users, raise `split.test_user_ratio` instead. |
 | `no_completed_trials` | All Optuna trials failed before any completed. |
 | `zero_score` | All completed trials scored 0.0. Usually indicates an empty test split. |
 | `excessive_per_trial_timeouts` | Most trials hit the per-trial timeout. Increase `training.per_trial_timeout_seconds` in the recipe. |

@@ -7,14 +7,18 @@ description: "Authoritative reference for every RECOTEM_* environment variable c
 
 This page is the authoritative reference for every `RECOTEM_*` environment variable. Variables scoped to `train` are read only by `recotem train`; those scoped to `serve` are read only by `recotem serve`; those scoped to `both` are read by both commands.
 
+::: warning A value that fails to parse is fatal for some variables and silently ignored for others
+Variables marked **⚠** below refuse to start the process: a `ConfigError` / `KeyRingConfigError`, exit **8**, before the port is bound. **Every other numeric variable logs an `env_var_unparseable` warning and silently falls back to its default**, so a typo in e.g. `RECOTEM_MAX_PAYLOAD_BYTES` leaves the server running with a limit you did not choose. Out-of-range values on a clamped variable are not fatal either — they are clamped, with an `env_var_clamped` warning. Grep your startup logs for `env_var_unparseable` and `env_var_clamped` after any change.
+:::
+
 ## Authentication and signing
 
 These variables control artifact integrity (signing keys) and API authentication. They must be treated as secrets. See [Security — Secrets handling](./security#secrets-handling) for storage recommendations.
 
 | Variable | Default | Scope | Clamping | Description |
 |---|---|---|---|---|
-| `RECOTEM_SIGNING_KEYS` | (required) | both | — | `kid:hex64,kid2:hex64` — HMAC-SHA256 sign/verify keys (64 hex chars = 32 raw bytes). Multi-entry enables zero-downtime rotation; `recotem train` always signs with the **first** entry. A misconfigured or missing value fails closed — there is no unsigned fallback. |
-| `RECOTEM_API_KEYS` | (empty) | serve | — | `kid:sha256:hex64,...` — API key allow-list. Each entry is a kid paired with a scrypt digest (`sha256:` is a digest-family label, not the algorithm). Empty value forces the bind address to `127.0.0.1` regardless of `RECOTEM_HOST`. |
+| ⚠ `RECOTEM_SIGNING_KEYS` | (required) | both | — | `kid:hex64,kid2:hex64` — HMAC-SHA256 sign/verify keys (64 hex chars = 32 raw bytes). Multi-entry enables zero-downtime rotation; `recotem train` always signs with the **first** entry. A misconfigured or missing value fails closed — there is no unsigned fallback. |
+| ⚠ `RECOTEM_API_KEYS` | (empty) | serve | — | `kid:sha256:hex64,...` — API key allow-list. Each entry is a kid paired with a scrypt digest (`sha256:` is a digest-family label, not the algorithm). Empty value forces the bind address to `127.0.0.1` regardless of `RECOTEM_HOST`. |
 
 ::: tip Generating keys
 Use `recotem keygen --type signing` and `recotem keygen --type api` to generate correctly formatted values for these variables. See [Security — `recotem keygen` output format](./security#recotem-keygen-output-format) for the exact output format.
@@ -27,7 +31,7 @@ These variables control where `recotem serve` listens for connections.
 | Variable | Default | Scope | Clamping | Description |
 |---|---|---|---|---|
 | `RECOTEM_HOST` | `127.0.0.1` | serve | — | uvicorn bind host. Must be `0.0.0.0` inside Docker or Kubernetes when `RECOTEM_API_KEYS` is set. Forced back to `127.0.0.1` (with a `host_forced_to_loopback` warning) when no API keys are configured. |
-| `RECOTEM_PORT` | `8080` | serve | — | uvicorn bind port. |
+| ⚠ `RECOTEM_PORT` | `8080` | serve | 1–65535 (**fatal**) | uvicorn bind port. Unlike the other numeric variables the range is enforced rather than clamped: a non-integer or out-of-range value raises `ConfigError` and exits **8** before the port is bound (`RECOTEM_PORT must be in range 1–65535, got 99999`). |
 | `RECOTEM_ALLOWED_HOSTS` | `127.0.0.1,localhost` | serve | — | Comma-separated list passed to `TrustedHostMiddleware`. Requests with unrecognized `Host` headers are rejected. Whitespace-only comma input falls back to the default. Set this explicitly in production to the exact hostnames clients will use. |
 | `RECOTEM_ALLOWED_ORIGINS` | (empty) | serve | — | Comma-separated CORS allow-list. Empty means deny all cross-origin requests. Set this when browser clients send CORS requests. |
 
@@ -41,7 +45,7 @@ These variables control memory and download size limits. All are enforced before
 
 | Variable | Default | Scope | Clamping | Description |
 |---|---|---|---|---|
-| `RECOTEM_MAX_ARTIFACT_BYTES` | 2 GiB | serve | [1 MiB, 16 GiB] | Per-artifact file size cap. Enforced before any deserialization occurs. Reduce this if you have many small models to lower the memory ceiling per artifact. |
+| `RECOTEM_MAX_ARTIFACT_BYTES` | 2 GiB | serve | [1 MiB, 16 GiB] | Per-artifact file size cap. Enforced before any deserialization occurs. **Lowering it below the payload cap is fatal even if you never set the payload cap** — the cross-check compares the two *resolved* values, so `RECOTEM_MAX_ARTIFACT_BYTES=268435456` (256 MiB) alone exits 8 naming `RECOTEM_MAX_PAYLOAD_BYTES` (default 512 MiB), a variable the operator did not set. 512 MiB exactly is accepted. Lower both together, payload first. |
 | `RECOTEM_MAX_PAYLOAD_BYTES` | 512 MiB | serve | [1 MiB, 16 GiB] | Per-payload cap applied post-HMAC-verify during deserialization. Must be less than or equal to `RECOTEM_MAX_ARTIFACT_BYTES`; startup fails with a `ConfigError` (exit 8) if it is not. Smaller than `RECOTEM_MAX_ARTIFACT_BYTES` to bound the memory expansion from deserialization. |
 | `RECOTEM_MAX_DOWNLOAD_BYTES` | 256 MiB | train | [1 MiB, 16 GiB] | Raw I/O bytes cap for HTTP/HTTPS, local file, and object-store source reads. The cap is applied mid-stream; exceeding it raises `DataSourceError` (exit 3). Does **not** cap the decompressed DataFrame — see [Security — Decompressed-size cap not enforced](./security#decompressed-size-cap-not-enforced-medium-5). |
 
@@ -64,7 +68,7 @@ These variables control how `recotem serve` monitors artifact files and loads mo
 
 | Variable | Default | Scope | Clamping | Description |
 |---|---|---|---|---|
-| `RECOTEM_WATCH_INTERVAL` | `5` | serve | [1, 30] | Artifact watcher poll interval in seconds. The watcher detects new or changed artifact files and hot-swaps models without restarting the process. |
+| ⚠ `RECOTEM_WATCH_INTERVAL` | `5` | serve | [1, 30] | Artifact watcher poll interval in seconds. Out-of-range values are clamped, but — unlike every other numeric variable here — a **non-numeric value is fatal** (`ConfigError`, exit 8). The watcher detects new or changed artifact files and hot-swaps models without restarting the process. |
 | `RECOTEM_STARTUP_PARALLELISM` | (auto) | serve | [1, 32] | Number of parallel threads used to load artifacts at startup. Default auto-sizing is `min(len(recipes), 8)`. Setting to `0` is not a sentinel — it clamps to 1 and emits an `env_var_clamped` warning. Set to `1` to force sequential loading for debugging. |
 
 ## Lifecycle
@@ -75,7 +79,7 @@ These variables control the runtime environment, graceful shutdown, and log outp
 |---|---|---|---|---|
 | `RECOTEM_ENV` | (empty) | serve | — | Deployment environment tag. `--insecure-no-auth` is permitted only when set to `development`, `dev`, or `test`. `--dev-allow-unsigned` is permitted only when set to `development`. The `/docs`, `/redoc`, and `/openapi.json` endpoints are fail-secure: they are enabled only when this variable is one of `development`, `dev`, or `test`; for any other value (including unset, `production`, `prod`, `staging`, or a custom tag) those paths return 404. |
 | `RECOTEM_DRAIN_SECONDS` | `30` | serve | [1, 300] | SIGTERM graceful drain window in seconds. In-flight requests are given this window to complete before uvicorn closes remaining connections. For Kubernetes, set `terminationGracePeriodSeconds` to at least `RECOTEM_DRAIN_SECONDS + 5`. |
-| `RECOTEM_LOG_FORMAT` | `auto` | both | — | Log output format. `auto` uses JSON when `stderr` is not a TTY, console otherwise. `json` forces structured JSON. `console` forces human-readable output. |
+| ⚠ `RECOTEM_LOG_FORMAT` | `auto` | both | — | Log output format. Any value other than the three below is fatal (`ConfigError`, exit 8). `auto` uses JSON when `stderr` is not a TTY, console otherwise. `json` forces structured JSON. `console` forces human-readable output. |
 
 ## Operational
 

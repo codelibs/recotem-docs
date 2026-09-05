@@ -462,7 +462,11 @@ Lower `cleansing.min_rows` in the recipe or investigate why fewer rows arrived f
 
 All Optuna trials scored 0.0. Common causes:
 
-- The split produced an empty test set (too few users or interactions). Try `split.scheme: random` or lower `split.heldout_ratio`.
+- The split produced an empty held-out test set. Under `random` and `time_user` the holdout is floored
+  **per user** — a user with fewer than `1 / heldout_ratio` distinct items contributes nothing — so
+  switching scheme or adding users changes nothing. **Raise `split.heldout_ratio`** (the error message
+  names the smallest value that would have worked), supply deeper per-user histories, or raise
+  `split.test_user_ratio` when deep users exist but were not drawn as validation users.
 - The data after cleansing has too few items for the cutoff. Lower `training.cutoff`.
 
 ### 401 on recommendation endpoints

@@ -230,11 +230,13 @@ Ingress または LoadBalancer を通じて外部に公開してください。T
 ::: warning 注意 — RECOTEM_ALLOWED_HOSTS と Ingress
 `TrustedHostMiddleware` は `RECOTEM_ALLOWED_HOSTS` が空の場合、デフォルトで `127.0.0.1,localhost` に設定されます — これは Pod 内の liveness/readiness プローブ (`Host: localhost` ヘッダーを使用) には十分です。ただし、異なるホスト名 (通常は Ingress ホスト) で Pod に届くリクエストは **400 Bad Request** を返します。
 
-バンドルされた Helm チャート (`helm/recotem/templates/deployment.yaml`) は `ingress.enabled=true` のとき `ingress.hosts[*].host` から `RECOTEM_ALLOWED_HOSTS` を自動導出します。チャートをバイパスする場合、追加のホスト名 (内部 Service DNS、カスタム LoadBalancer) でサービスを公開する場合、または `helm template` を実行して環境変数を自分で注入する場合は、明示的に環境変数を設定してください。
+バンドルされた Helm チャート (`helm/recotem/templates/deployment.yaml`) は `ingress.enabled=true` のとき `ingress.hosts[*].host` から `RECOTEM_ALLOWED_HOSTS` を自動導出し、レンダリングしたリストの先頭に `localhost` を付加します — `env.RECOTEM_ALLOWED_HOSTS` による明示的な上書きに対しても同様です。
+
+**チャートの外で自分で環境変数を書く場合、`localhost` を含めるのはあなたの責任です。** 3 つのプローブはいずれも `Host: localhost` を送るため、`localhost` を含まないリストにすると readiness/liveness チェックがすべて 400 を返し、Deployment は永久に Ready になりません。`TrustedHostMiddleware` の 400 は通常の拒否リクエストと区別がつかないため、アプリケーションログには手がかりが残らないまま CrashLoop します。
 
 ```yaml
 - name: RECOTEM_ALLOWED_HOSTS
-  value: "api.example.com,api-internal.svc.cluster.local"
+  value: "localhost,api.example.com,api-internal.svc.cluster.local"
 ```
 :::
 

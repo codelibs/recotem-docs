@@ -9,6 +9,17 @@ description: 実際の購買ログデータセットから推薦システムを�
 
 **前提条件:** Docker と Compose プラグイン、または Python 3.12 以上と Recotem がインストールされた環境が必要です。ディスクとネットワークアクセスは約 50 MB 程度 (`raw.githubusercontent.com` へのアクセスが必要です)。
 
+## ステップ 0 — リポジトリの取得 {#ステップ-0-リポジトリの取得}
+
+以下のどちらのパスもリポジトリのルートでコマンドを実行します。レシピと (パス A で使う) `compose.yaml` はリポジトリ内のファイルであり、`pip install` には含まれません。まずクローンしてください。
+
+```bash
+git clone https://github.com/codelibs/recotem.git
+cd recotem
+```
+
+このページのすべてのコマンドは、このディレクトリを作業ディレクトリとして想定しています。
+
 実行方法を選んでください。
 
 - [パス A — Docker Compose](#パス-a-docker-compose) (推奨。Python のインストール不要)
@@ -240,6 +251,8 @@ curl -sX POST http://127.0.0.1:8080/v1/recipes/purchase_log:recommend \
 | 学習直後に `503 RECIPE_UNAVAILABLE` | ウォッチャーがまだポーリングしていない | `RECOTEM_WATCH_INTERVAL` 秒 (デフォルト 5 秒、チュートリアルの compose では 10 秒) 待つ。`/v1/health` を確認する |
 | パス B: アーティファクトが予期しないディレクトリに書き出される | レシピの `output.path` が作業ディレクトリからの相対パス | リポジトリのルートから `recotem train` を実行するか、`output.path` を絶対パスに変更する |
 | pip インストール後に `recotem: command not found` | 仮想環境がアクティベートされていない | 仮想環境をアクティベートするか、`python -m recotem ...` で実行する |
+| `Error: Invalid value: File 'examples/tutorial-purchase-log/recipe.yaml' does not exist` | `pip install recotem` に `examples/` は含まれません。作業ディレクトリがクローンではありません | [ステップ 0](#ステップ-0-リポジトリの取得) を実行し、リポジトリのルートから再実行してください |
+| `docker compose` が `no configuration file provided: not found` を返す | 同じ原因 — `compose.yaml` はリポジトリ内にあります | [ステップ 0](#ステップ-0-リポジトリの取得) を実行してください |
 
 ---
 

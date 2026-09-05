@@ -326,9 +326,9 @@ The most surprising operational property of this feature: the encoded dimension 
 The vocabulary builder counts every token of the fetched column into a dict and only then prunes, and the `multi_label` branch first flattens every row's tokens into a single list. A high-cardinality column therefore pays its full transient counting cost no matter how aggressive `min_frequency` is — a column with hundreds of thousands of distinct values costs tens of MB to count even when the pruned vocabulary comes back empty. The `RECOTEM_MAX_FEATURE_DIM` check runs **after** every column's vocabulary is built, so that transient is paid in full even on the run the cap then rejects. `min_frequency` protects the trials; it does not protect the encoder-state build.
 :::
 
-### Per-trial time is cubic, memory is quadratic, and both multiply with `training.parallelism`
+### Per-trial time grows faster than the dimension, memory quadratically, and both multiply with `training.parallelism`
 
-irspack forms a dense `Fᵀ F` Gram matrix per side and solves it by Cholesky decomposition. The two costs scale differently and are worth keeping apart when sizing a host: **time** grows **cubically** with the encoded dimension (the decomposition itself), while **memory** grows only **quadratically** — the Gram matrix is `dim² × 8` bytes at float64, which closely tracks the Memory column below (the formula gives 200 MB / 800 MB / 3.2 GB against the measured 200 MB / 771 MB / 3 GB — the Gram dominates but is not the only allocation). irspack never errors from either — it only degrades. Measured per trial:
+irspack forms a dense `Fᵀ F` Gram matrix per side and solves it by Cholesky decomposition. The two costs scale differently and are worth keeping apart when sizing a host: **time** grows faster than the dimension — measured at roughly `dim^2.4` on this project's fixtures (a doubling costs 5.1–5.8×, not the 8× a pure cubic would), because forming the Gram matrix and the memory traffic around it dilute the cubic decomposition — while **memory** grows **quadratically**: the Gram matrix is `dim² × 8` bytes at float64. Treat that as a **floor, not an estimate**: it gives 200 MB / 800 MB / 3.2 GB where the measured peak-RSS increase over the same run without features is **287 MB / 960 MB / 3.5 GB**, i.e. the formula runs 10–43% low and is furthest off at the default cap of 5,000. The Gram matrix dominates but the encoder state, the feature matrix itself and the solver's working set are also live. irspack never errors from either — it only degrades. Measured per trial:
 
 | Encoded dimension | Time | Memory |
 |---|---|---|
@@ -517,7 +517,7 @@ Refused across 0.4 ↔ 0.5:
 | `best_class` | Why |
 |--------------|-----|
 | `IALSRecommender` | **Known break**, both directions. 0.5.0 added feature-aware iALS, growing `IALSModelConfig`'s serialized state from a 7-tuple to a 10-tuple; `__setstate__` is a strict-arity binding. |
-| `BPRFMRecommender` | **Unverifiable** — irspack gates it behind the separately installed `lightfm` package, which has no Python 3.12-compatible release, so irspack does not export the class and Recotem cannot train it. Absence from the table means *unproven*, not known-broken. |
+| `BPRFMRecommender` | **Unverified** — trainable since the `bprfm` extra shipped, so the interchange experiment is now possible, but it has not been run (it needs an irspack 0.4.x environment, and a BPRFM payload embeds a LightFM object, adding a second version axis this table does not model). Absence from the table means *unproven*, not known-broken. |
 | missing / non-string `best_class` | Fails **closed**: a header that cannot name its algorithm cannot match the table. |
 
 On a refusal the recipe is marked `loaded: false` with reason `version_skew` and this error (recipe `news`, an IALS artifact trained on 0.4.2, served by 0.5.0):
@@ -590,7 +590,11 @@ Lower `cleansing.min_rows` in the recipe or investigate why fewer rows arrived f
 
 All Optuna trials scored 0.0. Common causes:
 
-- The split produced an empty test set (too few users or interactions). Try `split.scheme: random` or lower `split.heldout_ratio`.
+- The split produced an empty held-out test set. Under `random` and `time_user` the holdout is floored
+  **per user** — a user with fewer than `1 / heldout_ratio` distinct items contributes nothing — so
+  switching scheme or adding users changes nothing. **Raise `split.heldout_ratio`** (the error message
+  names the smallest value that would have worked), supply deeper per-user histories, or raise
+  `split.test_user_ratio` when deep users exist but were not drawn as validation users.
 - The data after cleansing has too few items for the cutoff. Lower `training.cutoff`.
 
 ### recotem train exits 4 with feature_axis_error

@@ -230,11 +230,13 @@ Expose externally via an Ingress or a LoadBalancer. Do not expose the pod port d
 ::: warning RECOTEM_ALLOWED_HOSTS and Ingress
 `TrustedHostMiddleware` defaults to `127.0.0.1,localhost` when `RECOTEM_ALLOWED_HOSTS` is empty — that is just enough for the in-pod liveness/readiness probes (which use a `Host: localhost` header). Any request reaching the pod under a different hostname — typically the Ingress host — will return **400 Bad Request**.
 
-The bundled Helm chart (`helm/recotem/templates/deployment.yaml`) auto-derives `RECOTEM_ALLOWED_HOSTS` from `ingress.hosts[*].host` when `ingress.enabled=true`. If you bypass the chart, expose the service under additional hostnames (internal Service DNS, custom LoadBalancer), or run `helm template` and inject the env yourself, set the env var explicitly:
+The bundled Helm chart (`helm/recotem/templates/deployment.yaml`) auto-derives `RECOTEM_ALLOWED_HOSTS` from `ingress.hosts[*].host` when `ingress.enabled=true`, and prepends `localhost` to whatever list it renders — including an explicit `env.RECOTEM_ALLOWED_HOSTS` override.
+
+**If you write the env var yourself, outside the chart, `localhost` is yours to include.** The three probes send `Host: localhost`, so a list without it makes every readiness and liveness check return 400 and the Deployment never becomes ready. It CrashLoops with no clue in the application log, because a 400 from `TrustedHostMiddleware` looks like an ordinary rejected request:
 
 ```yaml
 - name: RECOTEM_ALLOWED_HOSTS
-  value: "api.example.com,api-internal.svc.cluster.local"
+  value: "localhost,api.example.com,api-internal.svc.cluster.local"
 ```
 :::
 
