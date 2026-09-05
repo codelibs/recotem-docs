@@ -11,6 +11,8 @@ yarn docs:build     # Production build → .vitepress/dist/
 yarn docs:preview   # Preview production build locally
 yarn docs:check-anchors  # Verify every internal #fragment resolves (run after docs:build)
 yarn docs:check-claims   # Re-assert the product claims past rounds found drifted (source-only)
+
+python scripts/check_product_surface.py   # Compare 2.1/ against an installed recotem
 ```
 
 ### Site claims
@@ -21,6 +23,24 @@ endpoint that moved, an error code that appeared, a table cell that stopped
 being true). It reads the Markdown sources, so it needs no build, and CI runs
 it before `docs:build`. When a round finds a claim that went stale, fix the
 page **and** add the pin, in both languages.
+
+### Product-surface drift
+
+`build.yml` proves the site compiles; it cannot tell that a page is describing
+software that no longer exists. `scripts/check_product_surface.py` reads four
+machine-readable surfaces out of an installed recotem — routes from
+`app.openapi()`, error codes from the `ErrorCode` Literal, CLI commands from
+the Typer app, and `RECOTEM_*` names from the package source — and checks both
+directions against `2.1/`.
+
+Run it locally with the product installed
+(`pip install "recotem[metrics] @ git+https://github.com/codelibs/recotem@main"`).
+In CI it is `product-surface.yml`, which runs daily and on pushes to main but
+**not** on pull requests: it tracks product `main`, so it goes red when the
+product moves ahead of the docs, and that must not block an unrelated docs PR.
+
+Scope is the `2.1/` preview only. The unversioned tree documents the current
+stable line and tracks a PyPI release, not `main`.
 
 ### Heading anchors
 

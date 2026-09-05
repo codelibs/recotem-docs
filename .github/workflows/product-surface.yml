@@ -1,0 +1,65 @@
+# Notice when a merged product change makes the 2.1 preview wrong.
+#
+# `build.yml` proves the site compiles and every link resolves. It cannot tell
+# that a page is describing software that no longer exists — the site builds
+# perfectly either way. Three verification rounds in a row have found exactly
+# that, and twice the product PR responsible had merged within the same day.
+#
+# THIS IS A MONITOR, NOT A GATE, and that is deliberate.
+#
+# It installs recotem from the product's `main`, so it goes red the moment a
+# product change lands ahead of the docs — which is the signal we want, and
+# exactly the wrong thing to hang across an unrelated documentation PR. So it
+# does not run on `pull_request`. It runs daily, on pushes to main, and on
+# demand.
+#
+# Pinning a product commit instead would make it safe to run on every PR, and
+# would also make it useless: it would stay green while the product moved on,
+# which is the failure this exists to catch. The pin only becomes viable if
+# something bumps it — the natural place is recotem's own release flow.
+#
+# The stronger version of this check belongs in the *product* repo, where a PR
+# that changes `serving/routes.py` or `serving/schemas.py` could be asked to
+# show the matching docs change before it merges. That is a cross-repo change
+# and is not proposed here.
+name: product-surface
+
+on:
+  schedule:
+    # 03:00 UTC daily — after the product repo's own nightly window.
+    - cron: '0 3 * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: product-surface-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      # The metrics extra is what registers /v1/metrics; without it the
+      # endpoint the site documents would not exist to compare against.
+      - name: Install recotem from product main
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "recotem[metrics] @ git+https://github.com/codelibs/recotem@main"
+
+      - name: Report the installed build
+        run: |
+          python -c "import recotem; print('recotem', recotem.__version__)"
+
+      - name: Check the 2.1 preview against it
+        run: python scripts/check_product_surface.py --tree 2.1
