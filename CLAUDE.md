@@ -10,7 +10,17 @@ yarn docs:dev       # Start dev server with hot-reload at http://localhost:5173
 yarn docs:build     # Production build → .vitepress/dist/
 yarn docs:preview   # Preview production build locally
 yarn docs:check-anchors  # Verify every internal #fragment resolves (run after docs:build)
+yarn docs:check-claims   # Re-assert the product claims past rounds found drifted (source-only)
 ```
+
+### Site claims
+
+`scripts/check-site-claims.mjs` pins a short list of statements the site makes
+about the product — the ones a verification round found had drifted (a probe
+endpoint that moved, an error code that appeared, a table cell that stopped
+being true). It reads the Markdown sources, so it needs no build, and CI runs
+it before `docs:build`. When a round finds a claim that went stale, fix the
+page **and** add the pin, in both languages.
 
 ### Heading anchors
 

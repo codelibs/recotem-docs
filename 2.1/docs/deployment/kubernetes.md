@@ -141,9 +141,24 @@ spec:
                 secretKeyRef:
                   name: recotem-auth
                   key: RECOTEM_API_KEYS
-          readinessProbe:
+          # Three probes, three endpoints, three questions.  Startup keeps the
+          # strict, count-based gate: a NEW pod does not enter the Service
+          # until every recipe has an artifact.  Readiness and liveness must
+          # NOT use /v1/health -- it answers 503 whenever any one recipe is
+          # unloaded, so adding an untrained recipe to a running fleet would
+          # pull every replica out of the Service and then CrashLoop it.
+          startupProbe:
             httpGet:
               path: /v1/health
+              port: 8080
+              httpHeaders:
+                - name: Host
+                  value: localhost
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /v1/health/ready
               port: 8080
               httpHeaders:
                 - name: Host
@@ -154,7 +169,7 @@ spec:
             failureThreshold: 3
           livenessProbe:
             httpGet:
-              path: /v1/health
+              path: /v1/health/live
               port: 8080
               httpHeaders:
                 - name: Host
@@ -171,6 +186,20 @@ spec:
           persistentVolumeClaim:
             claimName: recotem-artifacts
 ```
+
+::: warning Never point `livenessProbe` or `readinessProbe` at `/v1/health`
+`/v1/health` counts recipes, not loadable models: it answers **503** as soon as *any one* recipe in the directory has no artifact, even while every other recipe serves normally. Adding a new, not-yet-trained recipe to a running fleet is enough. On `readinessProbe` that removes every replica from the Service at once — they all read the same recipes directory. On `livenessProbe` the kubelet restarts the pod; the replacement reads the same directory, fails identically, and CrashLoopBackOffs, dropping the models that *were* loaded on every restart. A restart cannot conjure a missing artifact.
+
+Use the three endpoints for the three questions:
+
+| Probe | Endpoint | Question |
+|---|---|---|
+| `startupProbe` | `/v1/health` | Is every configured recipe present? (strict gate, new pods only) |
+| `readinessProbe` | `/v1/health/ready` | Can this replica serve anything? (`200` while ≥ 1 recipe is loaded) |
+| `livenessProbe` | `/v1/health/live` | Is the process still answering? (never reads artifact state) |
+
+`/v1/health` remains the right endpoint for the `startupProbe`, dashboards, and alerting: it is the only one that tells you a recipe is missing. The bundled Helm chart renders exactly this split. See [Serving API — Health](../serving-api#health-and-metrics).
+:::
 
 Note on multiple replicas: each pod holds its own in-memory copy of every model and runs its own watcher thread. This is intentional — there is no shared cache. With 2 GiB max artifact size and 10 recipes, plan for up to 20 GiB per pod before allocating replicas.
 
@@ -194,7 +223,7 @@ securityContext:                 # container-level
 
 ### Rolling updates and warm-up
 
-Each new pod re-fetches and HMAC-verifies every artifact at startup before the readinessProbe passes (default `initialDelaySeconds: 10`). With many recipes or large artifacts, increase `initialDelaySeconds` and tune `maxSurge` / `maxUnavailable` so the rollout does not run below the desired-replica count. The watcher polls on a shared interval inside each pod — when `train` writes a new artifact, all replicas pick it up within `RECOTEM_WATCH_INTERVAL` seconds; no rollout is needed for hot-swap.
+Each new pod re-fetches and HMAC-verifies every artifact at startup before the `startupProbe` clears (`periodSeconds: 5`, `failureThreshold: 60` — a 5-minute budget) and the readinessProbe passes. With many recipes or large artifacts, raise the `startupProbe` `failureThreshold` and the readiness `initialDelaySeconds` and tune `maxSurge` / `maxUnavailable` so the rollout does not run below the desired-replica count. The watcher polls on a shared interval inside each pod — when `train` writes a new artifact, all replicas pick it up within `RECOTEM_WATCH_INTERVAL` seconds; no rollout is needed for hot-swap.
 
 ### Secret rotation
 

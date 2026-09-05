@@ -41,7 +41,7 @@ recotem --help
 エクストラは組み合わせて使えます: `pip install "recotem[s3,metrics]"`
 
 ::: warning `BPRFM` にはエクストラが必要です
-irspack は `BPRFMRecommender` を別途インストールする `lightfm` パッケージの背後にゲートしており、そのインポートに失敗するとクラスをエクスポートしません。`bprfm` エクストラなしで `training.algorithms` に `BPRFM` を指定すると、`recotem validate` も `recotem train` もデータ取得の前に終了コード **4** と `irspack does not know recommender class 'BPRFMRecommender'` で失敗します。公式 Docker イメージには既に含まれています。
+irspack は `BPRFMRecommender` を別途インストールする `lightfm` パッケージの背後にゲートしており、そのインポートに失敗するとクラスをエクスポートしません。`bprfm` エクストラなしで `training.algorithms` に `BPRFM` を指定すると、`recotem validate` も `recotem train` もデータ取得の前に終了コード **4** と `irspack does not know recommender class 'BPRFMRecommender'` で失敗します。公式 Docker イメージには既に含まれています。サービング側の制限が 1 つあります。探索の勝者が BPRFM になったレシピは `:recommend-related` と `:batch-recommend-related` に応答できず、`501 RELATED_NOT_SUPPORTED` を返します ([サービング API](/2.1/ja/docs/serving-api#post-v1-recipes-name-recommend-related) を参照)。
 
 依存パッケージは [`lightfm-next`](https://pypi.org/project/lightfm-next/) で、同じ `lightfm` モジュールを提供する保守されたフォークです (本家 `lightfm` は 1.17 以降リリースがなく、Python 3.12 でビルドできません)。注意点が 2 つあります。linux/aarch64 のホイールが公開されていないため、arm64 では `pip install "recotem[bprfm]"` がソースからビルドされ C コンパイラが必要です (公開 Docker イメージは両アーキテクチャでビルド済みのため影響を受けません)。また macOS では OpenMP なしでビルドされるため、BPRFM の学習はシングルスレッドになります。
 :::

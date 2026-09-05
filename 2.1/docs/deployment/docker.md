@@ -200,6 +200,6 @@ curl http://localhost:8080/v1/health
 }
 ```
 
-`status` is `degraded` (HTTP 503) if any recipe failed to load. Use a Kubernetes readiness probe or Docker HEALTHCHECK targeting this endpoint — see [Serving API](../serving-api) for the full response contract.
+`status` is `degraded` (HTTP 503) if any recipe failed to load — including a recipe that simply has not been trained yet. That makes it the right target for a Docker `HEALTHCHECK` and for a Kubernetes `startupProbe`, but the **wrong** target for a Kubernetes `readinessProbe` or `livenessProbe`: use `/v1/health/ready` and `/v1/health/live` there. See [Kubernetes — Deployment (serve)](./kubernetes#deployment-serve) and [Serving API](../serving-api#health-and-metrics) for the full response contract.
 
 For per-recipe detail including `kid`, `trained_at`, and `best_class`, use the authenticated `/v1/health/details` endpoint.
