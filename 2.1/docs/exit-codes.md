@@ -172,8 +172,15 @@ Common causes:
 - Bind port is already in use or permission denied (`EADDRINUSE`, `EACCES`, `EADDRNOTAVAIL`).
 - The per-recipe training lock path cannot be created or opened for lack of filesystem permission (`EACCES` / `EPERM`), raising `LockPermissionError`. This is deliberately **not** exit 6 — see the `--fail-on-busy` interaction section below.
 - An env var value is out of its clamped range in a way that prevents startup.
+- A **remote `output.path` that cannot be written**. The credentials do not resolve (`code: artifact_write_credentials`), or the bucket/container is absent or the resolved credentials are refused (`code: artifact_write_destination`). Raised as `TrainingError` and mapped here, not to exit 4, so a scheduler can tell "this will never work as configured" from "retry me".
 
-**Recommended action:** Do not retry without fixing the configuration. Check `RECOTEM_SIGNING_KEYS`, `RECOTEM_ENV`, and any env vars listed in the error message.
+::: warning A remote write failure is exit 8 only when it is permanent
+On `s3://`, `gs://` and `az://`, a 401 is classified as a credential failure and a 403 or 404 as a destination failure — both exit 8. **5xx and 429 are deliberately excluded** and still exit 1, so a transient object-store error still looks transient to retry logic.
+
+This costs a full training run: the classification happens at artifact-write time, after the model has been searched and trained. `recotem validate` does not exercise `output.path` write credentials, so a wrong role is not caught before the compute is spent.
+:::
+
+**Recommended action:** Do not retry without fixing the configuration. Check `RECOTEM_SIGNING_KEYS`, `RECOTEM_ENV`, and any env vars listed in the error message. For `artifact_write_credentials` / `artifact_write_destination`, check the write role or key on the bucket named in `output.path`.
 
 ---
 

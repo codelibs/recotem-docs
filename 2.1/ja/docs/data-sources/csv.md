@@ -87,8 +87,9 @@ URI 内の埋め込まれた認証情報 (例: `https://user:pass@host/file.csv`
 
 userinfo チェックはスキームによって選択的に適用されます:
 
-- **拒否** (`http`、`https`、`ftp`、`ftps`、`s3`、`abfs`、`abfss`): `username` または `password` コンポーネントを持つ URI は `RecipeError` を発生させます。これらのスキームは標準のアドレス構文に `@` を使用しないため、`user:pass@host` パターンはプレーンテキストの埋め込み認証情報を意味します。
-- **許可** (`gs`、`az`、ベアパス、`file`): `@` 文字は正規の URI 構文の一部である可能性があります。GCS では `gs://project@bucket/key` は gcsfs が受け付ける有効な課金プロジェクトの上書きです。認証は常に ADC / `GOOGLE_APPLICATION_CREDENTIALS` 経由であり、URI の userinfo ではありません。
+- **拒否** (`http`、`https`、`ftp`、`ftps`、`s3`): `username` または `password` コンポーネントを持つ URI は `RecipeError` を発生させます。これらのスキームは標準のアドレス構文に `@` を使用しないため、`user:pass@host` パターンはプレーンテキストの埋め込み認証情報を意味します。
+- **password のみ拒否** (`az`、`abfs`、`abfss`): この 3 つは 1 つの adlfs ファイルシステムに対するプロトコルエイリアスであり、`abfss://<container>@<account>.dfs.core.windows.net/<path>` は Azure 自身のドキュメントが使っている形式です。ここでの `@` はコンテナーとストレージアカウントを区切るアドレス構文であって、認証情報ではありません。`container@account` の形は**受け付けられます**が、本物の `user:pass@` の組は引き続き `RecipeError` になります。認証は環境から提供します (`AZURE_STORAGE_ACCOUNT_NAME` / `AZURE_STORAGE_ACCOUNT_KEY`、接続文字列、またはマネージド ID)。URI からは決して読み取りません。
+- **許可** (`gs`、ベアパス、`file`): `@` 文字は正規の URI 構文の一部である可能性があります。GCS では `gs://project@bucket/key` は gcsfs が受け付ける有効な課金プロジェクトの上書きです。認証は常に ADC / `GOOGLE_APPLICATION_CREDENTIALS` 経由であり、URI の userinfo ではありません。
 
 `${RECOTEM_RECIPE_*}` 環境変数展開は `path` フィールドの内部で**行われます** (バケット名、日付、実行時固有のパスコンポーネントを注入する推奨の方法です)。展開が抑制されるのは `query` / `query_parameters` の内部のみです。
 

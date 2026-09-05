@@ -328,13 +328,26 @@ The vocabulary builder counts every token of the fetched column into a dict and 
 
 ### Per-trial time grows faster than the dimension, memory quadratically, and both multiply with `training.parallelism`
 
-irspack forms a dense `Fᵀ F` Gram matrix per side and solves it by Cholesky decomposition. The two costs scale differently and are worth keeping apart when sizing a host: **time** grows faster than the dimension — measured at roughly `dim^2.4` on this project's fixtures (a doubling costs 5.1–5.8×, not the 8× a pure cubic would), because forming the Gram matrix and the memory traffic around it dilute the cubic decomposition — while **memory** grows **quadratically**: the Gram matrix is `dim² × 8` bytes at float64. Treat that as a **floor, not an estimate**: it gives 200 MB / 800 MB / 3.2 GB where the measured peak-RSS increase over the same run without features is **287 MB / 960 MB / 3.5 GB**, i.e. the formula runs 10–43% low and is furthest off at the default cap of 5,000. The Gram matrix dominates but the encoder state, the feature matrix itself and the solver's working set are also live. irspack never errors from either — it only degrades. Measured per trial:
+irspack forms a dense `Fᵀ F` Gram matrix per side and solves it by Cholesky decomposition. The two costs scale differently and are worth keeping apart when sizing a host: **time** grows **super-linearly** with the encoded dimension, and — this is the part that trips up sizing — **the exponent itself rises with the dimension**, so no single power fits the whole range. Below the default 5,000 cap the feature work is not yet what the trial spends its time on and a doubling costs under 2×; from 5,000 upward the Gram matrix and its Cholesky take over and a doubling approaches the 8× of a pure cubic. Measured per doubling, one fixture, `parallelism: 1`, median of three alternating passes:
+
+| Doubling | Cost | Implied exponent |
+|---|---|---|
+| 1,251 → 2,501 | 1.74× | 0.80 |
+| 2,501 → 5,001 | 1.85× | 0.89 |
+| 5,001 → 10,001 | 5.07× | 2.34 |
+| 10,001 → 20,001 | **7.46×** | **2.90** |
+
+An earlier revision of this page summarised the whole range as a flat `dim^2.4` and put a doubling at 5.1–5.8×, explicitly ruling out the cubic case. That is right for the 5,000 → 10,000 step and wrong at both ends: it over-states the cost of raising a small cap and under-states the cost of raising the default one — and the 10,000 → 20,000 step is precisely the one an operator takes when the default cap refuses their catalogue. Budget **two** doublings from 5,000 to 20,000 at ~38×, not ~30×.
+
+**Memory** has no such complication and grows **quadratically**: the Gram matrix is `dim² × 8` bytes at float64. Treat that as a **floor, not an estimate**: it gives 200 MB / 800 MB / 3.2 GB where the measured peak-RSS increase over the same run without features is **287 MB / 960 MB / 3.5 GB**, i.e. the formula runs 10–43% low and is furthest off at the default cap of 5,000. The Gram matrix dominates but the encoder state, the feature matrix itself and the solver's working set are also live. irspack never errors from either — it only degrades. Measured per trial:
 
 | Encoded dimension | Time | Memory |
 |---|---|---|
-| 5,000 | ~0.6 s | ~200 MB |
-| 10,000 | ~4.2 s | ~771 MB |
-| 20,000 | ~43 s | ~3 GB |
+| 5,000 | 0.6–2.4 s | ~200 MB |
+| 10,000 | 4.2–12 s | ~800 MB |
+| 20,000 | 43–70 s | ~3.2 GB |
+
+The time column is a range because it depends on the interaction data the trial also has to fit, not on the dimension alone; the low figures come from a small fixture and the high ones from a 100k-row one. Memory is stable across both, as the Gram formula predicts. **Size on the upper figure.** The rising exponent is visible in this table too — 4.2/0.6 and 43/4.2 are 7.0× and 10.2× per doubling on the small fixture — which is why a single flat power was the wrong summary.
 
 `training.parallelism` is Optuna `n_jobs` — **in-process threads**, not processes — so each concurrently-running trial builds and solves its own dense Gram matrix independently. At `parallelism=4, dim=10k` that is roughly 4 × 771 MB ≈ 3 GB of Gram matrices alone, on top of everything else the search holds in memory. Size training hosts (or set `parallelism` and `RECOTEM_MAX_FEATURE_DIM`) with this multiplication in mind.
 
