@@ -67,17 +67,27 @@ for (const t of NEXT) {
 // in both languages and guide/installation.md only in English, so the
 // Japanese page told a reader that /v1/health/live and /v1/health/ready need
 // a key. Pinned per language because the sentence is not a shared token.
+// The page states the boundary TWICE -- prose and a table row -- and a needle
+// that matches either one passes while the other is silently dropped. Measured:
+// deleting only the table row left a file-wide check on the probe list green.
+// So each statement gets its own passage-scoped needle.
 CLAIMS.push({
   file: '2.1/guide/installation.md',
-  must: ['`GET /v1/health`, `GET /v1/health/live`, `GET /v1/health/ready`'],
+  must: [
+    'except the three unauthenticated probes (`GET /v1/health`, `GET /v1/health/live`, `GET /v1/health/ready`) requires it',
+    '| HTTP clients | Sent on every `/v1` request except the three probes `GET /v1/health`, `GET /v1/health/live`, `GET /v1/health/ready` |',
+  ],
   mustNot: ['every endpoint except `GET /v1/health` requires it'],
-  why: 'the three probes need no API key (recotem #219)',
+  why: 'the three probes need no API key, in BOTH statements (recotem #219)',
 })
 CLAIMS.push({
   file: '2.1/ja/guide/installation.md',
-  must: ['`GET /v1/health`、`GET /v1/health/live`、`GET /v1/health/ready`'],
+  must: [
+    '認証不要の 3 つのプローブ (`GET /v1/health`、`GET /v1/health/live`、`GET /v1/health/ready`) を除くすべてのエンドポイントで必要',
+    '| HTTP クライアント | 3 つのプローブ `GET /v1/health`、`GET /v1/health/live`、`GET /v1/health/ready` を除くすべての `/v1` リクエストに付加して送信 |',
+  ],
   mustNot: ['`GET /v1/health` を除くすべてのエンドポイントで必要'],
-  why: 'the three probes need no API key (recotem #219)',
+  why: 'the three probes need no API key, in BOTH statements (recotem #219)',
 })
 
 let failed = 0
