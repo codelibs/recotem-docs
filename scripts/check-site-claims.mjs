@@ -61,6 +61,25 @@ for (const t of NEXT) {
   })
 }
 
+// --- recotem #219, second half: the probe set on the INSTALLATION page ------
+// The auth statement names the endpoints that need no API key. #219 split
+// /v1/health into three unauthenticated probes; serving-api.md was corrected
+// in both languages and guide/installation.md only in English, so the
+// Japanese page told a reader that /v1/health/live and /v1/health/ready need
+// a key. Pinned per language because the sentence is not a shared token.
+CLAIMS.push({
+  file: '2.1/guide/installation.md',
+  must: ['`GET /v1/health`, `GET /v1/health/live`, `GET /v1/health/ready`'],
+  mustNot: ['every endpoint except `GET /v1/health` requires it'],
+  why: 'the three probes need no API key (recotem #219)',
+})
+CLAIMS.push({
+  file: '2.1/ja/guide/installation.md',
+  must: ['`GET /v1/health`、`GET /v1/health/live`、`GET /v1/health/ready`'],
+  mustNot: ['`GET /v1/health` を除くすべてのエンドポイントで必要'],
+  why: 'the three probes need no API key (recotem #219)',
+})
+
 let failed = 0
 let checked = 0
 
