@@ -208,7 +208,7 @@ Use the three endpoints for the three questions:
 No probe reads `/v1/health`. A failing `startupProbe` **restarts** the container rather than merely withholding traffic, so pointing one at the strict, count-based `/v1/health` turns a single untrained recipe into a restart loop for every new pod. `/v1/health` is the right endpoint for dashboards and alerting — it is the only one that tells you a recipe is missing — but not for a probe. The bundled Helm chart renders exactly this split. See [Serving API — Health](../serving-api#health-and-metrics).
 :::
 
-Note on multiple replicas: each pod holds its own in-memory copy of every model and runs its own watcher thread. This is intentional — there is no shared cache. With 2 GiB max artifact size and 10 recipes, plan for up to 20 GiB per pod before allocating replicas.
+Note on multiple replicas: each pod holds its own in-memory copy of every model and runs its own watcher thread. This is intentional — there is no shared cache. Budget roughly **4.8x the artifact size** per recipe, not 1x: loading holds the file bytes and the payload slice of them at the same time, and the deserialized model on top. A 644.5 MiB artifact measured 3,292 MiB resident. So 10 recipes at the 512 MiB `RECOTEM_MAX_PAYLOAD_BYTES` default is on the order of 25 GiB per pod, and 10 recipes allowed to reach the 2 GiB `RECOTEM_MAX_ARTIFACT_BYTES` default is on the order of 96 GiB — before allocating replicas.
 
 ### Pod security context
 
@@ -266,7 +266,17 @@ Expose externally via an Ingress or a LoadBalancer. Do not expose the pod port d
 ::: warning RECOTEM_ALLOWED_HOSTS and Ingress
 `TrustedHostMiddleware` defaults to `127.0.0.1,localhost` when `RECOTEM_ALLOWED_HOSTS` is empty — that is just enough for the in-pod liveness/readiness probes (which use a `Host: localhost` header). Any request reaching the pod under a different hostname — typically the Ingress host — will return **400 Bad Request**.
 
-The bundled Helm chart (`helm/recotem/templates/deployment.yaml`) auto-derives `RECOTEM_ALLOWED_HOSTS` from `ingress.hosts[*].host` when `ingress.enabled=true`, and prepends `localhost` to whatever list it renders — including an explicit `env.RECOTEM_ALLOWED_HOSTS` override.
+The bundled Helm chart (`helm/recotem/templates/deployment.yaml`) renders `RECOTEM_ALLOWED_HOSTS` as the **union** of `localhost`, your own `env.RECOTEM_ALLOWED_HOSTS` (if set), and `ingress.hosts[*].host` (when `ingress.enabled=true`). An explicit override no longer replaces the Ingress hosts, so you do not have to restate them:
+
+```console
+$ helm template recotem ./helm/recotem --set ingress.enabled=true \
+    --set 'ingress.hosts[0].host=api.example.com' \
+    --set 'env.RECOTEM_ALLOWED_HOSTS=recotem.internal.svc.cluster.local'
+            - name: RECOTEM_ALLOWED_HOSTS
+              value: "localhost,recotem.internal.svc.cluster.local,api.example.com"
+```
+
+Because it is a union, setting this variable does **not** narrow the list to what you named — it can only add. To actually restrict which Host headers are accepted, remove hosts from `ingress.hosts` as well.
 
 **If you write the env var yourself, outside the chart, `localhost` is yours to include.** The three probes send `Host: localhost`, so a list without it makes every readiness and liveness check return 400 and the Deployment never becomes ready. It CrashLoops with no clue in the application log, because a 400 from `TrustedHostMiddleware` looks like an ordinary rejected request:
 
@@ -379,13 +389,25 @@ recipes:
 networkPolicy:
   enabled: true
   # ingressFromPodSelector restricts which pods may reach recotem-serve.
-  # Empty map ({}) → no ingress rule is rendered → combined with
-  # policyTypes:[Ingress], this is the canonical Kubernetes "deny all
-  # inbound" pattern.  Set a label selector to allow specific scrapers,
-  # probes, or ingress controllers:
+  # It is NOT a deny-all switch on its own.  allowKubeletProbes defaults to
+  # true, which renders an ingress rule with no `from:` — and in the
+  # NetworkPolicy spec that matches EVERY source, the opposite of deny-all.
+  # With chart defaults, inbound to the serve port is open to all sources.
+  # Set a label selector to allow specific scrapers or ingress controllers:
   #   ingressFromPodSelector:
   #     app.kubernetes.io/name: ingress-nginx
   ingressFromPodSelector: {}
+  # Kubelet probes originate from the node network, not from a pod, so no
+  # podSelector can match them.  Leave this true: setting it false with an
+  # empty ingressFromPodSelector renders a real `ingress: []` deny-all, and
+  # on a cluster whose CNI enforces NetworkPolicy that is a total, silent
+  # outage — every replica stays 1/1 Ready with restartCount 0 and stays in
+  # the Service endpoints while 100% of client requests time out.
+  allowKubeletProbes: true
+  # The way to narrow inbound without that outage: restrict probe ingress to
+  # the node CIDRs instead of any source.  Read only while
+  # allowKubeletProbes is true.
+  kubeletCIDRs: []
 
 hpa:
   enabled: false
