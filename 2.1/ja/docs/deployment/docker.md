@@ -70,7 +70,7 @@ services:
     healthcheck:
       test:
         - "CMD-SHELL"
-        - "python -c \"import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/v1/health', timeout=5).status == 200 else 1)\""
+        - "python -c \"import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/v1/health/ready', timeout=5).status == 200 else 1)\""
       interval: 30s
       timeout: 10s
       retries: 3
@@ -123,7 +123,7 @@ mkdir -p ./artifacts && chown 1000:1000 ./artifacts
 
 ### イメージレベルの HEALTHCHECK
 
-Dockerfile は独自の `HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3` を宣言しており、`urllib.request.urlopen(f'http://127.0.0.1:{RECOTEM_PORT}/v1/health', timeout=3)` をプローブします (これにより上書きされた `RECOTEM_PORT` も反映されます)。v1 ルーターは `/v1` にマウントされているため、パブリックなヘルスエンドポイントは `/v1/health` であり、プレフィックスなしの `/health` は 404 を返します。アノテーション付き例の Compose レベルのヘルスチェックは `serve` サービスのイメージデフォルトを上書きしますが、対象は同じ `/v1/health` です — オーケストレーターは `/v1/health` からの HTTP 200 レスポンスに依存してください。ワンショットの `train` コンテナでは、プロセスがすでに終了した後にイメージのヘルスチェックが実行されますが、誤った失敗は発生しません。
+Dockerfile は独自の `HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3` を宣言しており、`urllib.request.urlopen(f'http://127.0.0.1:{RECOTEM_PORT}/v1/health/ready', timeout=3)` をプローブします (これにより上書きされた `RECOTEM_PORT` も反映されます)。v1 ルーターは `/v1` にマウントされているため、プレフィックスなしの `/health` は 404 を返します。コンテナが持てるヘルスチェックは **1 つだけ** であり、それに適するのは `/v1/health/ready` です。`/v1/health` は「*すべての* レシピが揃っているか?」に答えるため、マウントされたディレクトリに未学習のレシピを 1 つ追加しただけで、ロード済みのモデルがすべて正常に配信されている最中でもコンテナが unhealthy と判定されます — 置き換わったコンテナも同じディレクトリを読んで同じように失敗します。アノテーション付き例の Compose レベルのヘルスチェックは `serve` サービスのイメージデフォルトを上書きしますが、対象は同じ `/v1/health/ready` です。ワンショットの `train` コンテナでは、プロセスがすでに終了した後にイメージのヘルスチェックが実行されますが、誤った失敗は発生しません。
 
 ### リバースプロキシバインディング
 
@@ -200,6 +200,6 @@ curl http://localhost:8080/v1/health
 }
 ```
 
-いずれかのレシピのロードに失敗した場合 — まだ学習されていないだけのレシピも含みます — `status` は `degraded` (HTTP 503) になります。そのため、このエンドポイントは Docker の `HEALTHCHECK` と Kubernetes の `startupProbe` には適していますが、Kubernetes の `readinessProbe` / `livenessProbe` には**適していません**。そちらには `/v1/health/ready` と `/v1/health/live` を使ってください。[Kubernetes — Deployment (serve)](./kubernetes#deployment-serve) と [Serving API](../serving-api#ヘルスとメトリクス) を参照してください。
+いずれかのレシピのロードに失敗した場合 — まだ学習されていないだけのレシピも含みます — `status` は `degraded` (HTTP 503) になります。そのため、このエンドポイントはダッシュボードとアラートには適していますが、どのプローブにも**適していません** — Docker の `HEALTHCHECK` と Kubernetes の `startupProbe` も含みます。どちらも失敗するとコンテナを再起動するためです。startup と readiness には `/v1/health/ready` を、liveness には `/v1/health/live` を使ってください。[Kubernetes — Deployment (serve)](./kubernetes#deployment-serve) と [Serving API](../serving-api#ヘルスとメトリクス) を参照してください。
 
 `kid`、`trained_at`、`best_class` などレシピごとの詳細については、認証が必要な `/v1/health/details` エンドポイントを使用してください。

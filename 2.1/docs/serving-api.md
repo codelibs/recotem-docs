@@ -416,7 +416,7 @@ Three unauthenticated probe endpoints answer three different questions. Point ea
 
 #### GET /v1/health
 
-"Is **every** configured recipe present?" — the strict, count-based gate. Use it for a `startupProbe`, not for liveness or readiness.
+"Is **every** configured recipe present?" — the strict, count-based gate. Use it for dashboards and alerting, not for any probe.
 
 **Authentication:** None (unauthenticated).
 
@@ -455,7 +455,7 @@ $ curl -s -w '\nHTTP=%{http_code}\n' -X POST \
 HTTP=200
 ```
 
-On a `readinessProbe` that removes every replica from the Service — they all read the same recipes directory, so they all fail together. On a `livenessProbe` it is worse: the kubelet restarts the pod, the replacement reads the same directory, fails the same way, and CrashLoopBackOffs — dropping the models that *were* loaded on every restart. A restart cannot conjure a missing artifact. Use [`/v1/health/ready`](#get-v1-health-ready) and [`/v1/health/live`](#get-v1-health-live) for those two probes and keep `/v1/health` for the `startupProbe`, where the strict gate is what you want.
+On a `readinessProbe` that removes every replica from the Service — they all read the same recipes directory, so they all fail together. On a `livenessProbe` it is worse: the kubelet restarts the pod, the replacement reads the same directory, fails the same way, and CrashLoopBackOffs — dropping the models that *were* loaded on every restart. A restart cannot conjure a missing artifact. A `startupProbe` is no safer: a failing one restarts the container too, so pointing one at `/v1/health` turns a single untrained recipe into a restart loop for every new pod, and a rolling update or an HPA scale-out never converges. Use [`/v1/health/ready`](#get-v1-health-ready) for startup and readiness and [`/v1/health/live`](#get-v1-health-live) for liveness, and keep `/v1/health` for dashboards and alerting.
 
 The two recipe failure modes differ here. An **unparseable recipe file** returns `200` with a `skipped` count and the pod keeps its traffic; a **valid recipe whose artifact cannot load** returns `503 degraded`. Alert on `skipped` as a warning, not as a page.
 :::
@@ -528,7 +528,7 @@ curl -s http://localhost:8080/v1/health/ready | jq .
 ::: tip Which probe gets which endpoint
 | Probe | Endpoint | Question it answers |
 |---|---|---|
-| `startupProbe` | `/v1/health` | Is every configured recipe present? (strict first-start gate) |
+| `startupProbe` | `/v1/health/ready` | Has this new pod finished loading? |
 | `readinessProbe` | `/v1/health/ready` | Can this replica serve anything at all? |
 | `livenessProbe` | `/v1/health/live` | Is the process still answering? |
 

@@ -141,15 +141,22 @@ spec:
                 secretKeyRef:
                   name: recotem-auth
                   key: RECOTEM_API_KEYS
-          # Three probes, three endpoints, three questions.  Startup keeps the
-          # strict, count-based gate: a NEW pod does not enter the Service
-          # until every recipe has an artifact.  Readiness and liveness must
-          # NOT use /v1/health -- it answers 503 whenever any one recipe is
-          # unloaded, so adding an untrained recipe to a running fleet would
-          # pull every replica out of the Service and then CrashLoop it.
+          # Startup asks readiness' question, not /v1/health's stricter one.
+          # A startupProbe is not a gate that withholds traffic -- a failing
+          # one RESTARTS the container.  Pointed at the strict, count-based
+          # /v1/health it turned one untrained recipe into a restart loop for
+          # every NEW pod, so a rolling update or an HPA scale-out could not
+          # converge while the running replicas served happily.
+          # /v1/health/ready still answers 503 on a cold store (nothing
+          # loaded), which is what keeps the first-install guarantee: serve
+          # does not enter the Service before train has produced something.
+          # Readiness and liveness must NOT use /v1/health either -- it
+          # answers 503 whenever any one recipe is unloaded, so adding an
+          # untrained recipe to a running fleet would pull every replica out
+          # of the Service and then CrashLoop it.
           startupProbe:
             httpGet:
-              path: /v1/health
+              path: /v1/health/ready
               port: 8080
               httpHeaders:
                 - name: Host
@@ -194,11 +201,11 @@ Use the three endpoints for the three questions:
 
 | Probe | Endpoint | Question |
 |---|---|---|
-| `startupProbe` | `/v1/health` | Is every configured recipe present? (strict gate, new pods only) |
+| `startupProbe` | `/v1/health/ready` | Has this new pod finished loading? (`200` once ≥ 1 recipe is loaded) |
 | `readinessProbe` | `/v1/health/ready` | Can this replica serve anything? (`200` while ≥ 1 recipe is loaded) |
 | `livenessProbe` | `/v1/health/live` | Is the process still answering? (never reads artifact state) |
 
-`/v1/health` remains the right endpoint for the `startupProbe`, dashboards, and alerting: it is the only one that tells you a recipe is missing. The bundled Helm chart renders exactly this split. See [Serving API — Health](../serving-api#health-and-metrics).
+No probe reads `/v1/health`. A failing `startupProbe` **restarts** the container rather than merely withholding traffic, so pointing one at the strict, count-based `/v1/health` turns a single untrained recipe into a restart loop for every new pod. `/v1/health` is the right endpoint for dashboards and alerting — it is the only one that tells you a recipe is missing — but not for a probe. The bundled Helm chart renders exactly this split. See [Serving API — Health](../serving-api#health-and-metrics).
 :::
 
 Note on multiple replicas: each pod holds its own in-memory copy of every model and runs its own watcher thread. This is intentional — there is no shared cache. With 2 GiB max artifact size and 10 recipes, plan for up to 20 GiB per pod before allocating replicas.

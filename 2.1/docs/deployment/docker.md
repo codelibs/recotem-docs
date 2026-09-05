@@ -70,7 +70,7 @@ services:
     healthcheck:
       test:
         - "CMD-SHELL"
-        - "python -c \"import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/v1/health', timeout=5).status == 200 else 1)\""
+        - "python -c \"import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/v1/health/ready', timeout=5).status == 200 else 1)\""
       interval: 30s
       timeout: 10s
       retries: 3
@@ -123,7 +123,7 @@ Named Docker volumes (as in `compose.yaml`) are pre-created with the right owner
 
 ### Image-level HEALTHCHECK
 
-The Dockerfile declares its own `HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3` that probes `urllib.request.urlopen(f'http://127.0.0.1:{RECOTEM_PORT}/v1/health', timeout=3)` (so it picks up an overridden `RECOTEM_PORT`). The v1 router is mounted at `/v1`, so `/v1/health` is the public health endpoint and a bare `/health` returns 404. The Compose-level healthcheck shown in the annotated example overrides the image default for the `serve` service and targets the same `/v1/health` path; orchestrators should rely on the HTTP 200 response from `/v1/health`. For one-shot `train` containers the image healthcheck fires after the process has already exited and causes no spurious failures.
+The Dockerfile declares its own `HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3` that probes `urllib.request.urlopen(f'http://127.0.0.1:{RECOTEM_PORT}/v1/health/ready', timeout=3)` (so it picks up an overridden `RECOTEM_PORT`). The v1 router is mounted at `/v1`, so a bare `/health` returns 404. A container has only **one** healthcheck, and `/v1/health/ready` is the one that suits it: `/v1/health` answers "is *every* recipe present?", so adding a single untrained recipe to the mounted directory would mark the container unhealthy while every loaded model is still serving — and a replacement container reads the same directory and fails identically. The Compose-level healthcheck shown in the annotated example overrides the image default for the `serve` service and targets the same `/v1/health/ready` path. For one-shot `train` containers the image healthcheck fires after the process has already exited and causes no spurious failures.
 
 ### Reverse proxy binding
 
@@ -200,6 +200,6 @@ curl http://localhost:8080/v1/health
 }
 ```
 
-`status` is `degraded` (HTTP 503) if any recipe failed to load — including a recipe that simply has not been trained yet. That makes it the right target for a Docker `HEALTHCHECK` and for a Kubernetes `startupProbe`, but the **wrong** target for a Kubernetes `readinessProbe` or `livenessProbe`: use `/v1/health/ready` and `/v1/health/live` there. See [Kubernetes — Deployment (serve)](./kubernetes#deployment-serve) and [Serving API](../serving-api#health-and-metrics) for the full response contract.
+`status` is `degraded` (HTTP 503) if any recipe failed to load — including a recipe that simply has not been trained yet. That makes it the right target for dashboards and alerting, but the **wrong** target for any probe — including a Docker `HEALTHCHECK` and a Kubernetes `startupProbe`, both of which restart the container when they fail. Use `/v1/health/ready` for startup and readiness and `/v1/health/live` for liveness. See [Kubernetes — Deployment (serve)](./kubernetes#deployment-serve) and [Serving API](../serving-api#health-and-metrics) for the full response contract.
 
 For per-recipe detail including `kid`, `trained_at`, and `best_class`, use the authenticated `/v1/health/details` endpoint.
