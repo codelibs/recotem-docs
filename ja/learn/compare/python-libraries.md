@@ -37,7 +37,7 @@ irspack が担い、Recotem の役割はその両側にあるすべてです。
 
 | 観点 | LightFM | implicit | irspack | Recotem（irspack の上） |
 |---|---|---|---|---|
-| アルゴリズム | ハイブリッド行列分解（BPR / WARP / WARP-kOS / logistic 損失）。アイテム・ユーザーの副次特徴を利用可能 | iALS、BPR、Logistic MF、item-item KNN（cosine / TF-IDF / BM25） | IALS、KNN、RP3beta、DenseSLIM、TruncatedSVD、BPRFM、Mult-VAE | irspack のアルゴリズムをレシピごとに選択（IALS、CosineKNN、TopPop、RP3beta、DenseSLIM、TruncatedSVD、BPRFM） |
+| アルゴリズム | ハイブリッド行列分解（BPR / WARP / WARP-kOS / logistic 損失）。アイテム・ユーザーの副次特徴を利用可能 | iALS、BPR、Logistic MF、item-item KNN（cosine / TF-IDF / BM25） | IALS、KNN、RP3beta、DenseSLIM、TruncatedSVD、BPRFM、Mult-VAE | irspack のアルゴリズムをレシピごとに選択（IALS、CosineKNN、TopPop、RP3beta、DenseSLIM、TruncatedSVD、および `lightfm` を入れた場合の BPRFM） |
 | ハイパーパラメータ調整 | 自前で用意（Optuna、グリッドサーチなど） | 自前で用意 | モデルごとに Optuna 探索と早期停止プルーニングを内蔵 | レシピ駆動の複数アルゴリズム Optuna 探索、アルゴリズム別の試行予算に対応 |
 | 評価 | `precision_at_k`、`recall_at_k`、`auc_score`、逆順位 | `ranking_metrics_at_k`（precision、MAP、NDCG、AUC） | 高速な C++/Eigen のランキング指標（NDCG、MAP、recall、hit、precision） | irspack の評価を利用し、レシピの `metric` で最良試行を選択 |
 | データ読み込み | 疎行列を自分で構築 | 疎行列を自分で構築 | 疎行列を自分で構築 | CSV / Parquet / BigQuery / SQL / プラグインをレシピで宣言 |
@@ -62,7 +62,12 @@ irspack が担い、Recotem の役割はその両側にあるすべてです。
 補足として、irspack — したがって Recotem — は LightFM を直接利用できます。`BPRFM`
 アルゴリズムは LightFM の BPR/WARP 行列分解を irspack がラップしたものです。つまり
 Recotem を選んでも LightFM のモデルを手放すわけではなく、他のアルゴリズムと並べて
-自動でチューニング・配信してもらえる、ということです。
+自動でチューニング・配信してもらえる、ということです。条件が 2 つあります。Recotem と
+併せて `lightfm` がインストールされている必要があり（そうでなければ irspack が
+クラスをエクスポートせず、`train` は終了コード 4 で失敗します）、探索の勝者が
+`BPRFM` になったレシピは `:recommend-related` と `:batch-recommend-related` に
+応答できません（サポート対象でこの制限を持つ唯一のアルゴリズムです）。
+[インストール](/ja/guide/installation#オプションエクストラ)を参照してください。
 
 ## implicit
 

@@ -202,7 +202,7 @@ training:
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `algorithms` | list[string] | required | `IALS`, `CosineKNN` (alias `CosinekNN`), `TopPop`, `RP3beta`, `DenseSLIM`, `TruncatedSVD`, and `BPRFM` (**requires the `bprfm` extra** — without it `validate` and `train` both exit 4 with `irspack does not know recommender class 'BPRFMRecommender'`, before any data is fetched; see [Installation](/guide/installation#optional-extras)). Full irspack class names (e.g. `IALSRecommender`) are also accepted. Hyperparameter ranges come from each recommender's `default_suggest_parameter` in irspack — they are not user-tunable from the recipe. |
+| `algorithms` | list[string] | required | `IALS`, `CosineKNN` (alias `CosinekNN`), `TopPop`, `RP3beta`, `DenseSLIM`, `TruncatedSVD`, and `BPRFM` (**not selectable on this release** — Recotem declares no `bprfm` extra here and the official image does not bundle `lightfm`, so `validate` and `train` both exit 4 with `irspack does not know recommender class 'BPRFMRecommender'`, before any data is fetched. Installing `lightfm-next` yourself makes it selectable; see [Installation](/guide/installation#optional-extras)). Full irspack class names (e.g. `IALSRecommender`) are also accepted. Hyperparameter ranges come from each recommender's `default_suggest_parameter` in irspack — they are not user-tunable from the recipe. |
 | `metric` | string | `ndcg` | One of `ndcg`, `map`, `recall`, `hit`. |
 | `cutoff` | int | `20` | Recommendation list length for evaluation (must be ≥ 1). |
 | `n_trials` | int | `40` | Total Optuna trial budget (must be ≥ 1). |

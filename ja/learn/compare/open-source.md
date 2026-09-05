@@ -116,7 +116,7 @@ Recotem は、暗黙的フィードバックのレコメンダーライブラリ
 読み込み、さらにプラグインによる独自ソースにも対応します。学習では
 [Optuna](https://optuna.org/) のハイパーパラメータ探索を、指定したアルゴリズム
 群 —— `IALS`、`CosineKNN`、`TopPop`、`RP3beta`、`DenseSLIM`、`TruncatedSVD`、
-`BPRFM` —— にわたって実行し、オフライン指標（nDCG、MAP、recall、hit）で最良の
+そして（`lightfm` を入れれば）`BPRFM` —— にわたって実行し、オフライン指標（nDCG、MAP、recall、hit）で最良の
 ものを選びます。学習済みモデルは署名付きアーティファクトとして書き出され、
 `recotem serve` が API キー認証とレシピ単位のホットスワップを備えた FastAPI
 サービスの背後にロードします。最小限のレシピは次のようになります。

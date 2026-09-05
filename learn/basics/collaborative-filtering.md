@@ -150,9 +150,11 @@ output:
 The algorithm names map directly onto this page: `IALS` is implicit-feedback
 matrix factorization, `CosineKNN` is item-based neighborhood CF, `RP3beta` is
 the popularity-damped graph variant, and `TopPop` is the popularity baseline
-every experiment should include. `DenseSLIM`, `TruncatedSVD`, and `BPRFM`
-(BPR-loss factorization) are also available — see the
-[Recipe Reference](/docs/recipe-reference#training) for the full list. The
+every experiment should include. `DenseSLIM` and `TruncatedSVD` are also
+available, as is `BPRFM` (BPR-loss factorization) once `lightfm` is installed
+alongside Recotem — see the
+[Recipe Reference](/docs/recipe-reference#training) for the full list and
+[Installation](/guide/installation#optional-extras) for the `BPRFM` caveat. The
 cold-start fallbacks are built into the serving API too: unknown users return
 an explicit `404 UNKNOWN_USER` so your application can fall back, and
 [`:recommend-related`](/docs/serving-api#post-v1-recipes-name-recommend-related)

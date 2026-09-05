@@ -121,7 +121,7 @@ A recipe reads directly from **CSV, Parquet, BigQuery, or SQL** (PostgreSQL,
 MySQL, SQLite), plus pluggable custom sources. Training runs an
 [Optuna](https://optuna.org/) hyperparameter search across a set of algorithms
 you list — `IALS`, `CosineKNN`, `TopPop`, `RP3beta`, `DenseSLIM`,
-`TruncatedSVD`, and `BPRFM` — and selects the best by an offline metric (nDCG,
+`TruncatedSVD`, and (with `lightfm` installed) `BPRFM` — and selects the best by an offline metric (nDCG,
 MAP, recall, or hit rate). The trained model is written as a signed artifact,
 and `recotem serve` loads it behind a FastAPI service with API-key auth and
 recipe-scoped hot-swap. A minimal recipe looks like this:
