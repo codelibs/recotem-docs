@@ -201,7 +201,7 @@ spec:
 `/v1/health` は `startupProbe`、ダッシュボード、アラートには引き続き適切です — レシピの欠落を教えてくれるのはこれだけです。同梱の Helm チャートはまさにこの分割をレンダリングします。[サービング API — ヘルスとメトリクス](../serving-api#ヘルスとメトリクス) を参照してください。
 :::
 
-複数レプリカについての注意: 各 Pod はすべてのモデルの独自のインメモリコピーを保持し、独自のウォッチャースレッドを実行します。これは意図的な設計であり、共有キャッシュはありません。最大アーティファクトサイズ 2 GiB で 10 レシピの場合、レプリカを割り当てる前に Pod あたり最大 20 GiB を計画してください。
+複数レプリカについての注意: 各 Pod はすべてのモデルの独自のインメモリコピーを保持し、独自のウォッチャースレッドを実行します。これは意図的な設計であり、共有キャッシュはありません。レシピあたりアーティファクトサイズの 1 倍ではなく、おおよそ **4.8 倍** を見積もってください: ロード時にはファイルのバイト列とそのペイロード部分が同時に保持され、さらにデシリアライズ済みのモデルが上乗せされます。644.5 MiB のアーティファクトで実測 3,292 MiB が常駐しました。したがって `RECOTEM_MAX_PAYLOAD_BYTES` のデフォルト 512 MiB で 10 レシピなら Pod あたり 25 GiB 程度、`RECOTEM_MAX_ARTIFACT_BYTES` のデフォルト 2 GiB まで許すなら 96 GiB 程度になります — レプリカを割り当てる前の値です。
 
 ### Pod セキュリティコンテキスト
 
@@ -372,13 +372,24 @@ recipes:
 networkPolicy:
   enabled: true
   # ingressFromPodSelector はどの Pod が recotem-serve に到達できるかを制限する。
-  # 空マップ ({}) → ingress ルールが生成されない → policyTypes:[Ingress] との組み合わせで、
-  # Kubernetes の標準的な「すべての受信を拒否」パターンになる。
-  # 特定のスクレーパー、プローブ、または Ingress コントローラーを許可するには
-  # ラベルセレクターを設定する:
+  # これ単体では「すべての受信を拒否」するスイッチではない。allowKubeletProbes が
+  # デフォルトで true であり、`from:` を持たない ingress ルールが生成される —
+  # NetworkPolicy の仕様ではこれは「すべての送信元」に一致し、deny-all の正反対になる。
+  # チャートのデフォルトでは、serve ポートへの受信はすべての送信元に開かれている。
+  # 特定のスクレーパーや Ingress コントローラーを許可するにはラベルセレクターを設定する:
   #   ingressFromPodSelector:
   #     app.kubernetes.io/name: ingress-nginx
   ingressFromPodSelector: {}
+  # kubelet のプローブは Pod ではなくノードネットワークから発信されるため、
+  # podSelector では一致させられない。これは true のままにすること: false にして
+  # ingressFromPodSelector を空のままにすると本当の `ingress: []` (deny-all) が
+  # 生成され、NetworkPolicy を実際に適用する CNI のクラスターでは全面的かつ
+  # サイレントな障害になる — 各レプリカは 1/1 Ready・restartCount 0 のまま
+  # Service のエンドポイントに残り続け、クライアントのリクエストは 100% タイムアウトする。
+  allowKubeletProbes: true
+  # その障害を起こさずに受信を絞る方法: プローブの受信元をすべての送信元ではなく
+  # ノードの CIDR に限定する。allowKubeletProbes が true のときだけ参照される。
+  kubeletCIDRs: []
 
 hpa:
   enabled: false

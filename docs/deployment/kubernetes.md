@@ -174,7 +174,7 @@ spec:
             claimName: recotem-artifacts
 ```
 
-Note on multiple replicas: each pod holds its own in-memory copy of every model and runs its own watcher thread. This is intentional — there is no shared cache. With 2 GiB max artifact size and 10 recipes, plan for up to 20 GiB per pod before allocating replicas.
+Note on multiple replicas: each pod holds its own in-memory copy of every model and runs its own watcher thread. This is intentional — there is no shared cache. Budget roughly **4.8x the artifact size** per recipe, not 1x: loading holds the file bytes and the payload slice of them at the same time, and the deserialized model on top. A 644.5 MiB artifact measured 3,292 MiB resident. So 10 recipes at the 512 MiB `RECOTEM_MAX_PAYLOAD_BYTES` default is on the order of 25 GiB per pod, and 10 recipes allowed to reach the 2 GiB `RECOTEM_MAX_ARTIFACT_BYTES` default is on the order of 96 GiB — before allocating replicas.
 
 ### Pod security context
 
@@ -345,13 +345,25 @@ recipes:
 networkPolicy:
   enabled: true
   # ingressFromPodSelector restricts which pods may reach recotem-serve.
-  # Empty map ({}) → no ingress rule is rendered → combined with
-  # policyTypes:[Ingress], this is the canonical Kubernetes "deny all
-  # inbound" pattern.  Set a label selector to allow specific scrapers,
-  # probes, or ingress controllers:
+  # It is NOT a deny-all switch on its own.  allowKubeletProbes defaults to
+  # true, which renders an ingress rule with no `from:` — and in the
+  # NetworkPolicy spec that matches EVERY source, the opposite of deny-all.
+  # With chart defaults, inbound to the serve port is open to all sources.
+  # Set a label selector to allow specific scrapers or ingress controllers:
   #   ingressFromPodSelector:
   #     app.kubernetes.io/name: ingress-nginx
   ingressFromPodSelector: {}
+  # Kubelet probes originate from the node network, not from a pod, so no
+  # podSelector can match them.  Leave this true: setting it false with an
+  # empty ingressFromPodSelector renders a real `ingress: []` deny-all, and
+  # on a cluster whose CNI enforces NetworkPolicy that is a total, silent
+  # outage — every replica stays 1/1 Ready with restartCount 0 and stays in
+  # the Service endpoints while 100% of client requests time out.
+  allowKubeletProbes: true
+  # The way to narrow inbound without that outage: restrict probe ingress to
+  # the node CIDRs instead of any source.  Read only while
+  # allowKubeletProbes is true.
+  kubeletCIDRs: []
 
 hpa:
   enabled: false
