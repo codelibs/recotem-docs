@@ -77,7 +77,24 @@ spec:
 永続的なデータ問題でのリトライループを防ぐため、本番 CronJob では `backoffLimit: 2` を設定してください — バンドルされた Helm CronJob テンプレートは `backoffLimit` を設定しないため、values オーバーレイ (またはプレーンマニフェスト) で追加してください。バンドルされた Helm CronJob は `activeDeadlineSeconds: 3600` (1 時間ハードキル) を設定しています; Optuna の探索予算やデータソースが遅い場合は値を上げてください。
 :::
 
-`failOnBusy: false` (チャートのデフォルト) の場合、`concurrencyPolicy: Forbid` からのロック競合は K8s レイヤーでは発生しませんが、`concurrencyPolicy: Allow` に設定すると、2 回目の呼び出しでプロセス内ファイルロックが終了コード 0 で終了します。CronJob は成功としてマークされます — 重複した実行をアラートで検知したい場合は `failOnBusy: true` (これにより `--fail-on-busy` が追加される) を設定してください。
+`concurrencyPolicy: Forbid` が防ぐのは CronJob が*それ自身*と重なることだけです。同じレシピのロックを他のプロセスが保持している場合については何も保証しません。しかも、チャート自身の初回インストール手順がそのプロセスを作ります — `values.yaml` が案内するブートストラップ Job は `kubectl create job bootstrap-0 --from=cronjob/<release>-train` であり、これは同じレシピ・同じ `<output.path>.lock` に対する 2 つ目の学習プロセスです。クラスター外の cron、手動の `recotem train`、アーティファクトストアを共有する 2 つ目のクラスターも同じ形です。
+
+`failOnBusy: false` (チャートのデフォルト) でこれが起きたとき、ロックを取れなかった実行は**失敗しません**。INFO レベルで `recipe_lock_contended_skipping` を出力して終了コード 0 で終了し、Job は `succeeded: 1` の `Complete` としてマークされます — 本来書き出されるはずだったアーティファクトは書かれないままです:
+
+```console
+$ kubectl -n recotem create job scheduled-run --from=cronjob/recotem-train
+$ kubectl -n recotem get job scheduled-run \
+    -o custom-columns='COND:.status.conditions[*].type,SUCCEEDED:.status.succeeded'
+COND                          SUCCEEDED
+SuccessCriteriaMet,Complete   1
+$ kubectl -n recotem logs job/scheduled-run | tail -1
+{"recipe": "slow_recipe", "event": "recipe_lock_contended_skipping", "level": "info", ...}
+# アーティファクトのポインタは実行前とバイト単位で同一
+```
+
+::: danger Job の成功を監視してもモデルの陳腐化は見えません
+`failOnBusy: true` (これにより `--fail-on-busy` が追加されます) を設定してロックを取れなかった実行を終了コード **6** で失敗させるか、Job のステータスではなくアーティファクトの `trained_at` を監視してください。`concurrencyPolicy: Allow` にすると、CronJob 自身の重複実行も同じ「静かにスキップ」の経路に加わります。
+:::
 
 完全な終了コードリファレンスについては [終了コードとエラー](../exit-codes) を参照してください。
 
@@ -308,6 +325,36 @@ kubectl rollout restart deployment/recotem-serve
 `ReadWriteMany` PVC (例: NFS、EFS、GCS FUSE) を CronJob と Deployment の両方にマウントします。新しいレシピファイルは次のポーリングインターバルでウォッチャーに検知されます — 再起動は不要です。
 
 PVC が `ReadWriteMany` をサポートしない場合は、Deployment に `ReadWriteOnce` を使用し、CronJob との同時マウントができないことを受け入れてください。その場合は代わりにオブジェクトストレージにアーティファクトを書き込んでください (以下を参照)。
+
+#### ネットワークファイルシステムの障害は `train` を無言で停止させます
+
+RWX PVC の背後にあるファイルサーバーが応答しなくなったとき、serve と train の劣化の仕方は同じではありません。NFS ベースの RWX PVC を持つ実際の 3 ノードクラスターで、実行中に NFS サーバーのレプリカ数を 0 にして計測しました:
+
+| | 何が起きるか | オペレーターに見えるもの |
+|---|---|---|
+| `serve` (実行中) | `:recommend` に応答し続ける (10/10 が `200`)、`1/1` Ready のまま、再起動 0 回、2〜3 ミリコア | `artifact_stat_timeout` (WARN、レシピごと、約 20 秒に 1 回のスキャン)、続いて `OSError [Errno 116] Stale file handle` を伴う `artifact_stat_failed` |
+| `serve` (新規 Pod) | 起動しない | Pod に `FailedMount ... exit status 32`; ロールアウトが停止する |
+| `train` (実行中) | **障害が続く限りアーティファクト書き込みでブロックする** — 計測値 23 分 19 秒、1 ミリコア — その後失敗する | ブロック中は何も出力されない: 最後のログ行は `final_model_trained`、エラーも進捗もなし。復旧時に `exit 1` |
+
+この非対称性が意図的なのは片側だけです。ウォッチャーはワーカースレッド上で実時間タイムアウト付きに `stat` を実行し、ハングしたものを報告します。そのためマウントが固まってもコストはスキャンループのタイムアウトで済み、プロセスは死にません。一方アーティファクト書き込みは素朴な `makedirs` → `mkstemp` → `write` → `fsync` → `os.replace` です。サーバーが消えた hard マウントの NFS では、このすべてがカーネル内で、サーバーが戻るまで中断不能にブロックします。
+
+**しかもストレージが戻っても実行はそのまま再開しません。** ファイルサーバーを復旧させると、ブロックしていた `os.makedirs(dest_dir, exist_ok=True)` は例外を投げて返りました:
+
+```console
+Training failed: [Errno 17] File exists: '/artifacts'
+RECOTEM_EXIT=1
+```
+
+`exist_ok=True` が `FileExistsError` を抑止するのは、その裏にある `isdir` チェックが成功したときだけです。戻ってきた直後のマウントではこのチェックが成功しません。このエラーはマッピングされていないため **終了コード 1** になります — 上の終了コード表が「予期しないエラー — リトライ」と呼んでいるものです。リトライ自体は正しい対応ですが、オペレーターの手元に残るのは、明らかに存在するディレクトリに対する `FileExistsError` であり、ファイルサーバーを指し示すものは何もありません。
+
+同梱チャートでの帰結:
+
+- プロセス内にこの停止を終わらせるものはありません。train Job の `activeDeadlineSeconds: 3600` が唯一の上限であり、これより長い障害はその実行のスロットをまるごと消費します。
+- その後 `DeadlineExceeded` (`Job was active longer than specified deadline`) として kill されます。これはデッドラインを示すだけでストレージを示しません。Job の status にも events にもファイルサーバーへの言及はありません。
+- `concurrencyPolicy: Forbid` (チャートのデフォルト) では、停止した 1 実行が同じ時間帯の後続のスケジュール実行をすべて抑止し、それぞれ `JobAlreadyActive` でスキップされます。
+- レシピごとのロックは、プロセスがもう到達できないファイルの上で、停止のあいだずっと保持され続けます。
+
+アーティファクトストアがネットワークファイルシステムなら、`timeo`/`retrans` を制限した `soft` マウントにして書き込みを待機ではなく失敗させる (soft マウントは短い書き込みもエラーとして表面化しうる点は許容する)、`activeDeadlineSeconds` を待てる値まで下げる、あるいはアーティファクトをオブジェクトストレージ (次節) に置いてください。オブジェクトストレージなら、停止したリクエストはカーネル内ではなく HTTP タイムアウトで失敗します。
 
 ### オブジェクトストレージ (S3 / GCS)
 

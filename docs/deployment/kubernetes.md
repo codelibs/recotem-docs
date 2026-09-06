@@ -77,7 +77,24 @@ Exit code mapping for `restartPolicy: OnFailure`:
 Set `backoffLimit: 2` for production CronJobs to avoid runaway retry loops on persistent data issues — the bundled Helm CronJob template does not set `backoffLimit`, so add it via your values overlay (or on plain manifests). The bundled Helm CronJob does set `activeDeadlineSeconds: 3600` (1 h hard kill); raise it for slow Optuna budgets or data sources.
 :::
 
-When `failOnBusy: false` (the chart default), a lock collision from `concurrencyPolicy: Forbid` is impossible at the K8s layer, but if you set `concurrencyPolicy: Allow` the in-process file lock will exit 0 on the second invocation. The CronJob will be marked Succeeded — set `failOnBusy: true` (which appends `--fail-on-busy`) if your alerting needs to see overlapping runs.
+`concurrencyPolicy: Forbid` stops the CronJob overlapping *itself*, and only that. It says nothing about any other process holding the same recipe's lock, and the chart's own first-install procedure creates one — the bootstrap Job in `values.yaml` is `kubectl create job bootstrap-0 --from=cronjob/<release>-train`, a second trainer on the same recipe and the same `<output.path>.lock`. An out-of-cluster cron, a manual `recotem train`, or a second cluster sharing the artifact store are the same shape.
+
+When that happens with `failOnBusy: false` (the chart default), the losing run does **not** fail. It logs `recipe_lock_contended_skipping` at INFO, exits 0, and the Job is marked `Complete` with `succeeded: 1` — while the artifact it was scheduled to produce is not written:
+
+```console
+$ kubectl -n recotem create job scheduled-run --from=cronjob/recotem-train
+$ kubectl -n recotem get job scheduled-run \
+    -o custom-columns='COND:.status.conditions[*].type,SUCCEEDED:.status.succeeded'
+COND                          SUCCEEDED
+SuccessCriteriaMet,Complete   1
+$ kubectl -n recotem logs job/scheduled-run | tail -1
+{"recipe": "slow_recipe", "event": "recipe_lock_contended_skipping", "level": "info", ...}
+# the artifact pointer is byte-for-byte what it was before the run
+```
+
+::: danger Alerting on Job success cannot see a model going stale
+Set `failOnBusy: true` (which appends `--fail-on-busy`) so the losing run exits **6** and the Job fails, or alert on the artifact's `trained_at` rather than on Job status. Setting `concurrencyPolicy: Allow` adds the CronJob's own overlapping runs to the same silent-skip path.
+:::
 
 See [Exit Codes & Errors](../exit-codes) for the full exit code reference.
 

@@ -77,7 +77,24 @@ Exit code mapping for `restartPolicy: OnFailure`:
 Set `backoffLimit: 2` for production CronJobs to avoid runaway retry loops on persistent data issues — the bundled Helm CronJob template does not set `backoffLimit`, so add it via your values overlay (or on plain manifests). The bundled Helm CronJob does set `activeDeadlineSeconds: 3600` (1 h hard kill); raise it for slow Optuna budgets or data sources.
 :::
 
-When `failOnBusy: false` (the chart default), a lock collision from `concurrencyPolicy: Forbid` is impossible at the K8s layer, but if you set `concurrencyPolicy: Allow` the in-process file lock will exit 0 on the second invocation. The CronJob will be marked Succeeded — set `failOnBusy: true` (which appends `--fail-on-busy`) if your alerting needs to see overlapping runs.
+`concurrencyPolicy: Forbid` stops the CronJob overlapping *itself*, and only that. It says nothing about any other process holding the same recipe's lock, and the chart's own first-install procedure creates one — the bootstrap Job in `values.yaml` is `kubectl create job bootstrap-0 --from=cronjob/<release>-train`, a second trainer on the same recipe and the same `<output.path>.lock`. An out-of-cluster cron, a manual `recotem train`, or a second cluster sharing the artifact store are the same shape.
+
+When that happens with `failOnBusy: false` (the chart default), the losing run does **not** fail. It logs `recipe_lock_contended_skipping` at INFO, exits 0, and the Job is marked `Complete` with `succeeded: 1` — while the artifact it was scheduled to produce is not written:
+
+```console
+$ kubectl -n recotem create job scheduled-run --from=cronjob/recotem-train
+$ kubectl -n recotem get job scheduled-run \
+    -o custom-columns='COND:.status.conditions[*].type,SUCCEEDED:.status.succeeded'
+COND                          SUCCEEDED
+SuccessCriteriaMet,Complete   1
+$ kubectl -n recotem logs job/scheduled-run | tail -1
+{"recipe": "slow_recipe", "event": "recipe_lock_contended_skipping", "level": "info", ...}
+# the artifact pointer is byte-for-byte what it was before the run
+```
+
+::: danger Alerting on Job success cannot see a model going stale
+Set `failOnBusy: true` (which appends `--fail-on-busy`) so the losing run exits **6** and the Job fails, or alert on the artifact's `trained_at` rather than on Job status. Setting `concurrencyPolicy: Allow` adds the CronJob's own overlapping runs to the same silent-skip path.
+:::
 
 See [Exit Codes & Errors](../exit-codes) for the full exit code reference.
 
@@ -309,6 +326,36 @@ kubectl rollout restart deployment/recotem-serve
 Mount a `ReadWriteMany` PVC (e.g. NFS, EFS, GCS FUSE) to both the CronJob and the Deployment. New recipe files are picked up by the watcher at the next poll interval — no restart needed.
 
 If the PVC does not support `ReadWriteMany`, use `ReadWriteOnce` for the Deployment and accept that you cannot mount it to the CronJob simultaneously. In that case, write artifacts to object storage instead (see below).
+
+#### A network-filesystem outage stalls `train`, and says nothing
+
+Serve and train do not degrade the same way when the file server behind an RWX PVC stops answering. Measured on a live 3-node cluster with an NFS-backed RWX PVC, by scaling the NFS server to zero replicas mid-run:
+
+| | What happens | What the operator sees |
+|---|---|---|
+| `serve`, already running | keeps answering `:recommend` (10/10 `200`), stays `1/1` Ready, 0 restarts, 2–3 millicores | `artifact_stat_timeout` (WARN, per recipe, one scan every ~20 s), then `artifact_stat_failed` naming `OSError [Errno 116] Stale file handle` |
+| `serve`, new pod | never starts | `FailedMount ... exit status 32` on the pod; the rollout stalls |
+| `train`, mid-run | **blocks in the artifact write for as long as the outage lasts** — measured 23 min 19 s at 1 millicore — then fails | nothing at all while blocked: the last log line is `final_model_trained`, no error, no progress. On recovery, `exit 1` |
+
+The asymmetry is deliberate on one side only. The watcher stats artifacts on a worker thread under a wall-clock timeout and reports the ones that hang, so a wedged mount costs the scan loop a timeout rather than the process. The artifact write is a plain `makedirs` → `mkstemp` → `write` → `fsync` → `os.replace`; on a hard NFS mount whose server is gone, every one of those blocks in the kernel, uninterruptibly, for as long as the server stays away.
+
+**The run does not simply resume when storage comes back.** With the file server restored, the blocked `os.makedirs(dest_dir, exist_ok=True)` returned by raising:
+
+```console
+Training failed: [Errno 17] File exists: '/artifacts'
+RECOTEM_EXIT=1
+```
+
+`exist_ok=True` suppresses `FileExistsError` only when the `isdir` check behind it succeeds, and against a mount that has just come back it does not. The error is unmapped, so it lands on **exit 1** — which the exit-code table above calls "Unexpected error — Retry". Retrying is the right action, but the message the operator is left holding is a `FileExistsError` on a directory that plainly exists, with nothing naming the file server.
+
+Consequences on the shipped chart:
+
+- Nothing inside the process ends the stall. The chart's `activeDeadlineSeconds: 3600` on the train Job is the only bound, so an outage longer than that costs the run its whole slot.
+- It is then killed as `DeadlineExceeded` — `Job was active longer than specified deadline` — which names the deadline, not the storage. Nothing in the Job's status or events mentions the file server.
+- With `concurrencyPolicy: Forbid` (the chart default) that one stalled run suppresses every scheduled run behind it for the same window, each skipped with `JobAlreadyActive`.
+- The per-recipe lock is held for the whole stall, on a file the process can no longer reach.
+
+If your artifact store is a network filesystem, either mount it `soft` with a bounded `timeo`/`retrans` so the write fails instead of parking (accepting that a soft mount can surface a short write as an error), lower `activeDeadlineSeconds` to something you are willing to wait, or put artifacts in object storage (next section), where a stalled request fails on the HTTP timeout instead of in the kernel.
 
 ### Object storage (S3 / GCS)
 
