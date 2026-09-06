@@ -212,7 +212,11 @@ mkdir -p artifacts
 recotem train examples/tutorial-purchase-log/recipe.yaml
 ```
 
-### ステップ 5 — 配信
+### ステップ 5 — 配信 (フォアグラウンド — このターミナルは占有されます)
+
+`recotem serve` はバックグラウンドに回りません。Ctrl-C で停止するまで動き続けるため、
+ステップ 6 には 2 つ目のターミナルが必要です (パス A の `docker compose up -d serve`
+はデタッチ実行なので、この注意書きはありません)。
 
 ```bash
 recotem serve --recipes examples/tutorial-purchase-log/
@@ -220,7 +224,14 @@ recotem serve --recipes examples/tutorial-purchase-log/
 
 ### ステップ 6 — 予測
 
-別のターミナルで実行します。
+別のターミナルで実行します。新しいターミナルはステップ 2 の export を引き継がないため、
+まず API キーの平文をそちらでも export してください。これがないと `curl` は空の
+`X-API-Key` を送り、サーバーは下記のレスポンスではなく
+`401 {"code":"MISSING_API_KEY"}` を返します。
+
+```bash
+export RECOTEM_API_PLAINTEXT="<plaintext-from-api>"
+```
 
 ```bash
 curl -sX POST http://127.0.0.1:8080/v1/recipes/purchase_log:recommend \
