@@ -14,7 +14,7 @@ For the full plugin authoring contract (class shape, `FetchContext`, testing, pa
 At both `recotem train` and `recotem serve` startup, Recotem scans the `recotem.datasources` entry-point group in the active Python environment. Each registered class is loaded, its `type_name` attribute is extracted, and it is added to the source type registry. An unknown `source.type` in a recipe raises `DataSourceError` listing all registered type names.
 
 ::: warning Duplicate type_name values cause hard startup failures
-If two installed plugins both declare the same `type_name`, both `recotem train` and `recotem serve` exit with code 3 at startup, listing the conflicting fully-qualified class names. Uninstall one plugin or rename its `type_name`.
+If two installed plugins both declare the same `type_name`, `recotem train` and `recotem validate` exit with code **2** — not 3 — listing the conflicting fully-qualified class names. Plugin discovery runs inside recipe loading, so the registry's `DataSourceError` is re-raised as a `RecipeError`. `recotem serve` does **not** exit: it logs `recipe_load_error_skipped`, keeps running, and reports the affected recipes as `skipped` on `/v1/health`. Uninstall one plugin or rename its `type_name`.
 :::
 
 ## Plugin contract summary
@@ -28,7 +28,7 @@ A plugin class must expose the following attributes and methods:
 | `extras_required` | `ClassVar[list[str]]` | yes | Pip extras to suggest when optional dependencies are missing. Purely documentation — Recotem never auto-installs these. Surface a `DataSourceError` with the install hint in `__init__`. |
 | `no_expand_fields` | `ClassVar[frozenset[str]]` | yes | Field names inside `Config` whose string values must **never** receive `${RECOTEM_RECIPE_*}` env-var expansion. Use `frozenset()` when no fields need protection beyond the global baseline (`query`, `query_parameters`, which are always guarded). Missing or wrong-type declaration raises `DataSourceError` at plugin-discovery time. |
 | `__init__(config)` | method | yes | Receives an instance of `Config`. Defer optional dependency imports here; raise `DataSourceError` with an install hint if imports fail. |
-| `fetch(ctx)` | method | yes | Returns a `pandas.DataFrame` containing at least the columns named in `recipe.schema`. Must raise `DataSourceError` (not a bare exception) for external or transient failures — bare exceptions become exit 1 instead of exit 3. |
+| `fetch(ctx)` | method | yes | Returns a `pandas.DataFrame` containing at least the columns named in `recipe.schema`. Must raise `DataSourceError` (not a bare exception) for external or transient failures. A bare exception reports the same exit 3, but reaches the operator as the third-party library's own wording. |
 | `probe()` | method | optional | Called by `recotem validate` for a lightweight connectivity / auth check. Should never load full data. Raise `DataSourceError` on failure. Return value is ignored. |
 
 ## Installing a plugin

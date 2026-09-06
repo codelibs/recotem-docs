@@ -14,7 +14,7 @@ description: "Recotem のプラグインデータソース。recotem.datasources
 `recotem train` と `recotem serve` の起動時に、Recotem はアクティブな Python 環境の `recotem.datasources` エントリポイントグループをスキャンします。登録された各クラスがロードされ、`type_name` 属性が抽出され、ソース型レジストリに追加されます。レシピ内の不明な `source.type` は登録済みの全型名を列挙した `DataSourceError` を発生させます。
 
 ::: warning type_name の重複はハードな起動失敗を引き起こします
-2 つのインストール済みプラグインが同じ `type_name` を宣言した場合、`recotem train` と `recotem serve` の両方が起動時に終了コード 3 で終了し、競合する完全修飾クラス名を列挙します。一方のプラグインをアンインストールするか、`type_name` を変更してください。
+2 つのインストール済みプラグインが同じ `type_name` を宣言した場合、`recotem train` と `recotem validate` は競合する完全修飾クラス名を列挙して終了コード **2** で終了します — 3 ではありません。プラグイン検出はレシピロードの内側で走るため、レジストリの `DataSourceError` は `RecipeError` として再送出されます。`recotem serve` は**終了しません**: `recipe_load_error_skipped` を記録して稼働を続け、該当レシピを `/v1/health` の `skipped` として報告します。一方のプラグインをアンインストールするか、`type_name` を変更してください。
 :::
 
 ## プラグイン契約のサマリー
@@ -28,7 +28,7 @@ description: "Recotem のプラグインデータソース。recotem.datasources
 | `extras_required` | `ClassVar[list[str]]` | yes | オプションの依存関係が欠落している場合に提案する pip エクストラ。純粋にドキュメント目的です — Recotem はこれらを自動インストールしません。`__init__` でインストールヒント付きの `DataSourceError` を発生させてください。 |
 | `no_expand_fields` | `ClassVar[frozenset[str]]` | yes | `Config` 内のフィールド名のうち、文字列値が `${RECOTEM_RECIPE_*}` 環境変数展開を**決して**受け取らないもの。保護が不要なフィールドには `frozenset()` を使用してください (常にガードされるグローバルベースライン `query`、`query_parameters` を超えて)。宣言が欠落または型が不正な場合、プラグイン検出時に `DataSourceError` が発生します。 |
 | `__init__(config)` | メソッド | yes | `Config` のインスタンスを受け取ります。オプションの依存関係インポートはここで行い、インポートに失敗した場合はインストールヒント付きの `DataSourceError` を発生させてください。 |
-| `fetch(ctx)` | メソッド | yes | `recipe.schema` で名前付けされたカラムを少なくとも含む `pandas.DataFrame` を返します。外部または一時的な失敗に対しては (ベアな例外ではなく) `DataSourceError` を発生させる必要があります — ベアな例外は終了コード 3 ではなく 1 になります。 |
+| `fetch(ctx)` | メソッド | yes | `recipe.schema` で名前付けされたカラムを少なくとも含む `pandas.DataFrame` を返します。外部または一時的な失敗に対しては (ベアな例外ではなく) `DataSourceError` を発生させる必要があります。ベアな例外も同じ終了コード 3 になりますが、オペレーターにはサードパーティライブラリ自身の文面で届きます。 |
 | `probe()` | メソッド | 任意 | 軽量な接続 / 認証チェックのために `recotem validate` から呼び出されます。フルデータをロードしないでください。失敗時は `DataSourceError` を発生させてください。戻り値は無視されます。 |
 
 ## プラグインのインストール

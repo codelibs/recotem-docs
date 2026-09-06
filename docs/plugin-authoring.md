@@ -118,11 +118,11 @@ class EchoSource:
 
 ### Rules
 
-1. **`type_name`** is the discriminator value. It appears as `source.type: echo` in the recipe. The registry validates that it is a non-empty string and unique across all loaded plugins; duplicate `type_name` values cause both `recotem train` and `recotem serve` to fail at startup with a `DataSourceError` (exit code 3) listing the conflicting fully-qualified class names.
+1. **`type_name`** is the discriminator value. It appears as `source.type: echo` in the recipe. The registry validates that it is a non-empty string and unique across all loaded plugins; duplicate `type_name` values are reported with both conflicting fully-qualified class names. `recotem train` and `recotem validate` exit **2**, not 3 — plugin discovery runs inside recipe loading, so the registry's `DataSourceError` is re-raised as a `RecipeError`. `recotem serve` does **not** exit: it logs `recipe_load_error_skipped` and keeps running with the affected recipes unloaded.
 
 2. **`Config`** is a pydantic `BaseModel`. Fields are validated at recipe load. Use pydantic validators for constraints. Required fields without defaults cause a `RecipeError` when missing from the recipe.
 
-   `Config` **must** declare the discriminator field `type: Literal["<type_name>"] = "<type_name>"`, matching the class's `type_name` exactly. Recotem assembles every registered `Config` into a pydantic discriminated union keyed on `type` (`build_source_config_union`), and `recotem.training.pipeline` reads the field back to resolve the source class. `validate_plugin_contract` raises `DataSourceError` at plugin-discovery time (exit code 3) when the field is missing, is not a `typing.Literal`, or carries a value that disagrees with `type_name`.
+   `Config` **must** declare the discriminator field `type: Literal["<type_name>"] = "<type_name>"`, matching the class's `type_name` exactly. Recotem assembles every registered `Config` into a pydantic discriminated union keyed on `type` (`build_source_config_union`), and `recotem.training.pipeline` reads the field back to resolve the source class. `validate_plugin_contract` raises `DataSourceError` at plugin-discovery time when the field is missing, is not a `typing.Literal`, or carries a value that disagrees with `type_name`. Because discovery happens inside recipe loading, that error is wrapped into a `RecipeError` and the process exits **2** — the same code as the `extra="ignore"` mistake below, not the 3 a data-source failure produces.
 
    Do **not** rely on pydantic's default `extra="ignore"` to absorb the YAML `type:` key instead. That combination loads the recipe successfully but drops the discriminator, and training then fails with `Recipe source has no discriminator 'type' field.` (exit code 2).
 
@@ -135,7 +135,7 @@ class EchoSource:
 
 5. **`fetch(ctx)`** must return a `pandas.DataFrame`. The DataFrame must contain at least the columns referenced in `recipe.schema` (`user_column`, `item_column`, and optionally `time_column`). The training pipeline accesses those columns by name immediately after fetch — a missing column surfaces as a `KeyError` and exits the train run.
 
-6. **`fetch()` must raise `DataSourceError`** for any external or transient failure (auth errors, network errors, query errors, empty results). `DataSourceError` is mapped to exit code 3. Any other exception surfaces as exit code 1. Wrap third-party exceptions explicitly:
+6. **`fetch()` must raise `DataSourceError`** for any external or transient failure (auth errors, network errors, query errors, empty results). `DataSourceError` is mapped to exit code 3. Any other exception raised from `__init__`, `probe()` or `fetch()` is wrapped by Recotem and **also** reported as exit code 3 — by `train` (as `Data fetch failed: <exc>`) and by `validate` (as `DataSource probe failed [source]: <exc>`) alike. Wrapping is therefore about the *message*, not the exit code: an unwrapped exception reaches the operator as the third-party library's own wording, which names neither the extra nor the credential that is missing. Wrap third-party exceptions explicitly:
 
    ```python
    def fetch(self, ctx: FetchContext) -> pd.DataFrame:
@@ -159,7 +159,7 @@ class EchoSource:
        self.config = config
    ```
 
-   This ensures missing extras produce a clear `DataSourceError` mentioning the required extra by name, rather than an `ImportError` with exit code 1.
+   This ensures missing extras produce a clear `DataSourceError` mentioning the required extra by name. An unwrapped `ImportError` reports the same exit code 3, but reaches the operator as `No module named 'my_optional_dep'` — which names neither the extra nor the fix.
 
 ## Package structure
 
@@ -344,9 +344,9 @@ use `**kwargs: Any` if you want to be future-proof.
 The entry-point key in `[project.entry-points."recotem.datasources"]` is
 informational only (used in error messages); the discriminator is the
 class's `type_name`. If two installed plugins both declare
-`type_name = "csv"`, both `recotem train` and `recotem serve` exit 3 at
-startup with both fully-qualified class names — uninstall one or rename
-its `type_name`.
+`type_name = "csv"`, `recotem train` and `recotem validate` exit **2** with
+both fully-qualified class names, and `recotem serve` keeps running with the
+affected recipes skipped — uninstall one or rename its `type_name`.
 
 ## Validation in `recotem validate`
 

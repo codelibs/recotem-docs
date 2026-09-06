@@ -116,11 +116,11 @@ class EchoSource:
 
 ### ルール
 
-1. **`type_name`** はディスクリミネーター値です。レシピ内では `source.type: echo` として現れます。レジストリはこれが非空の文字列であり、ロードされたすべてのプラグイン間でユニークであることを検証します。`type_name` が重複していると `recotem train` と `recotem serve` の両方が起動時に `DataSourceError` (終了コード 3) で失敗し、競合する完全修飾クラス名がリストされます。
+1. **`type_name`** はディスクリミネーター値です。レシピ内では `source.type: echo` として現れます。レジストリはこれが非空の文字列であり、ロードされたすべてのプラグイン間でユニークであることを検証します。`type_name` が重複していると、競合する完全修飾クラス名の両方が報告されます。`recotem train` と `recotem validate` は終了コード **2** で終了します — 3 ではありません。プラグイン検出はレシピロードの内側で走るため、レジストリの `DataSourceError` は `RecipeError` として再送出されるからです。`recotem serve` は**終了しません**: `recipe_load_error_skipped` を記録し、該当レシピをロードしないまま稼働を続けます。
 
 2. **`Config`** は pydantic の `BaseModel` です。フィールドはレシピロード時に検証されます。制約には pydantic バリデーターを使用してください。デフォルト値なしの必須フィールドがレシピから欠落すると `RecipeError` が発生します。
 
-   `Config` はディスクリミネーターフィールド `type: Literal["<type_name>"] = "<type_name>"` を**必ず**宣言しなければならず、その値はクラスの `type_name` と完全に一致する必要があります。recotem は登録されたすべての `Config` を `type` をキーとする pydantic の判別可能ユニオンに組み立て (`build_source_config_union`)、`recotem.training.pipeline` がこのフィールドを読み戻してソースクラスを解決します。フィールドが欠落している場合、`typing.Literal` でない場合、または値が `type_name` と食い違う場合、`validate_plugin_contract` はプラグイン検出時に `DataSourceError` (終了コード 3) を発生させます。
+   `Config` はディスクリミネーターフィールド `type: Literal["<type_name>"] = "<type_name>"` を**必ず**宣言しなければならず、その値はクラスの `type_name` と完全に一致する必要があります。recotem は登録されたすべての `Config` を `type` をキーとする pydantic の判別可能ユニオンに組み立て (`build_source_config_union`)、`recotem.training.pipeline` がこのフィールドを読み戻してソースクラスを解決します。フィールドが欠落している場合、`typing.Literal` でない場合、または値が `type_name` と食い違う場合、`validate_plugin_contract` はプラグイン検出時に `DataSourceError` を発生させます。検出がレシピロードの内側で起きるため、このエラーは `RecipeError` にラップされ、プロセスは終了コード **2** で終了します — 下記の `extra="ignore"` の誤りと同じコードであり、データソースの失敗が返す 3 ではありません。
 
    代わりに pydantic のデフォルトである `extra="ignore"` に YAML の `type:` キーを吸収させることに**依存しないでください**。その組み合わせではレシピのロードは成功しますが、ディスクリミネーターが失われ、学習時に `Recipe source has no discriminator 'type' field.` (終了コード 2) で失敗します。
 
@@ -135,7 +135,7 @@ class EchoSource:
 
    この `recipe.schema` のルールが適用されるのは**インタラクションソースのみ**です。同じレジストリは [`features.item.source` / `features.user.source`](./recipe-reference#features) にも使われ、そこで必要な列は代わりにそのサイドの `id_column` と宣言されたすべての `columns[].name` になります。プラグイン側で特別な対応は不要です — `FetchContext` はインタラクション固有のフィールドを持たないため、登録済みのどのソースでもフィーチャーテーブルとして機能します — が、`user_column` / `item_column` が必ず要求されるという前提をハードコードしないでください。
 
-6. **`fetch()` は外部または一時的な失敗 (認証エラー、ネットワークエラー、クエリエラー、空の結果) に対して `DataSourceError` を発生させなければなりません。** `DataSourceError` は終了コード 3 にマップされます。それ以外の例外は終了コード 1 として表面化します。サードパーティの例外を明示的にラップしてください。
+6. **`fetch()` は外部または一時的な失敗 (認証エラー、ネットワークエラー、クエリエラー、空の結果) に対して `DataSourceError` を発生させなければなりません。** `DataSourceError` は終了コード 3 にマップされます。`__init__`、`probe()`、`fetch()` から送出されたそれ以外の例外も Recotem がラップし、**同じく**終了コード 3 として報告されます — `train` では `Data fetch failed: <exc>`、`validate` では `DataSource probe failed [source]: <exc>` として、どちらも同じです。したがってラップは終了コードではなく*メッセージ*のためのものです: ラップしない例外は、欠けているエクストラも認証情報も示さないサードパーティライブラリ自身の文面でオペレーターに届きます。サードパーティの例外を明示的にラップしてください。
 
    ```python
    def fetch(self, ctx: FetchContext) -> pd.DataFrame:
@@ -159,7 +159,7 @@ class EchoSource:
        self.config = config
    ```
 
-   これにより、欠落したエクストラは終了コード 1 の `ImportError` ではなく、必要なエクストラ名を記載した明確な `DataSourceError` を生成します。
+   これにより、欠落したエクストラは必要なエクストラ名を記載した明確な `DataSourceError` を生成します。ラップしない `ImportError` も同じ終了コード 3 を返しますが、オペレーターには `No module named 'my_optional_dep'` として届き、エクストラ名も対処方法も示しません。
 
 ## パッケージ構成
 
@@ -290,7 +290,7 @@ class FetchContext:
 
 プラグインコントラクトは recotem 2.x の公開サーフェスの一部です。プラグインの `pyproject.toml` に `recotem>=2.0,<3` をピン留めしてください — `type_name` / `Config` / `fetch(ctx)` の形状はメジャーバージョン内で安定しています。`probe()` フックは将来のマイナーリリースでオプションのパラメーターが追加される可能性があります。将来対応したい場合は `**kwargs: Any` を使用してください。
 
-`[project.entry-points."recotem.datasources"]` のエントリーポイントキーは情報提供のみです (エラーメッセージで使用される)。ディスクリミネーターはクラスの `type_name` です。2 つのインストール済みプラグインが両方とも `type_name = "csv"` を宣言すると、`recotem train` と `recotem serve` の両方が起動時に終了コード 3 で失敗し、両方の完全修飾クラス名がリストされます — どちらかをアンインストールするか `type_name` を変更してください。
+`[project.entry-points."recotem.datasources"]` のエントリーポイントキーは情報提供のみです (エラーメッセージで使用される)。ディスクリミネーターはクラスの `type_name` です。2 つのインストール済みプラグインが両方とも `type_name = "csv"` を宣言すると、`recotem train` と `recotem validate` は両方の完全修飾クラス名を示して終了コード **2** で終了し、`recotem serve` は該当レシピをスキップしたまま稼働を続けます — どちらかをアンインストールするか `type_name` を変更してください。
 
 ## `recotem validate` でのバリデーション
 
