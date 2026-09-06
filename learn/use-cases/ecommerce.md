@@ -99,10 +99,11 @@ Recommendations are a revenue feature, so measure them like one.
   that engaged with recommendations, revenue attributed to recommendation
   clicks, and share of catalog surfaced (long-tail exposure).
 - **A/B test against a baseline.** The honest comparison is not
-  "recommendations vs nothing" but "personalized model vs bestseller list" —
-  popularity is a strong baseline, and beating it is what justifies the
-  model. Randomize by visitor, hold placement and design constant, vary only
-  the ranking source.
+  "recommendations vs nothing" but "personalized model vs bestseller list".
+  Randomize by visitor, hold placement and design constant, vary only the
+  ranking source. Note that beating a bestseller list online is a **floor, not
+  a justification** — offline it is cleared by models that lose to a 30-line
+  item-item kNN ([Is the model any good?](/learn/basics/collaborative-filtering#is-the-model-any-good)).
 - **Offline metrics guide, online metrics decide.** Training-time scores like
   nDCG and recall are for choosing between models before deployment. They do
   not guarantee revenue lift; the A/B test is the ground truth. Watch for

@@ -114,9 +114,40 @@ CF's failure modes are well known. Plan for them up front.
 - **Popularity bias.** Interaction data is dominated by popular items, and
   naive CF happily amplifies that, recommending bestsellers to everyone.
   Counter-measures include similarity damping (RP3beta's β parameter exists
-  for exactly this), and always comparing your model against a popularity
-  baseline — if tuned CF cannot beat "just recommend the top sellers", the
-  personalization is not yet paying for itself.
+  for exactly this). Comparing against a popularity list is worth doing, but
+  see below for why clearing it proves very little.
+
+### Is the model any good?
+
+Hold out a slice the training never sees, score the served model on it, and
+require the model to win. **Do not make popularity the bar.** A
+most-popular-items list is so weak on a personalisable dataset that a badly
+chosen model clears it comfortably: measured across four industries — a
+repeat-purchase grocery catalogue, a B2B parts catalogue, a media catalogue and
+a long-tail marketplace, each with a verified leave-one-out holdout, each
+trained four times — the shipped model beat popularity by **11.3× to 57.6×** on
+ndcg@10 while beating a hand-written 30-line item-item cosine kNN by only
+between **−9.5% and +56.2%**. On the grocery catalogue all four runs beat
+popularity by more than 11× and **all four lost to the kNN**. Popularity would
+have called every one of them a success.
+
+Two things follow for a recotem recipe specifically:
+
+- **`TopPop` in `training.algorithms` is a candidate, not a guard.** It
+  competes in the Optuna search like any other algorithm; if it scores highest
+  it is what ships. Nothing in `recotem train` compares the winner against a
+  baseline for you.
+- **`best_score` is not an estimate of quality on your task.** It is the
+  winning trial's score on recotem's own internal validation split, and it is
+  also the criterion the search maximises — so a disagreement with your task's
+  ranking is acted on rather than merely reported.
+
+The baseline worth the twenty minutes is an item-item cosine kNN: binarise the
+user × item matrix, normalise the columns, take `Sᵢⱼ = cos(i, j)` with a zero
+diagonal, keep each item's top ~200 neighbours, score a user as `X[u] @ S`, and
+exclude what they already interacted with. If recotem does not beat that, widen
+`algorithms`, raise `n_trials`, or accept that this dataset does not reward a
+latent-factor model.
 - **Feedback loops.** Once recommendations drive clicks, tomorrow's training
   data reflects today's model. Keep some non-personalized surfaces or
   exploration in the mix, and measure with A/B tests rather than offline
