@@ -333,20 +333,28 @@ Serve and train do not degrade the same way when the file server behind an RWX P
 
 | | What happens | What the operator sees |
 |---|---|---|
-| `serve`, already running | keeps answering `:recommend` (10/10 `200`), stays `1/1` Ready, 0 restarts, 2–3 millicores | `artifact_stat_timeout` (WARN, per recipe, one scan every ~20 s), then `artifact_stat_failed` naming `OSError [Errno 116] Stale file handle` |
+| `serve`, already running | keeps answering `:recommend` (10/10 `200`), stays `1/1` Ready, 0 restarts, 2–3 millicores | `artifact_stat_timeout` (WARN, per recipe, one scan every ~20 s) for as long as the mount merely hangs; if its file handles do not survive the outage, `artifact_stat_failed` naming `OSError [Errno 116] Stale file handle` as well. A 403 s outage never got past the timeout stage |
 | `serve`, new pod | never starts | `FailedMount ... exit status 32` on the pod; the rollout stalls |
-| `train`, mid-run | **blocks in the artifact write for as long as the outage lasts** — measured 23 min 19 s at 1 millicore — then fails | nothing at all while blocked: the last log line is `final_model_trained`, no error, no progress. On recovery, `exit 1` |
+| `train`, mid-run | **blocks in the artifact write for as long as the outage lasts** — measured 23 min 19 s at 1 millicore, and 6 min 52 s in a second run — then completes when storage returns | nothing at all while blocked: the last log line is `final_model_trained`, no error, no progress |
 
 The asymmetry is deliberate on one side only. The watcher stats artifacts on a worker thread under a wall-clock timeout and reports the ones that hang, so a wedged mount costs the scan loop a timeout rather than the process. The artifact write is a plain `makedirs` → `mkstemp` → `write` → `fsync` → `os.replace`; on a hard NFS mount whose server is gone, every one of those blocks in the kernel, uninterruptibly, for as long as the server stays away.
 
-**The run does not simply resume when storage comes back.** With the file server restored, the blocked `os.makedirs(dest_dir, exist_ok=True)` returned by raising:
+**What the run does when storage comes back depends on the mount, and used to decide the run.** If the file server returns with the same export identity, the client's handle survives and the blocked write simply finishes. If it does not — the server was rebuilt, or failed over, so the export's `fsid` changed — the node's mount answers the next metadata call with `ESTALE`. That used to end the run:
 
 ```console
 Training failed: [Errno 17] File exists: '/artifacts'
 RECOTEM_EXIT=1
 ```
 
-`exist_ok=True` suppresses `FileExistsError` only when the `isdir` check behind it succeeds, and against a mount that has just come back it does not. The error is unmapped, so it lands on **exit 1** — which the exit-code table above calls "Unexpected error — Retry". Retrying is the right action, but the message the operator is left holding is a `FileExistsError` on a directory that plainly exists, with nothing naming the file server.
+`os.makedirs(dir, exist_ok=True)` suppresses the `FileExistsError` from its `mkdir` only when the *single* `os.path.isdir()` call that follows returns True, and `os.path.isdir` reports False for any `OSError`. One stale `stat` was therefore enough to discard a completed training run — and because the artifact write is the first metadata access after minutes of pure-CPU tuning, that call is exactly where a handle idled through the search goes stale. With the chart's `restartPolicy: OnFailure` the Job retried, and each retry paid a full data fetch, Optuna search and final refit before dying on the same line: five consecutive runs discarded.
+
+Since 2.1.0 Recotem re-checks that path once before giving up, so a stale `stat` costs one syscall rather than a training run. A destination that is genuinely not a directory still fails, because the re-check fails too. What remains is the stall: nothing in the process bounds it, and a write that returns a real I/O error still surfaces as **exit 1** (`internal_error`) with a traceback through the artifact writer and nothing naming the file server.
+
+::: warning Do not build the alert on the Job's outcome
+The same injection that used to end at `exit 1` now ends at `exit 0`, `artifact_written`, and a Job marked `SuccessCriteriaMet,Complete` — after 397 s in which the run produced no log line at all and the file server was absent for five minutes of it. A completed Job is therefore not evidence that no outage occurred, and a failed one names a directory rather than the file server.
+
+What is common to every ending is the **stall**: `train` runs for minutes to tens of minutes producing nothing after `final_model_trained`, at ~1 millicore, holding the recipe lock. Alert on training-run duration, or on the artifact's `trained_at` age.
+:::
 
 Consequences on the shipped chart:
 
