@@ -140,7 +140,8 @@ Why these choices for purchase data:
   **IALS** (implicit alternating least squares) is a strong matrix-factorization
   baseline for purchase data; **RP3beta** is a graph/random-walk model that often
   excels at "bought together" co-purchase patterns; **TopPop** is a popularity
-  floor so the search always has a sane fallback. Optuna tries each and keeps the
+  baseline entered as one more candidate — it is not a floor, and nothing
+  guarantees the search returns anything better than it. Optuna tries each and keeps the
   best-scoring one. The full algorithm list is in the
   [Recipe Reference](/docs/recipe-reference#training).
 - **`split.scheme: time_user`** holds out each customer's most recent purchases
