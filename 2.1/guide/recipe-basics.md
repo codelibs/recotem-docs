@@ -200,7 +200,7 @@ training:
 | `TruncatedSVD` | Dimensionality reduction via Singular Value Decomposition |
 | `BPRFM` | Bayesian Personalized Ranking with factorization machines — **requires the `bprfm` extra** ([Installation](./installation#optional-extras)), and a recipe it wins cannot answer the two related verbs ([Serving API](/2.1/docs/serving-api#post-v1-recipes-name-recommend-related)) |
 
-You do not need to pick a winner upfront. List several candidates and let Optuna explore the space within your trial budget (`n_trials`). Including `TopPop` costs only a few trials and gives you a working baseline even if the more complex algorithms struggle on small datasets.
+You do not need to pick a winner upfront. List several candidates and let Optuna explore the space within your trial budget (`n_trials`). Including `TopPop` costs only a few trials and adds a popularity candidate to the comparison. It is a candidate, not a floor: nothing compares the winner against it for you, and popularity is not always a working baseline — on a catalogue that turns over (news, job postings, flash sales) it scores zero, so a list containing `TopPop` can still settle on a model that is no better than a random ranking. See [Is the model any good?](/learn/basics/collaborative-filtering#is-the-model-any-good).
 
 **Metric** (`ndcg`, `map`, `recall`, `hit`) defines what "best" means. NDCG (Normalized Discounted Cumulative Gain) is the default — it rewards putting the most relevant items near the top of the ranked list.
 
