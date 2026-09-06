@@ -113,11 +113,14 @@ What it does:
 ```bash
 recotem validate recipes/news_articles.yaml
 # Recipe 'news_articles': schema OK
-# DataSource: probe OK (csv)
+# Algorithms: OK (IALSRecommender, CosineKNNRecommender, TopPopRecommender)
+# Optuna storage: OK (in-memory, no resume)
+# DataSource: probe OK (csv) [source]
+# Schema columns: OK (csv) [source]
 # Validation passed.
 ```
 
-If validation fails, the exit code tells you what went wrong (2 for a recipe schema error, 3 for a data source error). See [Exit Codes](/2.1/docs/exit-codes).
+If validation fails, the exit code tells you what went wrong: **2** for a recipe schema, env-var or path-scheme error, **3** for a data source error, **4** for an unknown algorithm name, and **8** for a `training.storage_path` that cannot be opened (unsupported dialect, or a driver whose extra is not installed). See [Exit Codes](/2.1/docs/exit-codes).
 
 ---
 

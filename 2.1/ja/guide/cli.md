@@ -113,11 +113,14 @@ recotem validate <recipe.yaml>
 ```bash
 recotem validate recipes/news_articles.yaml
 # Recipe 'news_articles': schema OK
-# DataSource: probe OK (csv)
+# Algorithms: OK (IALSRecommender, CosineKNNRecommender, TopPopRecommender)
+# Optuna storage: OK (in-memory, no resume)
+# DataSource: probe OK (csv) [source]
+# Schema columns: OK (csv) [source]
 # Validation passed.
 ```
 
-検証に失敗した場合、終了コードで何が問題かがわかります (レシピスキーマエラーは 2、データソースエラーは 3)。[終了コード](/2.1/ja/docs/exit-codes)を参照してください。
+検証に失敗した場合、終了コードで何が問題かがわかります。レシピスキーマ・環境変数・パススキームのエラーは **2**、データソースエラーは **3**、未知のアルゴリズム名は **4**、開けない `training.storage_path` (サポートされないダイアレクト、またはエクストラ未インストールのドライバ) は **8** です。[終了コード](/2.1/ja/docs/exit-codes)を参照してください。
 
 ---
 
