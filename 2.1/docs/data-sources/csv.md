@@ -97,14 +97,33 @@ come from the environment (instance profile, ADC, `AWS_*` env vars, etc.).
 
 The userinfo check is applied selectively by scheme:
 
-- **Rejected** (`http`, `https`, `ftp`, `ftps`, `s3`, `abfs`, `abfss`): any
-  URI with a `username` or `password` component raises `RecipeError`. These
-  schemes do not use `@` in their canonical addressing syntax, so any
-  `user:pass@host` pattern means embedded plaintext credentials.
-- **Permitted** (`gs`, `az`, bare paths, `file`): the `@` character may be
-  part of the canonical URI syntax. For GCS, `gs://project@bucket/key` is a
-  valid billing-project override accepted by gcsfs. Authentication is always
-  via ADC / `GOOGLE_APPLICATION_CREDENTIALS`, not the URI userinfo.
+- **Rejected** (`http`, `https`, `ftp`, `ftps`, `s3`): any URI with a
+  `username` or `password` component raises `RecipeError`. These schemes do
+  not use `@` in their canonical addressing syntax, so any `user:pass@host`
+  pattern means embedded plaintext credentials.
+- **Password-only rejection** (`az`, `abfs`, `abfss`): these are three
+  protocol aliases for one adlfs filesystem, and
+  `abfss://<container>@<account>.dfs.core.windows.net/<path>` is the form
+  Azure's own documentation uses — the `@` separates the container from the
+  storage account, so it is addressing syntax, not a credential. A bare
+  `container@account` is **accepted**; a userinfo pair carrying a password
+  raises `RecipeError`. Authentication comes from the environment
+  (`AZURE_STORAGE_ACCOUNT_NAME` / `AZURE_STORAGE_ACCOUNT_KEY`, a connection
+  string, or a managed identity), never from the URI.
+
+::: warning `az://` changed in both directions in 2.1.0
+This rule moved two ways, and one of them is a **breaking change**. In 2.0.0
+`az` was in the permitted list, so a password-bearing `az://` path was accepted
+and the credential simply travelled in the recipe. It is now refused with
+`RecipeError` (exit 2). A recipe that trained on 2.0.0 with a password in an
+`az://` path will stop loading — move the credential into the environment. The
+other direction is the fix everyone wanted: `abfs://` and `abfss://` used to
+refuse the canonical `container@account` form and now accept it.
+:::
+- **Permitted** (`gs`, bare paths, `file`): the `@` character may be part of
+  the canonical URI syntax. For GCS, `gs://project@bucket/key` is a valid
+  billing-project override accepted by gcsfs. Authentication is always via
+  ADC / `GOOGLE_APPLICATION_CREDENTIALS`, not the URI userinfo.
 
 `${RECOTEM_RECIPE_*}` env-var expansion **is** performed inside `path`
 fields (and is the recommended way to inject bucket names, dates, or

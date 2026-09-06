@@ -634,7 +634,7 @@ scrape_configs:
 | `recotem_bigquery_storage_fallback_total` | Counter | `reason` |
 | `recotem_recipes_dir_scan_failures_total` | Counter | `error_class` |
 
-`verb` ラベルは `recommend`、`recommend-related`、`batch-recommend`、`batch-recommend-related` の値を取ります。`recotem_v1_requests_total` の `status` ラベルは `ok`、`unknown_user`、`unknown_seed_items`、`no_candidates`、`unavailable`、`recipe_not_found`、`validation_error`、`features_not_supported`、`feature_value_unusable`、`error` の 10 値を取ります。`recotem_artifact_load_failures_total` の `reason` ラベルは `read`、`parse`、`hmac`、`header_json`、`deserialize`、`metadata`、`yaml`、`unexpected`、`dir_scan`、`timeout`、`version_skew`、`feature_version`、`feature_state` の値を取ります。`recotem_v1_cold_start_requests_total` の `case` ラベルは `features_only` (ケース A)、`features_and_history` (ケース B)、`cold_seeds` (ケース C) の値を取ります。
+`verb` ラベルは `recommend`、`recommend-related`、`batch-recommend`、`batch-recommend-related` の値を取ります。`recotem_v1_requests_total` の `status` ラベルは `ok`、`unknown_user`、`unknown_seed_items`、`no_candidates`、`unavailable`、`recipe_not_found`、`validation_error`、`features_not_supported`、`feature_value_unusable`、`related_not_supported`、`error` の 11 値を取ります。`recotem_artifact_load_failures_total` の `reason` ラベルは `read`、`parse`、`hmac`、`header_json`、`deserialize`、`metadata`、`yaml`、`unexpected`、`dir_scan`、`timeout`、`version_skew`、`feature_version`、`feature_state`、`recipe_name` の値を取ります。`recotem_v1_cold_start_requests_total` の `case` ラベルは `features_only` (ケース A)、`features_and_history` (ケース B)、`cold_seeds` (ケース C) の値を取ります。
 
 ::: warning 注意 — `status="error"` はサーバー障害のみ
 `features_not_supported` と `feature_value_unusable` はクライアント起因の結果であり、不正なクライアントがオンコールを呼び出せないよう専用の `status` ラベルを持っています。アラートは `status="error"` に厳密に設定してください — `status!="ok"` では決して設定しないでください。
