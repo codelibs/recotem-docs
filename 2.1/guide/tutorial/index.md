@@ -212,7 +212,11 @@ mkdir -p artifacts
 recotem train examples/tutorial-purchase-log/recipe.yaml
 ```
 
-### Step 5 — Serve
+### Step 5 — Serve (foreground — this terminal is now busy)
+
+`recotem serve` does not fork into the background. It runs until you stop it
+with Ctrl-C, so step 6 needs a second terminal. (Path A's `docker compose up
+-d serve` is detached, which is why it has no such note.)
 
 ```bash
 recotem serve --recipes examples/tutorial-purchase-log/
@@ -220,7 +224,14 @@ recotem serve --recipes examples/tutorial-purchase-log/
 
 ### Step 6 — Predict
 
-In a separate terminal:
+In a separate terminal. A new terminal does not inherit step 2's exports, so
+re-export the API key plaintext there first — without it `curl` sends an empty
+`X-API-Key` and the server answers `401 {"code":"MISSING_API_KEY"}` instead of
+the response below:
+
+```bash
+export RECOTEM_API_PLAINTEXT="<plaintext-from-api>"
+```
 
 ```bash
 curl -sX POST http://127.0.0.1:8080/v1/recipes/purchase_log:recommend \
