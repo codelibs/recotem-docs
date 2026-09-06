@@ -10,37 +10,25 @@ yarn docs:dev       # Start dev server with hot-reload at http://localhost:5173
 yarn docs:build     # Production build → .vitepress/dist/
 yarn docs:preview   # Preview production build locally
 yarn docs:check-anchors  # Verify every internal #fragment resolves (run after docs:build)
-yarn docs:check-claims   # Re-assert the product claims past rounds found drifted (source-only)
-
-python scripts/check_product_surface.py   # Compare 2.1/ against an installed recotem
 ```
 
-### Site claims
+## Documentation policy
 
-`scripts/check-site-claims.mjs` pins a short list of statements the site makes
-about the product — the ones a verification round found had drifted (a probe
-endpoint that moved, an error code that appeared, a table cell that stopped
-being true). It reads the Markdown sources, so it needs no build, and CI runs
-it before `docs:build`. When a round finds a claim that went stale, fix the
-page **and** add the pin, in both languages.
+**Documentation is managed as documentation.** Nothing in this repository reads
+a `.md` file and asserts on what it says — no claim pins, no product-surface
+diff, no prose checks of any kind. When the product changes, fix the page; when
+a page is wrong, fix the page. Do not add a script or a CI step that would go
+red on a wording change.
 
-### Product-surface drift
+The checks that remain are functional: `docs:build` fails on a dead internal
+link, and `docs:check-anchors` fails on a `#fragment` that resolves to no
+heading id. Both are about whether the site *works*, not about what it says.
 
-`build.yml` proves the site compiles; it cannot tell that a page is describing
-software that no longer exists. `scripts/check_product_surface.py` reads four
-machine-readable surfaces out of an installed recotem — routes from
-`app.openapi()`, error codes from the `ErrorCode` Literal, CLI commands from
-the Typer app, and `RECOTEM_*` names from the package source — and checks both
-directions against `2.1/`.
-
-Run it locally with the product installed
-(`pip install "recotem[metrics] @ git+https://github.com/codelibs/recotem@main"`).
-In CI it is `product-surface.yml`, which runs daily and on pushes to main but
-**not** on pull requests: it tracks product `main`, so it goes red when the
-product moves ahead of the docs, and that must not block an unrelated docs PR.
-
-Scope is the `2.1/` preview only. The unversioned tree documents the current
-stable line and tracks a PyPI release, not `main`.
+`scripts/check-site-claims.mjs` and `scripts/check_product_surface.py` used to
+do the prose checking. They were removed, along with `product-surface.yml`,
+because every open pull request conflicted in the claims file — each one
+appended to the same list — which is the cost this policy exists to avoid. The
+same rule holds in the product repo; see its `CLAUDE.md`.
 
 ### Heading anchors
 
