@@ -174,6 +174,7 @@ Common causes:
 - An env var value is out of its clamped range in a way that prevents startup.
 - A `training.storage_path` naming an unsupported or removed SQLAlchemy dialect (`oracle://`, `postgres://`), or one whose driver is not installed (a bare `postgresql://`, which defaults to the uninstalled `psycopg2`). The `train_error` event carries `code: storage_path_unusable`. This is pre-flighted by `recotem validate` and again by `recotem train` **before the data fetch**, so a bad study backend no longer costs a scan.
 - A **remote `output.path` that cannot be written**. The credentials do not resolve (`code: artifact_write_credentials`), or the bucket/container is absent or the resolved credentials are refused (`code: artifact_write_destination`). Raised as `TrainingError` and mapped here, not to exit 4, so a scheduler can tell "this will never work as configured" from "retry me".
+- A **local `output.path` that names an existing directory** (`code: artifact_write_destination`). The per-recipe lock is taken at `<output.path>.lock`, a *sibling* of the destination, so it is created successfully and says nothing about whether the artifact itself can be written; `_write_atomic` has no parent to create; and the run therefore reaches `os.replace` and gets `IsADirectoryError`. Before 2.1.0 this was unmapped and reported as exit 1 (`internal_error`). It is not caught by `recotem validate`, which deliberately does not probe write targets.
 
 ::: warning A remote write failure is exit 8 only when it is permanent
 On `s3://`, `gs://` and `az://`, a 401 is classified as a credential failure and a 403 or 404 as a destination failure — both exit 8. **5xx and 429 are deliberately excluded** and still exit 1, so a transient object-store error still looks transient to retry logic.
@@ -181,7 +182,7 @@ On `s3://`, `gs://` and `az://`, a 401 is classified as a credential failure and
 This costs a full training run: the classification happens at artifact-write time, after the model has been searched and trained. `recotem validate` does not exercise `output.path` write credentials, so a wrong role is not caught before the compute is spent.
 :::
 
-**Recommended action:** Do not retry without fixing the configuration. Check `RECOTEM_SIGNING_KEYS`, `RECOTEM_ENV`, and any env vars listed in the error message. For `artifact_write_credentials` / `artifact_write_destination`, check the write role or key on the bucket named in `output.path`.
+**Recommended action:** Do not retry without fixing the configuration. Check `RECOTEM_SIGNING_KEYS`, `RECOTEM_ENV`, and any env vars listed in the error message. For `artifact_write_credentials` / `artifact_write_destination`, check the write role or key on the bucket named in `output.path` — or, for a local path, that `output.path` names a *file* and not a directory.
 
 ---
 

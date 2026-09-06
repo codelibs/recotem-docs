@@ -174,6 +174,7 @@ SSRF ガード付きの HTTP/HTTPS フェッチャーでネットワークソー
 - 起動を妨げる方法で環境変数の値がクランプ範囲外である。
 - `training.storage_path` が、サポートされない、あるいは SQLAlchemy が削除したダイアレクト (`oracle://`、`postgres://`) を指している場合や、ドライバがインストールされていない場合 (裸の `postgresql://` は未インストールの `psycopg2` にフォールバックします)。`train_error` イベントは `code: storage_path_unusable` を伴います。これは `recotem validate` で、また `recotem train` でも**データ取得の前に**事前チェックされるため、不正な study バックエンドがスキャン費用を無駄にすることはなくなりました。
 - **書き込めないリモートの `output.path`**。認証情報が解決できない (`code: artifact_write_credentials`)、またはバケット / コンテナーが存在しないか解決された認証情報が拒否された (`code: artifact_write_destination`) 場合。`TrainingError` として発生しますが終了コード 4 ではなくここにマップされます。スケジューラーが「この設定では決して成功しない」と「リトライしてよい」を区別できるようにするためです。
+- **既存のディレクトリを指しているローカルの `output.path`** (`code: artifact_write_destination`)。レシピごとのロックは `<output.path>.lock`、つまり書き込み先の*兄弟*パスに取られるため、ロック自体は問題なく作成され、アーティファクトを書けるかどうかについては何も語りません。`_write_atomic` には作成すべき親ディレクトリもありません。その結果、実行は `os.replace` まで到達して `IsADirectoryError` を受け取ります。2.1.0 より前はこれがマップされておらず、終了コード 1 (`internal_error`) として報告されていました。`recotem validate` は書き込み先を意図的に検査しないため、ここでは捕まりません。
 
 ::: warning リモート書き込みの失敗が終了コード 8 になるのは恒久的な場合だけです
 `s3://`、`gs://`、`az://` では、401 は認証情報の失敗、403 と 404 は書き込み先の失敗として分類され、いずれも終了コード 8 になります。**5xx と 429 は意図的に除外**されており終了コード 1 のままです。一時的なオブジェクトストアのエラーがリトライロジックから見て一時的なままであるようにするためです。
@@ -181,7 +182,7 @@ SSRF ガード付きの HTTP/HTTPS フェッチャーでネットワークソー
 これは学習 1 回分のコストを伴います。この分類はアーティファクト書き込み時 — 探索と学習が終わったあと — に行われます。`recotem validate` は `output.path` の書き込み認証情報を検査しないため、ロールの設定ミスは計算資源を消費する前には捕まりません。
 :::
 
-**推奨対応:** 設定を修正せずにリトライしないでください。`RECOTEM_SIGNING_KEYS`、`RECOTEM_ENV`、およびエラーメッセージに記載されている環境変数を確認してください。`artifact_write_credentials` / `artifact_write_destination` の場合は、`output.path` に指定したバケットに対する書き込みロールまたはキーを確認してください。
+**推奨対応:** 設定を修正せずにリトライしないでください。`RECOTEM_SIGNING_KEYS`、`RECOTEM_ENV`、およびエラーメッセージに記載されている環境変数を確認してください。`artifact_write_credentials` / `artifact_write_destination` の場合は、`output.path` に指定したバケットに対する書き込みロールまたはキーを確認してください。ローカルパスの場合は、`output.path` がディレクトリではなく*ファイル*を指しているかを確認してください。
 
 ---
 
