@@ -172,6 +172,7 @@ SSRF ガード付きの HTTP/HTTPS フェッチャーでネットワークソー
 - バインドポートが既に使用中またはパーミッション拒否 (`EADDRINUSE`、`EACCES`、`EADDRNOTAVAIL`)。
 - レシピ単位の学習ロックパスがファイルシステムのパーミッション不足 (`EACCES` / `EPERM`) により作成またはオープンできず、`LockPermissionError` が発生した。これは意図的に終了コード 6 では**ありません** — 下記の `--fail-on-busy` の動作セクションを参照してください。
 - 起動を妨げる方法で環境変数の値がクランプ範囲外である。
+- `training.storage_path` が、サポートされない、あるいは SQLAlchemy が削除したダイアレクト (`oracle://`、`postgres://`) を指している場合や、ドライバがインストールされていない場合 (裸の `postgresql://` は未インストールの `psycopg2` にフォールバックします)。`train_error` イベントは `code: storage_path_unusable` を伴います。これは `recotem validate` で、また `recotem train` でも**データ取得の前に**事前チェックされるため、不正な study バックエンドがスキャン費用を無駄にすることはなくなりました。
 - **書き込めないリモートの `output.path`**。認証情報が解決できない (`code: artifact_write_credentials`)、またはバケット / コンテナーが存在しないか解決された認証情報が拒否された (`code: artifact_write_destination`) 場合。`TrainingError` として発生しますが終了コード 4 ではなくここにマップされます。スケジューラーが「この設定では決して成功しない」と「リトライしてよい」を区別できるようにするためです。
 
 ::: warning リモート書き込みの失敗が終了コード 8 になるのは恒久的な場合だけです

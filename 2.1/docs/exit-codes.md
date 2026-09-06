@@ -172,6 +172,7 @@ Common causes:
 - Bind port is already in use or permission denied (`EADDRINUSE`, `EACCES`, `EADDRNOTAVAIL`).
 - The per-recipe training lock path cannot be created or opened for lack of filesystem permission (`EACCES` / `EPERM`), raising `LockPermissionError`. This is deliberately **not** exit 6 — see the `--fail-on-busy` interaction section below.
 - An env var value is out of its clamped range in a way that prevents startup.
+- A `training.storage_path` naming an unsupported or removed SQLAlchemy dialect (`oracle://`, `postgres://`), or one whose driver is not installed (a bare `postgresql://`, which defaults to the uninstalled `psycopg2`). The `train_error` event carries `code: storage_path_unusable`. This is pre-flighted by `recotem validate` and again by `recotem train` **before the data fetch**, so a bad study backend no longer costs a scan.
 - A **remote `output.path` that cannot be written**. The credentials do not resolve (`code: artifact_write_credentials`), or the bucket/container is absent or the resolved credentials are refused (`code: artifact_write_destination`). Raised as `TrainingError` and mapped here, not to exit 4, so a scheduler can tell "this will never work as configured" from "retry me".
 
 ::: warning A remote write failure is exit 8 only when it is permanent
