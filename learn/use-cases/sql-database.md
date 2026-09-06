@@ -41,7 +41,7 @@ Pick the DSN form for your dialect:
 | SQLite (read-only) | `sqlite:///file:absolute/path/to/file.db?mode=ro&uri=true` |
 
 ::: tip Use TLS in production
-Set `sslmode=require` (or stricter: `verify-ca`, `verify-full`) on PostgreSQL, or `ssl_ca=/path/to/ca.pem` (or `ssl_verify_cert=true`) on MySQL/MariaDB. `?ssl=true` is **not** a usable spelling — PyMySQL's `ssl` parameter takes a mapping or an `ssl.SSLContext`, never a string, so any non-empty scalar value fails inside the driver before it connects. Recotem does not enforce TLS, but it emits a `sql_dsn_tls_not_configured` warning when the DSN looks plaintext.
+Set `sslmode=require` on PostgreSQL, or `ssl_ca=/path/to/ca.pem` on MySQL/MariaDB. `?ssl=true` is **not** a usable spelling — PyMySQL's `ssl` parameter takes a mapping or an `ssl.SSLContext`, never a string, so any non-empty scalar value fails inside the driver before it connects. The stricter spellings (`verify-ca` / `verify-full`, `ssl_verify_cert=true`) need more than the DSN parameter alone — see [Turning TLS on when the server uses its own certificate](/docs/data-sources/sql#turning-tls-on-when-the-server-uses-its-own-certificate). Recotem does not enforce TLS, but it emits a `sql_dsn_tls_not_configured` warning when nothing in the DSN forces it.
 :::
 
 ### Read-only by design

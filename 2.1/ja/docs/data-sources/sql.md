@@ -69,6 +69,8 @@ source:
 | SQLite (ファイル) | `sqlite:///absolute/path/to/file.db` |
 | SQLite (読み取り専用) | `sqlite:///file:absolute/path/to/file.db?mode=ro&uri=true` |
 
+上の MySQL / MariaDB の行は、`/path/to/ca.pem` が**自分で**サーバー証明書を発行した CA であり、その証明書が DSN の接続先ホストを名指ししていることを前提にしています。サーバーが自分で生成した証明書をそのまま提示している場合、`ssl_ca` だけでは足りません。[サーバー自身の証明書で TLS を有効にする](#サーバー自身の証明書で-tls-を有効にする)を参照してください。
+
 **`+driver` サフィックスは必須であり、飾りではありません。** 素のスキームは
 SQLAlchemy のデフォルト DBAPI を選びますが、SQLite を除くすべてのダイアレクトで
 そのデフォルトは recotem がインストールしないドライバです: `postgresql://` は
@@ -132,12 +134,31 @@ PostgreSQL、MySQL、MariaDB ではタイムアウト設定が失敗すると学
 
 ## TLS 推奨事項
 
-本番環境では TLS を強く推奨します。PostgreSQL では `sslmode=require` (またはより厳しい `verify-ca` / `verify-full`) を必ず設定してください。MySQL/MariaDB では `ssl_ca=/path/to/ca.pem` (またはシステムの CA ストアで検証する `ssl_verify_cert=true`) を設定してください。**`?ssl=true` は使用できない綴りです** — PyMySQL の `ssl` 接続パラメータはマッピングか `ssl.SSLContext` を取り、文字列は受け付けません。SQLAlchemy は URL のクエリ値を書かれたままの文字列として渡すため、空でないスカラーの `ssl=` はソケットを開く前にドライバー内部で `AttributeError: 'str' object has no attribute 'get'` となって失敗します。代わりに `ssl_*` の個別オプションキーを使用してください。Recotem 2.1.0 はこの形の DSN を事前に終了コード 3 で拒否し、裸の `AttributeError` がオペレーターに届く代わりにパラメータと修正方法を示します。Recotem は TLS を強制しませんが、DSN が平文に見える場合に init 時に `sql_dsn_tls_not_configured` 構造化警告を出力します:
+本番環境では TLS を強く推奨します。PostgreSQL では `sslmode=require` (またはより厳しい `verify-ca` / `verify-full`。これらは追加で `sslrootcert=` を必要とします) を必ず設定してください。MySQL/MariaDB では `ssl_ca=/path/to/ca.pem` (またはシステムの CA ストアで検証する `ssl_verify_cert=true`) を設定してください。どちらもコピーする前に[サーバー自身の証明書で TLS を有効にする](#サーバー自身の証明書で-tls-を有効にする)を読んでください。自分が管理する CA から証明書を発行していないサーバーに対しては、厳しい綴りのほうが失敗します。**`?ssl=true` は使用できない綴りです** — PyMySQL の `ssl` 接続パラメータはマッピングか `ssl.SSLContext` を取り、文字列は受け付けません。SQLAlchemy は URL のクエリ値を書かれたままの文字列として渡すため、空でないスカラーの `ssl=` はソケットを開く前にドライバー内部で `AttributeError: 'str' object has no attribute 'get'` となって失敗します。代わりに `ssl_*` の個別オプションキーを使用してください。Recotem 2.1.0 はこの形の DSN を事前に終了コード 3 で拒否し、裸の `AttributeError` がオペレーターに届く代わりにパラメータと修正方法を示します。Recotem は TLS を強制しませんが、DSN が TLS を*強制していない*場合に init 時に `sql_dsn_tls_not_configured` 構造化警告を出力します:
 
 - PostgreSQL: `sslmode` が未設定、または `disable` / `allow` / `prefer` に設定されている。
 - MySQL/MariaDB: `ssl*` クエリパラメータが全くない。
 
-デプロイメントレベル (サービスメッシュ、サイドカー) で TLS を実装しているオペレーターは、明示的な DSN フラグを追加することで警告を抑止できます。
+この警告は接続が平文であることを意味しません。psycopg は既定で `sslmode=prefer`、PyMySQL は既定で PREFERRED モードなので、どちらも自力で TLS を試みます。ただし TLS を提供しないサーバーに対しては黙って平文にフォールバックします。デプロイメントレベル (サービスメッシュ、サイドカー) で TLS を実装しているオペレーターは、明示的な DSN フラグを追加することで警告を抑止できます。
+
+### サーバー自身の証明書で TLS を有効にする
+
+`require_secure_transport` (MySQL / MariaDB) や `hostssl` のみの `pg_hba.conf` (PostgreSQL) を有効にしただけのサーバーは、自分で生成した証明書をそのまま提示します。この証明書はクライアントが信頼する CA から発行されたものではなく、ホスト名も名指ししていないため、上記の厳しい綴りは接続を拒否されます:
+
+| DSN クエリ | MySQL 8.4 (`require_secure_transport=ON`) | MariaDB 11.8 (`require_secure_transport=ON`) |
+|---|---|---|
+| *(なし)* | 接続する (ドライバーの PREFERRED モード) | 接続する (ドライバーの PREFERRED モード) |
+| `?ssl_ca=<サーバー自身の ca.pem>` | **失敗** — `CERTIFICATE_VERIFY_FAILED … IP address mismatch` | **ファイルが存在しない** — MariaDB は書き出さない |
+| `?ssl_ca=<…>&ssl_check_hostname=false` | 接続する | 依然として失敗する (CA ファイルが存在しない) |
+| `?ssl_verify_cert=true` | **失敗** — `self-signed certificate in certificate chain` | **失敗** — `self-signed certificate` |
+| `?ssl_check_hostname=false` 単独 | 接続する | 接続する |
+| `?ssl_verify_cert=false` | 接続する | 接続する |
+
+MySQL は `ca.pem` と `server-cert.pem` をデータディレクトリに書き出しますが、その証明書の CN は `MySQL_Server_<version>_Auto_Generated_Server_Certificate` で SAN を持たないため、SQLAlchemy の既定である `ssl_check_hostname=True` が拒否します。MariaDB は証明書をメモリ上で生成します。`@@ssl_ca` と `@@ssl_cert` は `NULL` で `.pem` はどこにも書き出されないため、`ssl_ca` が指すべきファイルがありません。
+
+`ssl_check_hostname=false` と `ssl_verify_cert=false` は通信路の暗号化は保ちますがサーバーの認証をやめてしまうため、能動的な中間者攻撃に対して無防備になります。まず暗号化を得るための手段と位置づけ、その後で自分が管理する CA から — SAN にホスト名を含めた — サーバー証明書を発行し、`ssl_ca` をその CA に向けてください。そのような証明書があれば `?ssl_ca=/path/to/ca.pem` 単独で接続でき、これが上の DSN 表が示している形です。
+
+PostgreSQL でも構図は同じです。`sslmode=require` は暗号化しますがサーバーを認証せず、`verify-ca` / `verify-full` は照合するルート証明書を必要とします。`sslrootcert` が未設定の場合、libpq は `~/.postgresql/root.crt` を探し、そのファイルが無ければ接続を拒否します。`&sslrootcert=/path/to/root.crt` を追加するか、OS のトラストストアを使う `&sslrootcert=system` を指定してください。
 
 ## SSRF ガード
 
