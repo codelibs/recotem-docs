@@ -141,7 +141,7 @@ irspack の `IDMappedRecommender` は scipy のスパース行列と numpy 配�
 
 `SafeUnpickler.find_class` の FQCN 許可リストは、HMAC とは独立して動作する二次的な層です。その目的は、HMAC がバイパスされた場合の爆発半径を制限することです。それ自体で安全を保証するものでは**ありません**: 十分に広い許可リストは、許可されたライブラリが公開する任意の API サーフェスを依然として露出します。
 
-FQCN 許可リストは irspack 0.4.x ごとに凍結されています。irspack がレコメンダークラスを追加または名前変更した場合、リストと CHANGELOG エントリが一緒に更新されます。
+FQCN 許可リストは irspack 0.4.x ごとに凍結されています。irspack がレコメンダークラスを追加または名前変更した場合、リストが更新され、その変更は当該リリースの [GitHub Release ノート](https://github.com/codelibs/recotem/releases) に明記されます。
 
 FQCN 許可リストはこれらのクラスのみを許可します。このリストとモジュールプレフィックス許可リストの両方の外にあるクラスは、構築前に `ArtifactError` をトリガーします:
 
@@ -178,7 +178,7 @@ builtins.frozenset
 collections.OrderedDict
 ```
 
-このリストは Recotem リリースごとに凍結されます。変更は CHANGELOG エントリとともに配布されます。
+このリストは Recotem リリースごとに凍結されます。変更は当該リリースの [GitHub Release ノート](https://github.com/codelibs/recotem/releases) に明記されます。
 
 FQCN リストに加えて、定義モジュールが以下の狭いプレフィックスの 1 つにあるクラスはプレフィックス許可リストを通じて許可されます (numpy と scipy はリリース間で内部レイアウトを再編成します — `_reconstruct` のような再構築ヘルパーはサブモジュール間を移動します):
 

@@ -485,7 +485,8 @@ Recotem follows semver. Within a major version (`2.x`):
 
 - Recipes remain valid; the recipe loader is backward-compatible.
 - The artifact format version is `1`. Older readers refuse newer formats with `unsupported format version`. When the format bumps, retrain after upgrading the writer; readers can be upgraded first.
-- The FQCN allow-list is frozen per release; changes appear in the CHANGELOG. Re-train if your artifacts encode a class that has been removed.
+- The FQCN allow-list is frozen per release; changes appear in that release's [GitHub Release notes](https://github.com/codelibs/recotem/releases). Re-train if your artifacts encode a class that has been removed.
+- **Operator-facing upgrade steps for each release live in [`docs/upgrading.md`](https://github.com/codelibs/recotem/blob/main/docs/upgrading.md)** in the product repository — read it before moving between minors. The 2.0.0 → 2.1.0 section covers the IALS retrain, the Azure URI change, and the signing-key exit-code change.
 - **The irspack serialization format is not covered by any of the above.** irspack does not keep its format stable across its own minors, so a Recotem upgrade that moves irspack across a minor can refuse existing artifacts — by algorithm, per transition. This axis is **bidirectional**: it cannot be staged serve-first, and it does not roll back. See [irspack version skew](#irspack-version-skew) for the allow-list rule, which algorithms are refused, and the upgrade procedure.
 - **scikit-learn is a further axis, unguarded.** `TruncatedSVD` artifacts embed an sklearn estimator; sklearn does not guarantee correctness when deserializing across its own minors. Recotem range-pins `scikit-learn>=1.8,<1.10`, which narrows the window but does not close it (two installs inside the range can differ), and no runtime check covers it.
 
