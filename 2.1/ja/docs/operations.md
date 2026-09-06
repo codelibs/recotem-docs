@@ -265,7 +265,7 @@ recotem inspect https://host/artifacts/my.recotem        # HTTPS URI
 - **`--fail-on-busy`**: これを終了コード 6 (`LockContestedError`) に変更し、オーケストレーターが作業を他の場所に委任できるようにします。`LockContestedError` は意図的に `TrainingError` 階層の外にあります — これはオーケストレーションの状態であり、学習の失敗ではありません。
 - **`--no-lock`**: ロック取得を完全にスキップします。他のメカニズムで同時書き込みがないことを保証できる場合のみ安全です。
 
-単一ホストまたは分散クラスター上での複数プロセスの Optuna 探索 (並列化) には、レシピに `training.storage_path` を設定してください。受け入れられる形式: 裸のパス (SQLite)、または `sqlite://`、`postgresql+psycopg://`、`mysql+pymysql://` で始まる URL。`+driver` サフィックスは必須です: この URL は Optuna の `RDBStorage` にそのまま渡され、`RDBStorage` はドライバの事前チェックを行いません。そのため裸の `postgresql://` (インストールされていない `psycopg2` にルーティングされます) は Optuna 内部で `ImportError: Failed to import DB access module for the specified storage URL` として失敗し、`postgres://` (SQLAlchemy 2.x で削除されたダイアレクト) は `NoSuchModuleError` として失敗します。どちらのメッセージも対処方法を示さず、`recotem validate` でも検出されません。
+単一ホストまたは分散クラスター上での複数プロセスの Optuna 探索 (並列化) には、レシピに `training.storage_path` を設定してください。受け入れられる形式: 裸のパス (SQLite)、または `sqlite://`、`postgresql+psycopg://`、`mysql+pymysql://`、`mariadb+pymysql://` で始まる URL。`+driver` サフィックスは必須です: この URL は Optuna の `RDBStorage` にそのまま渡され、`RDBStorage` はドライバの事前チェックを行いません。そのため裸の `postgresql://` (インストールされていない `psycopg2` にルーティングされます) は Optuna 内部で `ImportError: Failed to import DB access module for the specified storage URL` として失敗し、`postgres://` (SQLAlchemy 2.x で削除されたダイアレクト) は `NoSuchModuleError` として失敗します。2.1.0 以降は、どちらもその手前で検出されます。`recotem validate` は — そして `recotem train` もデータを取得する前に — URL を事前チェックし、ダイアレクト名・使うべき綴り・インストールすべきエクストラを示したうえで `code: storage_path_unusable` とともに終了コード **8** で終了します。
 
 **サーバーバックエンドの形式には、加えてドライバのエクストラのインストールが必要です。素の `pip install recotem` にはどちらも含まれていません:**
 
