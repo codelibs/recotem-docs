@@ -410,7 +410,8 @@ Recotem follows semver. Within a major version (`2.x`):
 
 - Recipes remain valid; the recipe loader is backward-compatible.
 - The artifact format version is `1`. Older readers refuse newer formats with `unsupported format version`. When the format bumps, retrain after upgrading the writer; readers can be upgraded first.
-- The FQCN allow-list is frozen per release; changes appear in the CHANGELOG. Re-train if your artifacts encode a class that has been removed.
+- The FQCN allow-list is frozen per release; changes appear in that release's [GitHub Release notes](https://github.com/codelibs/recotem/releases). Re-train if your artifacts encode a class that has been removed.
+- **Operator-facing upgrade steps for each release live in [`docs/upgrading.md`](https://github.com/codelibs/recotem/blob/main/docs/upgrading.md)** in the product repository — read it before moving between minors.
 
 For zero-downtime upgrade of the serve fleet, deploy new pods with both the old and new signing kids configured (rotation-style), let new pods become healthy, then drain old pods (relying on `RECOTEM_DRAIN_SECONDS`).
 
