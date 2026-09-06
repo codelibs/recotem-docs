@@ -64,8 +64,8 @@ source:
 | Dialect | DSN |
 |---|---|
 | PostgreSQL | `postgresql+psycopg://user:pass@host:5432/db?sslmode=require` |
-| MySQL | `mysql+pymysql://user:pass@host:3306/db?ssl=true` |
-| MariaDB | `mariadb+pymysql://user:pass@host:3306/db?ssl=true` — `mysql+pymysql://` also works and reaches the same server |
+| MySQL | `mysql+pymysql://user:pass@host:3306/db?ssl_ca=/path/to/ca.pem` |
+| MariaDB | `mariadb+pymysql://user:pass@host:3306/db?ssl_ca=/path/to/ca.pem` — `mysql+pymysql://` also works and reaches the same server |
 | SQLite (file) | `sqlite:///absolute/path/to/file.db` |
 | SQLite (read-only) | `sqlite:///file:absolute/path/to/file.db?mode=ro&uri=true` |
 
@@ -131,7 +131,7 @@ On PostgreSQL, MySQL, and MariaDB, failure to set the timeout aborts training wi
 
 ## TLS recommendations
 
-TLS is strongly recommended in production. Always set `sslmode=require` (or stricter: `verify-ca`, `verify-full`) on PostgreSQL, or `ssl=true` (or specify a CA bundle via `ssl_ca=...`) on MySQL/MariaDB. Recotem does not enforce TLS — but the source emits a `sql_dsn_tls_not_configured` structlog warning at init when the DSN appears plaintext:
+TLS is strongly recommended in production. Always set `sslmode=require` (or stricter: `verify-ca`, `verify-full`) on PostgreSQL, or `ssl_ca=/path/to/ca.pem` (or `ssl_verify_cert=true` to verify against the system CA store) on MySQL/MariaDB. **`?ssl=true` is not a usable spelling** — PyMySQL's `ssl` connection parameter takes a mapping or an `ssl.SSLContext`, never a string, and SQLAlchemy passes a URL query value through as the string it was written as. Any non-empty scalar `ssl=` value therefore fails inside the driver, before it opens a socket, with `AttributeError: 'str' object has no attribute 'get'`. Use the `ssl_*` per-option keys instead. Recotem 2.1.0 refuses such a DSN up front with exit 3, naming the parameter and the fix, rather than leaving the bare `AttributeError` to reach the operator. Recotem does not enforce TLS — but the source emits a `sql_dsn_tls_not_configured` structlog warning at init when the DSN appears plaintext:
 
 - PostgreSQL: no `sslmode` set, or set to `disable` / `allow` / `prefer`.
 - MySQL/MariaDB: no `ssl*` query parameter at all.
@@ -189,6 +189,7 @@ This is a best-effort defence — the SQL driver does its own resolution at conn
 | Absolute-path host refused | 3 | `DataSourceError: DSN host is an absolute path (libpq Unix-socket form); this bypasses the network SSRF guard. Set RECOTEM_SQL_ALLOW_PRIVATE=1 to opt in.` |
 | Network DSN with no host refused | 3 | `DataSourceError: DSN for dialect 'postgresql' does not specify a host; the driver would default to the local socket / 127.0.0.1 which is rejected by the SSRF guard. Specify a host explicitly or set RECOTEM_SQL_ALLOW_PRIVATE=1 to opt in.` |
 | sqlalchemy not installed | 3 | `DataSourceError: sqlalchemy is required for SQLSource. Install one of: recotem[postgres], recotem[mysql], recotem[sqlite].` |
+| Scalar `?ssl=` on MySQL/MariaDB | 3 | `DataSourceError: DSN for dialect 'mysql' sets ?ssl= to a scalar value; the driver's ssl parameter takes a mapping or an SSLContext, so any non-empty scalar fails inside the driver with an unhelpful AttributeError. Add ?ssl_ca=/path/to/ca.pem ...` |
 | Column missing after query | 3 | `DataSourceError: schema column(s) ['ts'] not found in the fetched data for recipe '<name>'; available columns: [...]` |
 
 All SQL exceptions are wrapped in `DataSourceError` and produce exit 3. The full error type is included in the stderr JSON line. DSN userinfo is redacted from log output by `recotem.log_redaction`.

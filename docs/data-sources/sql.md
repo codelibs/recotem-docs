@@ -64,7 +64,7 @@ source:
 | Dialect | DSN |
 |---|---|
 | PostgreSQL | `postgresql+psycopg://user:pass@host:5432/db?sslmode=require` |
-| MySQL / MariaDB | `mysql+pymysql://user:pass@host:3306/db?ssl=true` |
+| MySQL / MariaDB | `mysql+pymysql://user:pass@host:3306/db?ssl_ca=/path/to/ca.pem` |
 | SQLite (file) | `sqlite:///absolute/path/to/file.db` |
 | SQLite (read-only) | `sqlite:///file:absolute/path/to/file.db?mode=ro&uri=true` |
 
@@ -122,7 +122,7 @@ On PostgreSQL, MySQL, and MariaDB, failure to set the timeout aborts training wi
 
 ## TLS recommendations
 
-TLS is strongly recommended in production. Always set `sslmode=require` (or stricter: `verify-ca`, `verify-full`) on PostgreSQL, or `ssl=true` (or specify a CA bundle via `ssl_ca=...`) on MySQL/MariaDB. Recotem does not enforce TLS — but the source emits a `sql_dsn_tls_not_configured` structlog warning at init when the DSN appears plaintext:
+TLS is strongly recommended in production. Always set `sslmode=require` (or stricter: `verify-ca`, `verify-full`) on PostgreSQL, or `ssl_ca=/path/to/ca.pem` (or `ssl_verify_cert=true` to verify against the system CA store) on MySQL/MariaDB. **`?ssl=true` is not a usable spelling** — PyMySQL's `ssl` connection parameter takes a mapping or an `ssl.SSLContext`, never a string, and SQLAlchemy passes a URL query value through as the string it was written as. Any non-empty scalar `ssl=` value therefore fails inside the driver, before it opens a socket, with `AttributeError: 'str' object has no attribute 'get'`. Use the `ssl_*` per-option keys instead. Recotem does not enforce TLS — but the source emits a `sql_dsn_tls_not_configured` structlog warning at init when the DSN appears plaintext:
 
 - PostgreSQL: no `sslmode` set, or set to `disable` / `allow` / `prefer`.
 - MySQL/MariaDB: no `ssl*` query parameter at all.

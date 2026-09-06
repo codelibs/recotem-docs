@@ -64,8 +64,8 @@ source:
 | ダイアレクト | DSN |
 |--------------|-----|
 | PostgreSQL | `postgresql+psycopg://user:pass@host:5432/db?sslmode=require` |
-| MySQL | `mysql+pymysql://user:pass@host:3306/db?ssl=true` |
-| MariaDB | `mariadb+pymysql://user:pass@host:3306/db?ssl=true` — `mysql+pymysql://` も同じサーバーに到達します |
+| MySQL | `mysql+pymysql://user:pass@host:3306/db?ssl_ca=/path/to/ca.pem` |
+| MariaDB | `mariadb+pymysql://user:pass@host:3306/db?ssl_ca=/path/to/ca.pem` — `mysql+pymysql://` も同じサーバーに到達します |
 | SQLite (ファイル) | `sqlite:///absolute/path/to/file.db` |
 | SQLite (読み取り専用) | `sqlite:///file:absolute/path/to/file.db?mode=ro&uri=true` |
 
@@ -132,7 +132,7 @@ PostgreSQL、MySQL、MariaDB ではタイムアウト設定が失敗すると学
 
 ## TLS 推奨事項
 
-本番環境では TLS を強く推奨します。PostgreSQL では `sslmode=require` (またはより厳しい `verify-ca` / `verify-full`) を必ず設定してください。MySQL/MariaDB では `ssl=true` (または `ssl_ca=...` で CA バンドルを指定) を設定してください。Recotem は TLS を強制しませんが、DSN が平文に見える場合に init 時に `sql_dsn_tls_not_configured` 構造化警告を出力します:
+本番環境では TLS を強く推奨します。PostgreSQL では `sslmode=require` (またはより厳しい `verify-ca` / `verify-full`) を必ず設定してください。MySQL/MariaDB では `ssl_ca=/path/to/ca.pem` (またはシステムの CA ストアで検証する `ssl_verify_cert=true`) を設定してください。**`?ssl=true` は使用できない綴りです** — PyMySQL の `ssl` 接続パラメータはマッピングか `ssl.SSLContext` を取り、文字列は受け付けません。SQLAlchemy は URL のクエリ値を書かれたままの文字列として渡すため、空でないスカラーの `ssl=` はソケットを開く前にドライバー内部で `AttributeError: 'str' object has no attribute 'get'` となって失敗します。代わりに `ssl_*` の個別オプションキーを使用してください。Recotem 2.1.0 はこの形の DSN を事前に終了コード 3 で拒否し、裸の `AttributeError` がオペレーターに届く代わりにパラメータと修正方法を示します。Recotem は TLS を強制しませんが、DSN が平文に見える場合に init 時に `sql_dsn_tls_not_configured` 構造化警告を出力します:
 
 - PostgreSQL: `sslmode` が未設定、または `disable` / `allow` / `prefer` に設定されている。
 - MySQL/MariaDB: `ssl*` クエリパラメータが全くない。
@@ -190,6 +190,7 @@ SSRF チェックは init 時にすべての候補ルーティングホストに
 | 絶対パスホストの拒否 | 3 | `DataSourceError: DSN host is an absolute path (libpq Unix-socket form); this bypasses the network SSRF guard. Set RECOTEM_SQL_ALLOW_PRIVATE=1 to opt in.` |
 | ホスト情報のないネットワーク DSN 拒否 | 3 | `DataSourceError: DSN for dialect 'postgresql' does not specify a host; the driver would default to the local socket / 127.0.0.1 which is rejected by the SSRF guard. Specify a host explicitly or set RECOTEM_SQL_ALLOW_PRIVATE=1 to opt in.` |
 | sqlalchemy 未インストール | 3 | `DataSourceError: sqlalchemy is required for SQLSource. Install one of: recotem[postgres], recotem[mysql], recotem[sqlite].` |
+| MySQL/MariaDB でスカラーの `?ssl=` | 3 | `DataSourceError: DSN for dialect 'mysql' sets ?ssl= to a scalar value; the driver's ssl parameter takes a mapping or an SSLContext, so any non-empty scalar fails inside the driver with an unhelpful AttributeError. Add ?ssl_ca=/path/to/ca.pem ...` |
 | クエリ後のカラム不在 | 3 | `DataSourceError: schema column(s) ['ts'] not found in the fetched data for recipe '<name>'; available columns: [...]` |
 
 すべての SQL 例外は `DataSourceError` にラップされて終了コード 3 になります。完全なエラータイプは stderr の JSON 行に含まれます。DSN の userinfo は `recotem.log_redaction` によってログ出力から取り除かれます。

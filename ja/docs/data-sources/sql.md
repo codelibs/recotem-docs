@@ -64,7 +64,7 @@ source:
 | ダイアレクト | DSN |
 |--------------|-----|
 | PostgreSQL | `postgresql+psycopg://user:pass@host:5432/db?sslmode=require` |
-| MySQL / MariaDB | `mysql+pymysql://user:pass@host:3306/db?ssl=true` |
+| MySQL / MariaDB | `mysql+pymysql://user:pass@host:3306/db?ssl_ca=/path/to/ca.pem` |
 | SQLite (ファイル) | `sqlite:///absolute/path/to/file.db` |
 | SQLite (読み取り専用) | `sqlite:///file:absolute/path/to/file.db?mode=ro&uri=true` |
 
@@ -122,7 +122,7 @@ PostgreSQL、MySQL、MariaDB ではタイムアウト設定が失敗すると学
 
 ## TLS 推奨事項
 
-本番環境では TLS を強く推奨します。PostgreSQL では `sslmode=require` (またはより厳しい `verify-ca` / `verify-full`) を必ず設定してください。MySQL/MariaDB では `ssl=true` (または `ssl_ca=...` で CA バンドルを指定) を設定してください。Recotem は TLS を強制しませんが、DSN が平文に見える場合に init 時に `sql_dsn_tls_not_configured` 構造化警告を出力します:
+本番環境では TLS を強く推奨します。PostgreSQL では `sslmode=require` (またはより厳しい `verify-ca` / `verify-full`) を必ず設定してください。MySQL/MariaDB では `ssl_ca=/path/to/ca.pem` (またはシステムの CA ストアで検証する `ssl_verify_cert=true`) を設定してください。**`?ssl=true` は使用できない綴りです** — PyMySQL の `ssl` 接続パラメータはマッピングか `ssl.SSLContext` を取り、文字列は受け付けません。SQLAlchemy は URL のクエリ値を書かれたままの文字列として渡すため、空でないスカラーの `ssl=` はソケットを開く前にドライバー内部で `AttributeError: 'str' object has no attribute 'get'` となって失敗します。代わりに `ssl_*` の個別オプションキーを使用してください。Recotem は TLS を強制しませんが、DSN が平文に見える場合に init 時に `sql_dsn_tls_not_configured` 構造化警告を出力します:
 
 - PostgreSQL: `sslmode` が未設定、または `disable` / `allow` / `prefer` に設定されている。
 - MySQL/MariaDB: `ssl*` クエリパラメータが全くない。

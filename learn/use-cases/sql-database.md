@@ -36,12 +36,12 @@ Pick the DSN form for your dialect:
 | Dialect | DSN |
 |---|---|
 | PostgreSQL | `postgresql+psycopg://user:pass@host:5432/db?sslmode=require` |
-| MySQL / MariaDB | `mysql+pymysql://user:pass@host:3306/db?ssl=true` |
+| MySQL / MariaDB | `mysql+pymysql://user:pass@host:3306/db?ssl_ca=/path/to/ca.pem` |
 | SQLite (file) | `sqlite:///absolute/path/to/file.db` |
 | SQLite (read-only) | `sqlite:///file:absolute/path/to/file.db?mode=ro&uri=true` |
 
 ::: tip Use TLS in production
-Set `sslmode=require` (or stricter: `verify-ca`, `verify-full`) on PostgreSQL, or `ssl=true` on MySQL/MariaDB. Recotem does not enforce TLS, but it emits a `sql_dsn_tls_not_configured` warning when the DSN looks plaintext.
+Set `sslmode=require` (or stricter: `verify-ca`, `verify-full`) on PostgreSQL, or `ssl_ca=/path/to/ca.pem` (or `ssl_verify_cert=true`) on MySQL/MariaDB. `?ssl=true` is **not** a usable spelling — PyMySQL's `ssl` parameter takes a mapping or an `ssl.SSLContext`, never a string, so any non-empty scalar value fails inside the driver before it connects. Recotem does not enforce TLS, but it emits a `sql_dsn_tls_not_configured` warning when the DSN looks plaintext.
 :::
 
 ### Read-only by design
