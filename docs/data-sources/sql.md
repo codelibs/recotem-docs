@@ -64,9 +64,11 @@ source:
 | Dialect | DSN |
 |---|---|
 | PostgreSQL | `postgresql+psycopg://user:pass@host:5432/db?sslmode=require` |
-| MySQL / MariaDB | `mysql+pymysql://user:pass@host:3306/db?ssl=true` |
+| MySQL / MariaDB | `mysql+pymysql://user:pass@host:3306/db?ssl_ca=/path/to/ca.pem` |
 | SQLite (file) | `sqlite:///absolute/path/to/file.db` |
 | SQLite (read-only) | `sqlite:///file:absolute/path/to/file.db?mode=ro&uri=true` |
+
+The MySQL / MariaDB row(s) above assume `/path/to/ca.pem` is a CA **you** issued the server certificate from, and that the certificate names the host the DSN connects to. A server still presenting the certificate it generated for itself needs more than `ssl_ca` — see [Turning TLS on when the server uses its own certificate](#turning-tls-on-when-the-server-uses-its-own-certificate).
 
 ## Parameter binding
 
@@ -122,12 +124,31 @@ On PostgreSQL, MySQL, and MariaDB, failure to set the timeout aborts training wi
 
 ## TLS recommendations
 
-TLS is strongly recommended in production. Always set `sslmode=require` (or stricter: `verify-ca`, `verify-full`) on PostgreSQL, or `ssl=true` (or specify a CA bundle via `ssl_ca=...`) on MySQL/MariaDB. Recotem does not enforce TLS — but the source emits a `sql_dsn_tls_not_configured` structlog warning at init when the DSN appears plaintext:
+TLS is strongly recommended in production. Always set `sslmode=require` (or stricter: `verify-ca`, `verify-full`, which additionally need `sslrootcert=`) on PostgreSQL, or `ssl_ca=/path/to/ca.pem` (or `ssl_verify_cert=true` to verify against the system CA store) on MySQL/MariaDB. Read [Turning TLS on when the server uses its own certificate](#turning-tls-on-when-the-server-uses-its-own-certificate) before copying either — the stricter spellings fail against a server that has not been issued a certificate by a CA you control. **`?ssl=true` is not a usable spelling** — PyMySQL's `ssl` connection parameter takes a mapping or an `ssl.SSLContext`, never a string, and SQLAlchemy passes a URL query value through as the string it was written as. Any non-empty scalar `ssl=` value therefore fails inside the driver, before it opens a socket, with `AttributeError: 'str' object has no attribute 'get'`. Use the `ssl_*` per-option keys instead. Recotem does not enforce TLS — but the source emits a `sql_dsn_tls_not_configured` structlog warning at init when nothing in the DSN *forces* TLS:
 
 - PostgreSQL: no `sslmode` set, or set to `disable` / `allow` / `prefer`.
 - MySQL/MariaDB: no `ssl*` query parameter at all.
 
-Operators with deployment-level TLS (service mesh, sidecar) can silence the warning by adding the explicit DSN flag.
+The warning does not mean the connection is plaintext: psycopg defaults to `sslmode=prefer` and PyMySQL to its PREFERRED mode, so both attempt TLS on their own — they just fall back to plaintext, silently, against a server that does not offer it. Operators with deployment-level TLS (service mesh, sidecar) can silence the warning by adding the explicit DSN flag.
+
+### Turning TLS on when the server uses its own certificate
+
+A server that has `require_secure_transport` (MySQL / MariaDB) or an `hostssl`-only `pg_hba.conf` (PostgreSQL) turned on and nothing else presents the certificate it generated for itself. That certificate is not issued by any CA the client trusts and names no host, so the strict spellings above refuse it:
+
+| DSN query | MySQL 8.4 (`require_secure_transport=ON`) | MariaDB 11.8 (`require_secure_transport=ON`) |
+|---|---|---|
+| *(none)* | connects (driver PREFERRED mode) | connects (driver PREFERRED mode) |
+| `?ssl_ca=<the server's own ca.pem>` | **fails** — `CERTIFICATE_VERIFY_FAILED … IP address mismatch` | **no such file** — MariaDB writes none |
+| `?ssl_ca=<…>&ssl_check_hostname=false` | connects | still fails (no CA file exists) |
+| `?ssl_verify_cert=true` | **fails** — `self-signed certificate in certificate chain` | **fails** — `self-signed certificate` |
+| `?ssl_check_hostname=false` alone | connects | connects |
+| `?ssl_verify_cert=false` | connects | connects |
+
+MySQL writes `ca.pem` and `server-cert.pem` into its data directory, but the certificate's CN is `MySQL_Server_<version>_Auto_Generated_Server_Certificate` with no SAN, so SQLAlchemy's default `ssl_check_hostname=True` rejects it. MariaDB generates its certificate in memory: `@@ssl_ca` and `@@ssl_cert` are `NULL` and no `.pem` is written, so there is nothing for `ssl_ca` to name.
+
+`ssl_check_hostname=false` and `ssl_verify_cert=false` keep the channel encrypted but stop authenticating the server, which leaves the connection open to an active machine-in-the-middle. Treat them as a way to get encrypted quickly, then issue a server certificate from a CA you control — naming the host in the SAN — and point `ssl_ca` at that CA. With such a certificate `?ssl_ca=/path/to/ca.pem` alone connects, which is the form the DSN table above shows.
+
+The same shape applies to PostgreSQL: `sslmode=require` encrypts without authenticating, and `verify-ca` / `verify-full` need a root certificate to check against. With `sslrootcert` unset, libpq looks for `~/.postgresql/root.crt` and refuses the connection when that file is absent — so add `&sslrootcert=/path/to/root.crt`, or `&sslrootcert=system` to use the OS trust store.
 
 ## SSRF guard
 
