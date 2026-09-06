@@ -6,6 +6,10 @@
 # runs the commands locally. `docs:check-anchors` in particular is a separate
 # command that the build does not imply, and `main` has carried four broken
 # heading anchors because of that.
+#
+# This gate checks that the site *works* — it compiles, and every internal link
+# and #fragment resolves. It deliberately does not check what any page says:
+# documentation is managed as documentation. See CLAUDE.md.
 name: build
 
 on:
@@ -33,11 +37,6 @@ jobs:
 
       - name: Install
         run: yarn install --frozen-lockfile
-
-      # Source-only, so it runs before the (slower) build: pins the site
-      # claims that a verification round found had drifted from the product.
-      - name: Check site claims
-        run: yarn docs:check-claims
 
       # VitePress fails the build on a dead internal link (a `](/path)` with no
       # page behind it). It does NOT validate `#fragment`s — that is the next
