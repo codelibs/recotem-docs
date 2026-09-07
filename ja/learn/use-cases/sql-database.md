@@ -36,12 +36,12 @@ export RECOTEM_RECIPE_DB_DSN="postgresql+psycopg://reco_ro:pass@db.internal:5432
 | ダイアレクト | DSN |
 |---|---|
 | PostgreSQL | `postgresql+psycopg://user:pass@host:5432/db?sslmode=require` |
-| MySQL / MariaDB | `mysql+pymysql://user:pass@host:3306/db?ssl=true` |
+| MySQL / MariaDB | `mysql+pymysql://user:pass@host:3306/db?ssl_ca=/path/to/ca.pem` |
 | SQLite（ファイル） | `sqlite:///absolute/path/to/file.db` |
 | SQLite（読み取り専用） | `sqlite:///file:absolute/path/to/file.db?mode=ro&uri=true` |
 
 ::: tip 本番では TLS を使う
-PostgreSQL では `sslmode=require`（さらに厳格には `verify-ca`・`verify-full`）を、MySQL/MariaDB では `ssl=true` を設定してください。Recotem は TLS を強制しませんが、DSN が平文に見える場合は `sql_dsn_tls_not_configured` の警告を出します。
+PostgreSQL では `sslmode=require` を、MySQL/MariaDB では `ssl_ca=/path/to/ca.pem` を設定してください。`?ssl=true` は使用**できない**綴りです — PyMySQL の `ssl` パラメータはマッピングか `ssl.SSLContext` を取り文字列を受け付けないため、空でないスカラー値は接続前にドライバー内部で失敗します。より厳格な綴り（`verify-ca` / `verify-full`、`ssl_verify_cert=true`）は DSN パラメータだけでは足りません。[サーバー自身の証明書で TLS を有効にする](/ja/docs/data-sources/sql#サーバー自身の証明書で-tls-を有効にする)を参照してください。Recotem は TLS を強制しませんが、DSN が TLS を強制していない場合は `sql_dsn_tls_not_configured` の警告を出します。
 :::
 
 ### 設計として読み取り専用
