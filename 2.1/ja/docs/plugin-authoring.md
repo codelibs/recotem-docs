@@ -135,7 +135,7 @@ class EchoSource:
 
    この `recipe.schema` のルールが適用されるのは**インタラクションソースのみ**です。同じレジストリは [`features.item.source` / `features.user.source`](./recipe-reference#features) にも使われ、そこで必要な列は代わりにそのサイドの `id_column` と宣言されたすべての `columns[].name` になります。プラグイン側で特別な対応は不要です — `FetchContext` はインタラクション固有のフィールドを持たないため、登録済みのどのソースでもフィーチャーテーブルとして機能します — が、`user_column` / `item_column` が必ず要求されるという前提をハードコードしないでください。
 
-6. **`fetch()` は外部または一時的な失敗 (認証エラー、ネットワークエラー、クエリエラー、空の結果) に対して `DataSourceError` を発生させなければなりません。** `DataSourceError` は終了コード 3 にマップされます。`__init__`、`probe()`、`fetch()` から送出されたそれ以外の例外も Recotem がラップし、**同じく**終了コード 3 として報告されます — `train` では `Data fetch failed: <exc>`、`validate` では `DataSource probe failed [source]: <exc>` として、どちらも同じです。したがってラップは終了コードではなく*メッセージ*のためのものです: ラップしない例外は、欠けているエクストラも認証情報も示さないサードパーティライブラリ自身の文面でオペレーターに届きます。サードパーティの例外を明示的にラップしてください。
+6. **`fetch()` は外部または一時的な失敗 (認証エラー、ネットワークエラー、クエリエラー、空の結果) に対して `DataSourceError` を発生させなければなりません。** `DataSourceError` は終了コード 3 にマップされます。`__init__` または `fetch()` から送出されたそれ以外の例外も Recotem がラップし、**同じく**終了コード 3 として報告されます — `train` では `Data fetch failed: <exc>` として (インスタンス化は fetch ステップの内側で行われるため、`__init__` の失敗もこの文面で報告されます)、`__init__` に限っては `validate` でも `DataSource probe failed [source]: DataSource construction failed: <exc>` として報告されます。両方のコマンドが呼び出すフックは `__init__` だけです。`validate` は `fetch()` を呼ばず、**`train` は `probe()` を呼びません**。したがってこの 2 つのどちらかで失敗しても、片方のコマンドにしか届きません。とくに、`probe()` が例外を送出しても `fetch()` が動作するプラグインは、学習が終了コード 0 で完了し署名済みアーティファクトを書き出します。一方、同一のレシピに対する `recotem validate` は 3 を報告します。つまり `probe()` にだけ実装した事前条件は、学習実行のゲートには**なりません**。したがってラップは終了コードではなく*メッセージ*のためのものです: ラップしない例外は、欠けているエクストラも認証情報も示さないサードパーティライブラリ自身の文面でオペレーターに届きます。サードパーティの例外を明示的にラップしてください。
 
    ```python
    def fetch(self, ctx: FetchContext) -> pd.DataFrame:
