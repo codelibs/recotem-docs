@@ -252,6 +252,8 @@ Additional events emitted by the watcher, recipe loader, and size-cap helper tha
 | `auth_anonymous_bypass_first_seen` | INFO | `serving/auth.py` | First anonymous request from a given `client_host` (per process). The LRU cache tracking first-seen IPs is bounded to 1024 entries. |
 | `kid_extraction_failed` | WARN | `serving/watcher.py` | An artifact's kid bytes could not be parsed from the raw bytes. |
 | `artifact_stat_timeout` | WARN | `serving/watcher.py` | A stat() future did not complete within the per-future timeout. Hung object-store stats no longer block tick progress or delay SIGTERM handling. |
+| `sidecar_disappeared` | WARN | `serving/watcher.py` | A `.sha256` sidecar file was present on the previous poll but raised `ENOENT` on the current read. Emitted once per disappearance transition, not once per poll. |
+| `artifact_load_error_cleared` | INFO | `serving/watcher.py` | An outstanding `last_load_error` was retracted because the watcher could show it no longer holds. Carries `reason` (`marker_restored` or `bytes_unchanged`) and `previous_error`, the retracted text truncated to 200 characters. Pairs with `artifact_load_failed` to bound how long a recipe was degraded. |
 
 ---
 
@@ -307,19 +309,67 @@ Each model replica holds every loaded model in RAM. Plan accordingly.
 |--------|--------|
 | `RECOTEM_MAX_ARTIFACT_BYTES` | Hard cap per artifact file (default 2 GiB, clamped [1 MiB, 16 GiB]). Reduce this if you have many small models. |
 | `RECOTEM_MAX_PAYLOAD_BYTES` | Cap on the deserialised payload per artifact (default 512 MiB, post-HMAC-verify). Must be ≤ `RECOTEM_MAX_ARTIFACT_BYTES`; if not, `recotem serve` fails at startup with `ConfigError` (exit 8). |
-| Number of recipes | Each recipe loads one model. 10 recipes × 500 MiB = 5 GiB baseline. |
+| `RECOTEM_MAX_BODY_BYTES` | Hard cap on each HTTP **request** body (default 128 MiB, clamped [1 MiB, 2 GiB]). A `413 PAYLOAD_TOO_LARGE` is returned before Starlette buffers or parses the body, so no *single* request can make the process allocate more than the cap. It bounds one request, not the process — see [Concurrent request bodies are unbounded](#concurrent-request-bodies-are-unbounded) below. |
+| Number of recipes | Each recipe loads one model. 10 recipes × 500 MiB of **artifact** is roughly **24 GiB** resident, not 5 GiB — see the multiplier below. |
 | Number of replicas | Each replica is independent. 2 replicas = 2× memory. |
 | Item metadata | DataFrame in-memory per recipe. Size ≈ rows × columns × 8 bytes. |
 
 Rough formula:
 
 ```
-RAM per pod ≈ (avg_artifact_size_GiB × n_recipes) + (avg_metadata_size_GiB × n_recipes) + 1 GiB OS overhead
+RAM per pod ≈ (4.8 × avg_artifact_size_GiB × n_recipes)
+            + (avg_metadata_size_GiB × n_recipes)
+            + 0.25 GiB process baseline
 ```
 
-For large models (IALS with many components, large item sets), use `recotem inspect` to read `data_stats` and `best_params` from the header before committing to a host size.
+::: danger A loaded artifact costs several times its size on disk
+An earlier revision of this page counted it at 1× and added a flat 1 GiB. That formula is conservative only while the models are small enough for the constant to dominate; it crosses from over- to under-estimating at roughly a **213 MiB** artifact, and at 644 MiB it predicts **half** the true figure — a direction that shows up in production as an **OOMKill during startup**, not as a slow response.
+
+Measured, one recipe, no item metadata:
+
+| Interactions | Users × items | Artifact on disk | Serve RSS once ready | Old formula |
+|---|---|---|---|---|
+| 100k | 5,000 × 1,000 | 1.4 MiB | 228 MiB | 1,025 MiB |
+| 1M | 50,000 × 5,000 | 55.9 MiB | 488 MiB | 1,080 MiB |
+| 10M | 500,000 × 50,000 | 644.5 MiB | **3,292 MiB** | 1,668 MiB |
+
+The three points fit `RSS ≈ 4.8 × artifact + 0.22 GiB`.
+:::
+
+**Where the multiplier comes from.** `read_artifact` holds the whole file *and* the payload slice of it at the same time (the slice is a copy), so the raw bytes are resident **twice**; the deserialized model is then a third copy's worth on top. Dropping the payload bytes afterwards does not return the memory to the OS in the same process, so size the container on this figure rather than on a steady state you hope to settle into.
+
+`RECOTEM_MAX_PAYLOAD_BYTES` bounds this, which is what it is for — but it bounds it at **~4.8× the cap, not at the cap**. At the 512 MiB default, plan for roughly **2.5 GiB resident per recipe** that actually reaches the cap.
+
+For large models (IALS with many components, large item sets), use `recotem inspect` to read `data_stats` and `best_params` from the header before committing to a host size. Two terms set the payload size, and which one dominates depends on the dataset:
+
+```
+payload ≈ (n_users + n_items) × n_components × 4 B     <- factor matrices
+        + n_rows × ~12 B                                <- the pickled interaction matrix
+```
+
+irspack's recommenders retain the user–item CSR on the trained object, so every deduplicated interaction row is pickled into the artifact at roughly 12 bytes. That term does not shrink when the search picks a small `n_components`. Measured across eight runs, the two-term estimate lands within **2.7%** and is **always low** — treat it as a floor and leave headroom rather than sizing exactly to it. Reading `n_components` alone does not work: bytes per factor entry ranged over 4.75 to 18.32 across the same eight runs, set by how many interactions sit behind each entry rather than by anything in the header's `best_params`.
+
+`recotem train` logs `artifact_bytes` and `payload_bytes` on `artifact_written` for every run, and warns with `artifact_payload_exceeds_serve_cap` (naming `RECOTEM_MAX_PAYLOAD_BYTES`) when the file it just wrote is one this host's `recotem serve` would refuse — so the arithmetic above is for planning, and the run itself tells you the answer.
 
 `recotem serve` is sized for ≤ 100 recipes per process. Beyond that, shard recipes across multiple `serve` processes (separate `--recipes` directories, separate ports, load-balance at the proxy layer).
+
+### Concurrent request bodies are unbounded
+
+`RECOTEM_MAX_BODY_BYTES` caps **one** request. There is no in-flight byte budget and no concurrency limit, so resident memory grows linearly with how many large bodies arrive together — and every one of them is accepted.
+
+Measured from a clean server, a single 63.5 MiB body cost **213 MB — 3.35× the body**. Re-measured on servers restarted before each run, four concurrent maximal bodies cost **3.1–3.3× each**. A workable estimate for a replica's peak is therefore:
+
+```
+peak RSS ≈ idle + (concurrent large bodies) × (body size) × 3.3
+```
+
+::: danger The multiplier is 3.3, not 1.1
+An earlier revision of this page said 1.1, which under-estimated the peak by a factor of about 2.2 — the direction that shows up in production as an OOMKill rather than as a slow response.
+
+Against the Helm chart's default `limits.memory: 4Gi` and the default 128 MiB body cap, roughly **8 concurrent maximal requests** reach the limit — and fewer once the model itself is larger than the small idle footprint that figure assumes. If your clients can send large batch bodies, either lower `RECOTEM_MAX_BODY_BYTES` to what your legitimate batches actually need, bound concurrency in front of the pod (see [Security — Rate limiting and DoS](./security#rate-limiting-and-dos)), or raise the memory limit to match.
+:::
+
+The allocation is arena reuse rather than a leak — repeating one 63.5 MiB body settles at a high-water mark, and ordinary traffic afterwards returns memory to the OS. But it does not return to the idle figure, so **size container limits on the high-water mark, not on the steady state**.
 
 ---
 
@@ -336,6 +386,17 @@ The most surprising operational property of this feature: the encoded dimension 
 ::: warning `min_frequency` bounds the dimension, not the memory spent discovering it
 The vocabulary builder counts every token of the fetched column into a dict and only then prunes, and the `multi_label` branch first flattens every row's tokens into a single list. A high-cardinality column therefore pays its full transient counting cost no matter how aggressive `min_frequency` is — a column with hundreds of thousands of distinct values costs tens of MB to count even when the pruned vocabulary comes back empty. The `RECOTEM_MAX_FEATURE_DIM` check runs **after** every column's vocabulary is built, so that transient is paid in full even on the run the cap then rejects. `min_frequency` protects the trials; it does not protect the encoder-state build.
 :::
+
+#### `feature_vocabulary_pruned` (WARN) is a real warning, not noise
+
+Raising `min_frequency` to clear the cap has a cost the dimension number does not show: every value it prunes takes its rows' signal with it. Those rows encode to an all-zero block for that column and become indistinguishable from each other on that axis. When pruning leaves **20% or more** of a column's rows with no signal, training logs:
+
+```
+feature_vocabulary_pruned  column=category min_frequency=5 distinct_values=41
+  kept_values=1 rows_without_signal=40 n_rows=50
+```
+
+A column that keeps only its head value still *varies* across rows — so it is not "dead", and the `feature_empty_vocabulary_column` check stays silent — while contributing nothing for the long tail it just dropped. Lower `min_frequency` and find the dimension elsewhere (drop a column, or raise the cap and pay a cost whose exponent rises with the cap you already have — see the per-doubling table below), or drop the column outright if its tail genuinely carries no signal. Pruning that costs fewer than 20% of rows is the intended use of the lever and is not reported.
 
 ### Per-trial time grows faster than the dimension, memory quadratically, and both multiply with `training.parallelism`
 
@@ -387,8 +448,9 @@ Recotem does not enforce SLOs internally. Recommended baseline targets for produ
 | Recommendation endpoints p99 latency | < 50 ms (pure recommender, no metadata join) |
 | `/v1/health` p99 latency | < 5 ms |
 | Availability (per recipe) | Measure via `recotem_model_loaded{recipe}` Prometheus gauge |
-| Artifact hot-swap time | ≤ `RECOTEM_WATCH_INTERVAL` + model load time |
-| Train-to-serve lag | Schedule train; serve detects in ≤ `RECOTEM_WATCH_INTERVAL` seconds |
+| Artifact hot-swap time | ≤ `RECOTEM_WATCH_INTERVAL` + model load time **on local or block storage**. On a network filesystem the client's attribute cache adds to it: measured **25.5 s** at a 10 s interval on a default-mounted NFS `ReadWriteMany` PVC, and **8.2 s** on the same volume mounted `noac` |
+| Train-to-serve lag | Schedule train; serve detects in ≤ `RECOTEM_WATCH_INTERVAL` seconds, plus the attribute-cache term above when artifacts live on a network filesystem |
+| Cross-replica agreement during a swap | **Not guaranteed.** Replicas swap independently, so one `user_id` can get two different models until the last replica has swapped — measured **21.8 s** with 3 replicas on a default-mounted NFS RWX PVC. `model_version` in the response identifies which model answered |
 
 Enable Prometheus metrics:
 
@@ -409,6 +471,12 @@ Set `RECOTEM_METRICS_ENABLED=1` to activate the `/v1/metrics` endpoint.
 - A change is detected from the artifact pointer's mtime/size (local FS) or ETag/VersionId (object stores). When the marker changes the watcher reads the full bytes once, computes sha256, and **only reloads if the sha256 also changed** — so replacing a file with identical content bumps mtime but does not trigger an unnecessary swap.
 - Recipes directory is rescanned each tick: new `*.yaml` files trigger `recipe_discovered` + an immediate forced load; removed files trigger `recipe_removed` and the entry is dropped from the registry.
 - On any failure during reload (`artifact_load_failed`, `artifact_load_unexpected_error`), the existing entry remains served and its `last_load_error` field is set so `/v1/health` shows the staleness while the recommendation endpoints continue to return the previous good model.
+- `last_load_error` is **retracted** as soon as the watcher can show it no longer holds, and `artifact_load_error_cleared` (INFO, with `reason` and `previous_error`) records that. Three things clear it: a successful load of a new artifact; a successful stat after a stat-side failure (`reason=marker_restored` — a throttle, an IAM blip, a briefly unreachable path); and a re-read whose bytes hash to the artifact already in memory (`reason=bytes_unchanged`), which is what a **rollback** to the previous artifact looks like.
+- Two errors are deliberately **not** retracted this way. A recipe YAML that stopped parsing stays reported until it parses again — the artifact says nothing about the YAML. And a load failure recorded against the artifact that is still on disk stays until the artifact changes: the same bytes are still there, so nothing has been disproved.
+
+::: warning Alerting change: a `degraded` now means the fault is current
+Both ordinary recoveries — **retrain** and **roll back** — return `/v1/health/details` to `ok` without a restart. Drop any "restart the pod to clear it" runbook step, and drop any long `for:` duration that was chosen because the signal never self-cleared. A `degraded` that persists is a fault that is still true right now.
+:::
 
 ### Initial load failure
 
@@ -472,10 +540,16 @@ The high-signal metrics for production alerting:
 | Predict error rate | `rate(recotem_v1_requests_total{status="error"}[5m]) / rate(recotem_v1_requests_total[5m])` | warn at 1%, page at 10% |
 | Predict latency | `histogram_quantile(0.99, recotem_v1_request_latency_seconds_bucket)` | per-recipe SLO |
 | Active recipes | `recotem_active_recipes` drop > 0 since last scrape | warn |
-| BigQuery Storage API fallback | `rate(recotem_bigquery_storage_fallback_total{reason="api_error"}[5m]) > 0` | warn |
+| BigQuery Storage API fallback | the **`bigquery_storage_fallback` log event** — not a metric; see the note below | warn |
 | Recipes-dir scan failures | `rate(recotem_recipes_dir_scan_failures_total[5m]) > 0` | warn |
 
 Pair these with the structured log events `artifact_load_failed`, `artifact_disappeared`, `recipe_not_loaded_at_startup`, and `auth_invalid_key` for context on the underlying cause.
+
+::: warning `recotem_bigquery_storage_fallback_total` is not scrapeable — do not build an alert rule on it
+The counter exists in the code, but it is incremented **only by the data source**, which runs inside `recotem train` — a batch process with no HTTP server. `/v1/metrics` is served by `recotem serve`, which never fetches data. The series is therefore never populated in a scrapeable process, and a rule written against it stays permanently at zero — indistinguishable from "no fallbacks are happening".
+
+Alert on the `bigquery_storage_fallback` **log event** in your log aggregator instead; see [BigQuery Storage Read API fallback](#bigquery-storage-read-api-fallback).
+:::
 
 ---
 
@@ -497,6 +571,69 @@ It holds for a signing-key rotation, but **not across an irspack minor**. Recote
 
 Retrain those recipes on the new irspack version *first*, or upgrade train and serve together and accept the retrain window. Check [irspack version skew](#irspack-version-skew) before any upgrade that moves irspack.
 :::
+
+---
+
+## Reading `best_score`, and choosing a model
+
+### What `best_score` is, and is not
+
+`best_score` is the headline number in `recotem inspect` and in the `train_done` log line, and it is the most-misread field in the header.
+
+**It is** the winning trial's score on Recotem's own internal validation split — the recipe's `metric` at its `cutoff`, computed over `data_stats.n_heldout_interactions` interactions that were held out of the *same* interaction table by `training.split`, ranking over the *same* trained item set.
+
+**It is not** an estimate of how the model will score on your evaluation. Your task almost certainly differs on at least one of: which interactions are held out, which users are scored, which items are candidates, and which metric at which cutoff. Those are different measurements, and `best_score` is not an approximation of yours.
+
+::: warning The gap is not small, and it is not signed
+Measured against self-built holdouts, `best_score` has been observed both **over-stating and under-stating** a hand-built ndcg@10 on the same artifact — in both directions, and by amounts large enough to reverse a go/no-go decision. No correction factor is offered here, because the size of the gap is a property of how far your task sits from an internal random split, not of Recotem.
+:::
+
+Two consequences worth internalising:
+
+- **`best_score` is also the criterion that chooses which algorithm ships.** The search maximises it, so when it disagrees with your task's ranking, the disagreement is not merely reported — it is acted on. Widening `algorithms` does not fix that; it gives the search *more chances* to pick a winner your task would not have chosen. Train the candidates separately and score them on your own holdout when the choice matters.
+- **`best_score` does not measure cold start at all.** The objective is built from held-out rows of the trained matrix, so no trial ever issues a cold-item or cold-user request. When a [`features:`](./recipe-reference#features) block is present, `lambda_item_feature` / `lambda_user_feature` — the parameters that govern the feature-to-embedding map the cold-start verbs depend on — are therefore tuned on evidence that is nearly indifferent to them. Measured on one recipe and one dataset over four runs, cold-item precision@10 ranged over an **order of magnitude** while `best_score` moved by under **2%**. If you rely on the cold-start paths, validate them separately.
+
+Comparing `best_score` **between runs of the same recipe** is also weaker than it looks — see [Recipe Reference — Reproducibility](./recipe-reference#reproducibility).
+
+### Choosing a model on a small dataset
+
+This is not an error, and it is harder to spot than a degenerate model: the model that ships is personalised, it returns varied items, and its `best_score` looks like a normal number.
+
+The search picks a winner by scoring each trial on the held-out validation interactions. **`data_stats.n_heldout_interactions` in the artifact header is how many that was.** When the number is small, the ranking it produces is mostly noise, and the algorithm that wins the search is not reliably the algorithm that serves your users best.
+
+Measured on a 25-user, 118-item tenant (`heldout_ratio: 0.2`, four algorithms, `n_trials: 20`), scored against a holdout the search never saw:
+
+| Model | Search score (ndcg@10) | True recall@10 |
+|---|---|---|
+| what the search shipped | 0.2618 | **0.0600** |
+| `IALS` alone | 0.2778 | 0.2867 |
+| `CosineKNN` alone | 0.2459 | 0.3600 |
+| `RP3beta` alone — **the search ranked it last** | 0.2278 | **0.3600** |
+| popularity baseline | — | 0.0867 |
+| deterministic random | — | 0.0933 |
+
+The shipped model scored **below the popularity baseline** on real held-out data, and the algorithm the search ranked *last* was the best one. The run exited 0, `/v1/health` reported `ok`, and `:recommend` returned 200.
+
+Two things combined:
+
+- The validation set held **50 interactions**. That is not enough to separate four algorithms.
+- `n_trials` is a global budget [split evenly across algorithms](./recipe-reference#training), so four algorithms at `n_trials: 20` get five each. The same recipe with `algorithms: [IALS]` and the full 20 trials reached 0.2867 rather than 0.0600.
+
+**What to do:**
+
+1. **Read `n_heldout_interactions` before you trust `best_score`.** For scale, the shipped examples hold out 12, 60 and 803 interactions respectively. The first two are fine for learning the tool and are not a basis for choosing between algorithms.
+2. **Compare against popularity *and* a 30-line item-item cosine kNN — but first measure which baselines are alive on this run.** Print three numbers before comparing anything:
+   - how many of the top ten most-popular training items appear anywhere in your holdout — **0 of 10 means the popularity comparison is dead**, which is the normal state on a perishable catalogue (news, feeds, deals, listings);
+   - the kNN's ndcg against a deterministic random ranking — **a kNN that cannot beat random is not a bar either**, which is the normal state when the catalogue is an order of magnitude larger than the audience;
+   - **the model's own margin over that same random ranking, read as a decision rather than a ratio** — bootstrap the per-user difference and read the 95% interval, or run a sign test over the users where the two differ.
+
+   Then require the model to beat every baseline that survived its own check, **and** to beat the random ranking by a margin whose interval excludes zero. **Both baselines can be dead at once**, and then only the random check has content — a large margin over a dead baseline is an undefined ratio, not a pass.
+
+   The kNN, in full: binarise the user × item matrix, normalise the columns, take `Sᵢⱼ = cos(i, j)` with a zero diagonal, keep each item's top ~200 neighbours, score a user as `X[u] @ S`, and exclude what they already interacted with.
+3. **Narrow `algorithms` when the budget is small**, or raise `n_trials` so each algorithm still gets a meaningful number of trials.
+4. **Prefer one model over many tiny ones.** A per-tenant recipe for every small customer is the pattern that produces this failure; pooling small tenants into one model, where that is acceptable, gives the search something to work with.
+
+Recotem does not warn about this on its own. Any threshold that flagged the tenant above would also flag the shipped tutorials, so the number is reported rather than judged — the judgement is yours.
 
 ---
 
@@ -591,7 +728,7 @@ recotem train recipe.yaml 2>&1 | grep '"event":"train_error"' | jq .
 
 #### BigQuery Storage Read API fallback
 
-When the service account lacks `bigquery.readSessions.create`, the BigQuery source logs a `bigquery_storage_fallback` warning and falls back to the slower REST API. To grant the permission:
+When the service account lacks `bigquery.readSessions.create`, the BigQuery source logs a `bigquery_storage_fallback` warning and falls back to the slower REST API. The same event is logged, with a different `reason`, when `google-cloud-bigquery-storage` is not installed at all. Monitor for this **log event** in your aggregator — sustained fallbacks mean a missing IAM permission or a missing extra. This is a log-only signal; `recotem_bigquery_storage_fallback_total` is not scrapeable (see [Monitoring SLIs](#monitoring-slis)). To grant the permission:
 
 ```bash
 gcloud projects add-iam-policy-binding <PROJECT_ID> \
@@ -645,6 +782,32 @@ Recotem deliberately does not coerce the id column for you. By the time the fram
 ::: tip Only zero overlap aborts
 Partial coverage is legitimate and expected: an id absent from the feature table encodes to bias-only and degrades to plain iALS for that one entity, which is the same mechanism that makes cold-start scoring possible. There is deliberately no low-coverage warning threshold — a dtype or `id_column` mistake is a property of the whole column and always lands at exactly 0%, so any threshold above zero would fire on correct configurations. Alert on the `feature_axis_coverage` event (`side`, `matched`, `total`) yourself if you want to track coverage.
 :::
+
+### recotem train exits 4 with feature_table_error
+
+Every declared feature column on **one side** encoded to nothing, so that side collapsed to the implicit bias column alone. Training refuses rather than sign an artifact that advertises features for what is really plain iALS.
+
+Three routes reach it, and the message names which:
+
+- **`min_frequency` pruned every token.** The usual cause after raising it to fit under `RECOTEM_MAX_FEATURE_DIM`. Lower it, or declare a second column so the side survives on that one — see [`min_frequency`](./recipe-reference#min-frequency-is-the-dimension-cap-lever).
+- **A lone `numerical` column has zero variance.** Every row carries the same value, so standardization leaves nothing to encode.
+- **The feature table's values are all null** for the declared columns.
+
+::: warning `recotem validate` does not predict this
+The vocabulary is only known once the table has been read, so validation passes at **exit 0** in all three cases. Its sibling `feature_axis_error` (zero id overlap) is a different failure — see the entry above.
+:::
+
+### Recipe file present but the endpoint 404s and /v1/health does not count it
+
+Check the file extension. `--recipes <dir>` enumerates only **direct `*.yaml` children** of the directory. A `*.yml` file is not a recipe file as far as Recotem is concerned: it is not loaded, it is **not** reported under `skipped` (that count is for `*.yaml` files that failed to parse), and **nothing is logged** about it — the loader simply never sees it. A directory holding only `.yml` files therefore looks exactly like an empty directory:
+
+```json
+{"status": "ok", "total": 0, "loaded": 0}
+```
+
+and every verb on the recipe returns `404` with `{"code": "RECIPE_NOT_FOUND"}`. Rename the file to `.yaml`.
+
+The same applies to recipes in subdirectories — enumeration is non-recursive — and to symlinks that resolve outside `<dir>`, except that a rejected symlink *is* reported. See [Recipe Reference — Loading a directory of recipes](./recipe-reference#loading-a-directory-of-recipes).
 
 ### 401 on recommendation endpoints
 

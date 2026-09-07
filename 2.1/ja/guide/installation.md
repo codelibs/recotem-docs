@@ -13,6 +13,16 @@ Recotem には **Python 3.12 以上** が必要です。インストール方法
 pip install recotem
 ```
 
+::: warning 注意 — `pip install recotem` が完了できないプラットフォームがあります
+Recotem が依存する irspack は、**Linux の x86-64 と arm64** (glibc または musl)、**Apple Silicon の macOS**、**x86-64 の Windows** 向けにしかホイールを公開しておらず、**ソースディストリビューションも配布していません**。そのため **Intel の macOS** と **arm64 の Windows** では、pip がインストールできるものもビルドできるものも存在せず、次のエラーで失敗します。
+
+```
+ERROR: No matching distribution found for irspack==0.5.2
+```
+
+コンパイラやビルドフラグでは回避できません。代わりに[オプション B — Docker](#オプション-b-—-docker) を使ってください。イメージはこれらのプラットフォームすべてで動作します。
+:::
+
 インストールが成功したか確認します。
 
 ```bash
