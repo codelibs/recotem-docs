@@ -66,7 +66,7 @@ When `source.path` uses `s3://`, `gs://`, `az://`, or `abfs(s)://`, the Pod's am
 | Credential injection via recipe env expansion | `RECOTEM_SIGNING_KEYS`, `RECOTEM_API_KEYS`, `*_SECRET*`, `*_PASSWORD*`, `*_TOKEN*`, `*_KEY*`, and cloud prefixes (`AWS_*`, `GCP_*`, `GOOGLE_*`, `AZURE_*`, `ALIYUN_*`, `ALICLOUD_*`, `OCI_*`, `IBM_*`, `DO_*`, `HCLOUD_*`, `DIGITALOCEAN_*`) are blacklisted from `${...}` expansion |
 | SQL injection via recipe | Env expansion never performed inside `source.query`; dynamic values must use `@param` BigQuery placeholders |
 | Path traversal via recipe | `name` validated with `^[A-Za-z0-9_-]{1,64}$` at load and before every filesystem use; artifact root confinement via `RECOTEM_ARTIFACT_ROOT` |
-| Tampered or rotated network-fetched data | `sha256` integrity pin is **mandatory** on `source.path` / `item_metadata.path` when the scheme is `http://` or `https://`; mismatch raises `DataSourceError` (exit 3) before the bytes reach the parser |
+| Tampered or rotated network-fetched data | `sha256` integrity pin is **mandatory** on `source.path` / `item_metadata.path` when the scheme is `http://` or `https://`; mismatch raises `DataSourceError` (exit 7 — the pin is the closing step of the HTTP fetch pipeline, so the failure is chained and reported alongside the redirect, timeout and byte-cap failures of the same fetch) before the bytes reach the parser |
 | Resource exhaustion via giant network fetch | `RECOTEM_MAX_DOWNLOAD_BYTES` (default 256 MiB) caps the raw I/O body during fetch; cap exceeded → `DataSourceError` mid-stream. Does NOT cap the decompressed DataFrame — see [Decompressed-size cap not enforced](#decompressed-size-cap-not-enforced-medium-5) |
 | Plaintext HTTP source on the public internet | Operator policy. `http://` is allowed (legitimate inside trusted networks) but operators MUST avoid plaintext on the public internet; sha256 mitigates content tampering for any reachable response |
 | Unrecognised plugin loading arbitrary code | Conflicting plugin `type_name` fails startup; installed plugins are treated as trusted code (pin versions) |
@@ -284,7 +284,7 @@ The FQCN allow-list in `SafeUnpickler.find_class` is a secondary layer that oper
 
 The allow-list is frozen per irspack 0.5.x. If irspack adds or renames recommender classes, the list is updated and the change is called out in that release's [GitHub Release notes](https://github.com/codelibs/recotem/releases).
 
-The FQCN allow-list permits only these classes. Any other class outside both this list and the module-prefix allow-list triggers `ArtifactError` before construction:
+The hand-enumerated FQCN allow-list holds the **41** classes below. They are not the whole permitted set: a trained recommender is not a single object, so the pickle graph also carries the trainer, config and enum classes it holds as attributes, and for two algorithms an embedded third-party estimator. **Five** further FQCNs are admitted through a separate `_DENY_PREFIX_EXEMPTIONS` set — described with the deny-list below — for a permitted total of **46**. Any class outside the whole permitted set and the module-prefix allow-list triggers `ArtifactError` before construction:
 
 ```
 recotem._idmap.IDMappedRecommender
@@ -317,15 +317,28 @@ builtins.complex
 builtins.set
 builtins.frozenset
 collections.OrderedDict
+irspack.recommenders.ials.IALSTrainer
+irspack.recommenders.ials.IALSConfigScaling
+irspack.recommenders._ials_core.IALSTrainer
+irspack.recommenders._ials_core.IALSModelConfig
+irspack.recommenders._ials_core.IALSSolverConfig
+irspack.recommenders._ials_core.LossType
+irspack.recommenders._ials_core.SolverType
+irspack.recommenders.knn.FeatureWeightingScheme
+irspack.recommenders.bpr.BPRFMTrainer
+sklearn.decomposition._truncated_svd.TruncatedSVD
+lightfm.lightfm.LightFM
 ```
+
+The last two are third-party estimators, not irspack classes: `TruncatedSVDRecommender` pickles a scikit-learn estimator into the payload and `BPRFMRecommender` (the `bprfm` extra) pickles a LightFM model, so loading either recommender's artifact constructs them. They widen the allow-list beyond the scientific stack, and scikit-learn is an unguarded compatibility axis — see the feature-encoding note above.
 
 This list is frozen per Recotem release. Changes are called out in that release's [GitHub Release notes](https://github.com/codelibs/recotem/releases).
 
 In addition to the FQCN list, classes whose defining module sits under
-one of the following narrow prefixes are permitted via the prefix
-allow-list (numpy and scipy reorganise their internal layout between
-releases — reconstruction helpers like `_reconstruct` move between
-submodules):
+one of the following narrow prefixes **and** whose leaf name is one of six
+known reconstruction helpers are permitted via the prefix allow-list (numpy
+and scipy reorganise their internal layout between releases — reconstruction
+helpers like `_reconstruct` move between submodules):
 
 ```
 numpy._core.       numpy 2.x reconstruction helpers + scalar / dtype machinery
@@ -336,6 +349,15 @@ scipy.sparse._coo. COO equivalent
 ```
 
 `numpy.dtypes` is **not** on this list. numpy 2.x parametric dtype classes (`Float64DType`, `BoolDType`, …) live directly in that module, and a prefix entry ending in a dot only matches sub-modules, so an entry for it would match nothing. Nothing needs it: numpy round-trips arrays and dtypes through the hand-enumerated `numpy.dtype` plus `numpy._core.multiarray._frombuffer`. If a future numpy starts emitting those FQCNs, the individual classes belong in the hand-enumerated list — widening the prefix list to the whole module would also admit its two non-class callables.
+
+A prefix match alone is **not** sufficient. The leaf name must also be one
+of six known reconstruction-helper names — `_reconstruct`, `scalar`,
+`_frombuffer`, `csr_matrix`, `csc_matrix`, `coo_matrix` — and anything else
+under an allowed prefix is refused. Without that second gate a prefix would
+admit every attribute of every submodule beneath it, including
+`numpy._core._multiarray_tests.npy_import_entry_point`, a getattr-by-string
+that returns any `module:attr` as a value, and `numpy._core.memmap.memmap`,
+an arbitrary file create/truncate primitive. Both are refused today.
 
 The bare top-level modules (`numpy`, `scipy.sparse`) are intentionally
 **not** on the prefix list. The legitimate top-level FQCNs
@@ -354,11 +376,32 @@ the prefix allow-list:
   `numpy.lib`, `numpy.compat`, `numpy.random`, `numpy._core._exceptions`
 - `scipy.sparse.linalg`, `scipy.sparse.tests`, `scipy.sparse.csgraph`
 
-`numpy.random` is denied defensively: RNG state objects are not needed in
-Recotem artifacts, and a future numpy release could introduce a
-reduce-callable in that module with side-effects. Any legitimate RNG class
-required by a future irspack version should be added by exact FQCN to the
-hand-enumerated allow-list rather than widening the deny-list.
+`numpy.random` is denied defensively: a future numpy release could introduce
+a reduce-callable in that module with side-effects.
+
+The deny-list is not absolute. A separate, deliberately tiny exemption set —
+`_DENY_PREFIX_EXEMPTIONS` — is consulted **before** it, and is the only thing
+that outranks it. It currently holds five FQCNs, all under `numpy.random`:
+
+```
+numpy.random._pickle.__randomstate_ctor
+numpy.random._pickle.__bit_generator_ctor
+numpy.random._mt19937.MT19937
+numpy.random.bit_generator.SeedSequence
+numpy.random.bit_generator.__pyx_unpickle_SeedSequence
+```
+
+They exist because LightFM seeds itself with a numpy `RandomState` and keeps
+it as an attribute, so the trainer embedded in every `BPRFMRecommender`
+artifact drags in the RNG-state pickle graph. All five reconstruct RNG
+*state* and none accepts a caller-supplied callable, so none is a gadget. The
+rest of `numpy.random` stays denied.
+
+Note the ordering consequence: the deny-list is checked **after** the
+exemption set but **before** `_ALLOWED_CLASSES`, so adding an exact FQCN to
+the hand-enumerated allow-list does **not** re-permit a denied module. A
+legitimate RNG class required by a future irspack version has to go into the
+exemption set, where the bypass is visible in the diff.
 `numpy._core._exceptions` is denied to shrink the internal attack surface
 exposed through the broad `numpy._core.*` prefix allow-list.
 
@@ -658,7 +701,8 @@ value.
 - **Generation**: `recotem keygen --type signing` derives keys from
   `os.urandom(32)`, i.e. 256 bits of OS entropy. Reject any operator
   attempt to use a shorter or non-random value — `KeyRing` enforces exactly
-  32 bytes after hex-decoding and refuses anything else with `ArtifactError`.
+  32 bytes after hex-decoding and refuses anything else with `ArtifactError`
+  (`KeyRingConfigError`, exit 8).
 - **Storage**: same controls as `RECOTEM_API_KEYS` (see [Secrets handling](#secrets-handling)
   above). On a multi-tenant host, prefer a secrets manager that injects
   the env var at process start rather than a static `.env` file.

@@ -178,7 +178,7 @@ Exit code mapping for `restartPolicy: OnFailure`:
 | 2 | RecipeError | No retry (config bug; fix the ConfigMap) |
 | 3 | DataSourceError | No retry typically (CSV/Parquet format error, missing required column, local-FS path not found — persistent) |
 | 4 | TrainingError | Retry up to `backoffLimit` |
-| 5 | ArtifactError | No retry (signing key config issue; fix Secret) |
+| 5 | ArtifactError | No retry (artifact corrupt or unverifiable — HMAC mismatch, unknown kid, truncated payload; retrain). A malformed `RECOTEM_SIGNING_KEYS` entry exits 8, not 5. |
 | 6 | LockContestedError (`--fail-on-busy` set) | Retry or let orchestrator route |
 | 7 | HttpFetchError | Retry (transient HTTP/SSRF/timeout/sha256 mismatch/body cap on network fetch) |
 | 8 | Configuration error | No retry (missing signing keys, bad env) |

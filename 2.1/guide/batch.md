@@ -27,7 +27,7 @@ Add an entry to `/etc/cron.d/recotem`. Load secrets from a separate file so sign
 
 ```bash
 # /etc/recotem/secrets — mode 600, owned by the service user
-RECOTEM_SIGNING_KEYS=prod-2026-q2:aabbcc...
+export RECOTEM_SIGNING_KEYS="prod-2026-q2:aabbcc..."
 ```
 
 ```cron
@@ -45,6 +45,15 @@ chmod 600 /etc/recotem/secrets
 chown recotem:recotem /etc/recotem/secrets
 ```
 
+::: tip
+The cron line **sources** that file with `.`, so it needs `export` — without it
+the assignment stays in the sourcing shell and `recotem train` starts with no
+`RECOTEM_SIGNING_KEYS` and exits 8. systemd's `EnvironmentFile=` is the
+opposite: it reads plain `KEY=VALUE` pairs, not shell syntax, and would take a
+leading `export ` as part of the variable name. The timer below therefore uses a
+separate file. See [Cron and systemd](/2.1/docs/deployment/cron-systemd).
+:::
+
 ### systemd timer
 
 A systemd timer gives better logging (via journald) and handles missed runs cleanly:
@@ -59,7 +68,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=recotem
-EnvironmentFile=/etc/recotem/secrets
+# Plain KEY=VALUE pairs, no `export` — see the tip above.
+EnvironmentFile=/etc/recotem/secrets.env
 ExecStart=/usr/local/bin/recotem train /etc/recotem/recipes/my_recipe.yaml
 StandardOutput=journal
 StandardError=journal
@@ -177,7 +187,9 @@ Set `concurrencyPolicy: Forbid` so overlapping runs are skipped rather than runn
 
 By default, when the lock is already held by another process, `recotem train` exits 0 with a log event called `recipe_lock_contended_skipping`. The Kubernetes Job sees a successful exit — which is correct behavior for cron (a slow run should not pile up duplicate jobs). If you need visibility into skipped runs, point your alerting at the structured log event rather than the exit code, or pass `--fail-on-busy` to make lock contention exit 6 instead.
 
-**Important:** Recotem's file lock is host-local. With an `s3://` or `gs://` artifact path, it does not prevent concurrent writes from a second pod. Use `concurrencyPolicy: Forbid` (already set in the example above) to enforce single-writer semantics at the Kubernetes layer.
+::: warning
+Recotem's file lock is host-local. With an `s3://` or `gs://` artifact path, it does not prevent concurrent writes from a second pod. Use `concurrencyPolicy: Forbid` (already set in the example above) to enforce single-writer semantics at the Kubernetes layer.
+:::
 
 ---
 
