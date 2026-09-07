@@ -43,6 +43,12 @@ Trailing or leading whitespace in the `X-API-Key` header is treated as part of t
 
 Recipe names used as path parameters must match `^[A-Za-z0-9_-]{1,64}$`. Paths with a name that does not match are rejected by the router — depending on how the URL parses, the response is either `404 Not Found` or `422 Unprocessable Entity`.
 
+::: warning Brace the variable when the recipe name comes from a shell variable
+In zsh, `$NAME:recommend` is read as the `:r` history modifier — "strip the extension" — and silently becomes `NAMEecommend`. Quoting does **not** help: `"$NAME:recommend"` is mangled the same way. Only `"${NAME}:recommend"` is safe.
+
+The mangled path still matches `GET /v1/recipes/{name}`, so a `POST` to it comes back **405 Method Not Allowed** — which reads exactly like a missing route. **If a verb 405s, suspect the shell before the server.** A `422` carrying Pydantic field errors is proof that the POST route was reached. Literal recipe names in a URL are unaffected, which is why every example on this page works as printed.
+:::
+
 ## Endpoints
 
 ### Recommendation
@@ -649,6 +655,25 @@ curl -s http://localhost:8080/v1/metrics \
 
 ---
 
+## Item exclusion
+
+`exclude_items` is a **post-filter, not a constraint on the ranker.** The model is asked for exactly `limit` items, and any of those that appear in `exclude_items` are then dropped. Excluded items are **not** backfilled, so a response can be **shorter than `limit`** — by however many of the excluded ids happened to rank inside the top `limit`:
+
+```
+limit=5, no exclude          -> 5 items  ["40", "3", "beta", "mmm", "aaa"]
+limit=5, excluding the top 2 -> 3 items  ["beta", "mmm", "aaa"]
+```
+
+This is the behaviour on all four inference verbs, including each element of the two batch verbs. Ids in `exclude_items` that the model never ranked are simply no-ops.
+
+::: warning Plan for the shortfall client-side
+The common case — "don't recommend what this user already bought" — is exactly the case where exclusions are *likely* to rank highly, so a short response is not a rare edge. If you need a full page of `n` items, request `limit = n + len(exclude_items)` and trim the response yourself. There is no server-side option to backfill.
+:::
+
+Note the contrast with `:recommend-related`'s own seed handling: the seed items *are* removed inside the ranker, so it **does** backfill around them and you still get `limit` items. Seed removal is the server's own business and is invisible in the count; a client-requested `exclude_items` is not.
+
+---
+
 ## Feature-aware cold start
 
 `user_features` and `item_features` are only meaningful against a model trained with a [`features:`](./recipe-reference#features) block. They are accepted (and validated) on every model, but a model with no matching feature state — or whose search winner is not feature-capable — responds `400 FEATURES_NOT_SUPPORTED` rather than silently ignoring the field or guessing.
@@ -720,6 +745,20 @@ Clamping the standardized magnitude before it reaches the solver — which would
 
 Training is unaffected either way: the same value flowing through training-time encoding is untouched by this guard, which only wraps the serve-time cold-start solve. Training has its own, much stronger bound — a numerical column's training-time mean/std are computed from the same values being standardized, so an outlier inflates the very std it is divided by. Serve-time has no such self-bound, because the request's value is standardized against a std fit without it.
 
+### A cold-start `score` is uncalibrated — rank it, do not threshold it
+
+A cold-start `score` is an uncalibrated similarity. **Its magnitude is not comparable with a warm `:recommend` score from the same model, it is not stable across training runs of the same recipe, and it is not stable across requests.** Rankings are unaffected: the ordering within one response is meaningful, the absolute numbers are not.
+
+The last of those is the one that surprises people. Cold-start scoring is an iterative solve, and it does not reproduce bit-for-bit even for one loaded artifact answering an identical request twice. Measured over ten identical `:recommend-related` calls with inline `item_features` against a single running server, **nine returned a different score vector** (top score varying by ~2e-4 relative) while the item order was identical every time. It is not a threading artifact — it persists at `IRSPACK_NUM_THREADS_DEFAULT=1` and in single-process repetition.
+
+Instability across *training runs* has a separate cause: the feature ridge `lambda_item_feature` / `lambda_user_feature` is Optuna-searched over `[1, 1e6]`, the cold-start score falls roughly as `1/lambda`, and the search objective is flat across the top decades of that range — so two runs of one unchanged recipe can land orders of magnitude apart in cold-start score while scoring identically on the metric you asked them to optimise.
+
+::: danger Do not persist, diff, or assert on a cold-start score
+Do not cache cold-start scores, do not diff them between deploys, do not set a numeric relevance threshold on them, and do not assert on them in tests. Do not persist one as a feature for a downstream model that will see a differently-tuned artifact after the next retrain. Sort by `score`, take the top *k*, show them.
+
+Warm `:recommend` and `:recommend-related` from a known seed **are** bit-stable; only the cold paths move.
+:::
+
 ### Length and size bounds on cold-start fields
 
 A cold-start feature mapping is bounded on three axes, each rejected before the model is consulted:
@@ -771,6 +810,18 @@ All error responses use a flat JSON body with at minimum `detail` (human-readabl
 ```json
 {"detail": "internal error", "code": "INTERNAL_ERROR", "request_id": "a1b2c3d4e5f6"}
 ```
+
+::: warning `code` is absent on the three responses that never reach a route
+Every error a `/v1` route returns carries `code`. Three responses do not come from a route at all — they are produced before routing or inside the middleware — and carry `detail` alone, or no JSON whatsoever:
+
+| Response | Body |
+|---|---|
+| `GET /v1/metrics` when metrics are disabled | `{"detail": "Not Found"}` |
+| An unknown verb, e.g. `POST /v1/recipes/{name}:frobnicate` | `{"detail": "Method Not Allowed"}` |
+| A `Host:` header outside `RECOTEM_ALLOWED_HOSTS` | `Invalid host header` — **plain text, 400**, not JSON |
+
+Read `body.get("code")`, not `body["code"]`. A client that indexes the key directly raises on exactly the three failures that are hardest to diagnose from the client side.
+:::
 
 ### Error Codes
 

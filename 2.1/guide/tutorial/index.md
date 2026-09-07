@@ -117,8 +117,10 @@ The last log line should look like:
 
 ```json
 {"event":"train_done","name":"purchase_log","exit_code":0,
- "artifact":"./artifacts/purchase_log....recotem","best_class":"IALSRecommender"}
+ "artifact":"/workspace/artifacts/purchase_log.<sha8>.recotem","best_class":"IALSRecommender"}
 ```
+
+The `artifact` field is always an **absolute** path, even though the recipe writes `output.path: ./artifacts/purchase_log.recotem` — the path is resolved against the process working directory before it is logged. In the compose file that working directory is `/workspace`, so the relative recipe path lands under `/workspace/artifacts/`. Use this field, not the recipe text, when a script needs to find the file that was just written.
 
 ### Step 3 — Serve
 
@@ -162,6 +164,19 @@ Expected response shape (exact scores and digest vary by training run):
 ```
 
 `model_version` is `sha256:` followed by the 64-character hex SHA-256 of the loaded artifact — the same digest is also returned in the `X-Recotem-Model-Version` response header so clients can record exactly which model version produced each prediction.
+
+### Step 4b — Recommend related items
+
+`:recommend` answers "what should *this user* see next". The other single-item verb, `:recommend-related`, answers "what goes with *this item*" — the query behind a "related products" widget or a content carousel. It takes seed items instead of a user, so it works for a visitor you have never seen:
+
+```bash
+curl -sX POST http://localhost:8080/v1/recipes/purchase_log:recommend-related \
+  -H "X-API-Key: $RECOTEM_API_PLAINTEXT" \
+  -H "Content-Type: application/json" \
+  -d '{"seed_items": ["42"], "limit": 5}' | python3 -m json.tool
+```
+
+Use any `item_id` from the Step 4 response as the seed. The response has the same shape as `:recommend`, and the seed items themselves never appear in it. See [Serving API](/2.1/docs/serving-api#post-v1-recipes-name-recommend-related) for the full field list.
 
 ### Step 5 — Tear down
 

@@ -142,6 +142,8 @@ cleansing:
 
 Violation of any `min_*` threshold exits with code 4 and `"code": "min_data_violation"` in the JSON error line.
 
+A **completely empty** fetch is handled earlier and separately: a source that returns zero rows exits **3** (`DataSourceError`), regardless of whether `min_rows` is set. The `min_*` checks are for "not enough data to train well"; a zero-row result is a data-source outcome, not a threshold violation. The message differs by which layer noticed — `csv` checks for itself and reports `CSV file '<path>' is empty (no data rows after header).`, while `parquet`, `bigquery`, `sql` and plugins are caught by the pipeline's shared guard and report `source '<type>' returned no rows for recipe '<name>'` — so **branch on the exit code, not on the message text**.
+
 `dedup` values:
 
 | Value | Behaviour |
@@ -174,6 +176,35 @@ item_metadata:
 | `item_id_column` | string | `"item_id"` | Column name in the metadata file that holds item identifiers. Override when your metadata file uses a different column name (e.g. `product_id`). Must be a non-empty, non-whitespace string. |
 
 Server-side field suppression is also available via `RECOTEM_METADATA_FIELD_DENY` (comma-separated column names). Listed columns are dropped from the metadata index at load time, so they never appear on any recommendation response.
+
+::: tip This is the one block `recotem validate` reads in full
+`source` and `features.*.source` are probed for reachability and declared columns only, because a BigQuery scan is billed and a large CSV is slow. `item_metadata:` is read **in full**, because it is a serve-time join that `train` never touches — without that read a broken metadata block would pass `validate` *and* `train` (both exit 0, artifact signed) and first appear when `serve` starts and the recipe registers `loaded: false`. Metadata files are catalog-sized, and the read is capped by `RECOTEM_MAX_DOWNLOAD_BYTES`.
+:::
+
+### `csv` returns every field as a string; `parquet` preserves types
+
+`type:` is not only a question of where the file lives. The CSV metadata loader reads with `dtype=str` and `keep_default_na=False`, so **every metadata value reaches the API as a JSON string**, and an empty cell arrives as `""` rather than `null`. Parquet carries its schema, so the same data comes back typed:
+
+| Column (same source data) | `type: csv` | `type: parquet` |
+|---|---|---|
+| `price` | `"11.49"` | `11.49` |
+| `stock` | `"1"` | `1` |
+| `in_stock` | `"True"` / `"False"` | `true` / `false` |
+| missing `rating` | `""` | `null` |
+
+::: danger The boolean case bites silently
+`"False"` is a non-empty string, which is truthy in JavaScript and in Python alike, so the ordinary client-side filter
+
+```js
+if (item.in_stock) show(item)          // shows every item, CSV metadata
+```
+
+lets out-of-stock items through — with nothing wrong visible in the response, the logs, or the model. Numeric comparisons fail the same way, ordering `"9"` after `"10"`.
+
+Switching `type: csv` to `type: parquet` on the same data changes the response contract without changing anything else: not the rest of the recipe, not `model_version`, not anything visible in `GET /v1/recipes/{name}`.
+:::
+
+The CSV behaviour is deliberate — inferred dtypes would make an id-like column such as `"0042"` arrive as `42` — but it is not what a reader of the field table above would assume. If your consumers need numbers and booleans, use `parquet`, or coerce in the client.
 
 ---
 
@@ -350,7 +381,7 @@ training:
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `algorithms` | list[string] | required | `IALS`, `CosineKNN` (alias `CosinekNN`), `TopPop`, `RP3beta`, `DenseSLIM`, `TruncatedSVD`, and `BPRFM` (**requires the `bprfm` extra** — without it `validate` and `train` both exit 4 with `irspack does not know recommender class 'BPRFMRecommender'`, before any data is fetched; see [Installation](/2.1/guide/installation#optional-extras)). **A BPRFM recipe cannot answer `:recommend-related` or `:batch-recommend-related`** — it is the only supported algorithm without `get_score_cold_user`, so those two verbs return `501 RELATED_NOT_SUPPORTED`; see [Serving API](/2.1/docs/serving-api#post-v1-recipes-name-recommend-related). Full irspack class names (e.g. `IALSRecommender`) are also accepted. Hyperparameter ranges come from each recommender's `default_suggest_parameter` in irspack — they are not user-tunable from the recipe. |
+| `algorithms` | list[string] | required | `IALS`, `CosineKNN` (alias `CosinekNN`), `TopPop`, `RP3beta`, `DenseSLIM`, `TruncatedSVD`, and `BPRFM` (**requires the `bprfm` extra** — without it `validate` and `train` both exit 4 with `irspack does not know recommender class 'BPRFMRecommender'`, before any data is fetched; see [Installation](/2.1/guide/installation#optional-extras)). **A BPRFM recipe cannot answer `:recommend-related` or `:batch-recommend-related`** — it is the only supported algorithm without `get_score_cold_user`, so those two verbs return `501 RELATED_NOT_SUPPORTED`; see [Serving API](/2.1/docs/serving-api#post-v1-recipes-name-recommend-related). Full irspack class names (e.g. `IALSRecommender`) are also accepted, and names are matched case-insensitively — so `[IALS, ials]` names one algorithm twice. Duplicates collapse to their first occurrence and a `duplicate_algorithms_collapsed` warning is logged, keeping the whole `n_trials` budget on the distinct algorithms. Hyperparameter ranges come from each recommender's `default_suggest_parameter` in irspack — they are not user-tunable from the recipe. |
 | `metric` | string | `ndcg` | One of `ndcg`, `map`, `recall`, `hit`. |
 | `cutoff` | int | `20` | Recommendation list length for evaluation (must be ≥ 1). |
 | `n_trials` | int | `40` | Total Optuna trial budget (must be ≥ 1). |
@@ -360,9 +391,45 @@ training:
 | `parallelism` | int | `1` | Optuna `n_jobs` (Python threads, not processes). **Whether it helps depends on the algorithm, and for IALS it reliably costs.** irspack's native learners already parallelise internally — an IALS trial runs at ~8 cores of its own accord — so Optuna's threads stack on top and oversubscribe the machine. Measured on a 100k-row fixture with `n_trials: 20` on a 16-core host, `parallelism: 1` averaged **10.15 s** and `parallelism: 4` averaged **14.99 s** — 1.48× *slower*. The other algorithms are the opposite case: their trials are short and leave room. Median wall time at `parallelism: 1` vs `8` on the same fixture — `CosineKNN` 3.66 s → 1.99 s (**1.84×**), `RP3beta` 4.07 s → 2.15 s (**1.89×**), `DenseSLIM` 4.81 s → 3.38 s (1.42×), `TruncatedSVD` 5.29 s → 4.03 s (1.31×); `TopPop` is unchanged because a trial is already trivial. Peak RSS rises with the concurrency, so the gain is bought with memory. **Leave it at `1` whenever `algorithms` contains `IALS`**, which is the default shape of most recipes; raise it only for an IALS-free search where wall time matters, accepting the loss of reproducibility. |
 | `storage_path` | string | `""` | Empty = in-memory (no resume). A bare path becomes a SQLite URL (`sqlite:///<path>`); explicit `sqlite://`, `postgresql+psycopg://`, `mysql+pymysql://`, and `mariadb+pymysql://` URLs are also accepted. **The `+driver` suffix is required here too** — this URL goes straight to Optuna's `RDBStorage`, which has no driver preflight of its own, so a bare `postgresql://` or `postgres://` cannot work. Since 2.1.0 neither reaches Optuna: a pre-flight in `recotem validate` and in `recotem train` (before any data is fetched) exits **8** with `code: storage_path_unusable` and names the dialect, the spelling to use, and the extra to install. **The driver extra must also be installed** (`recotem[postgres]` / `recotem[mysql]`): `sqlalchemy` arrives transitively via Optuna so the URL parses either way, and a missing extra and a wrong spelling produce *different* pre-flight messages, each naming its own remedy — see [Operations](./operations#concurrent-training-and-persistent-search-storage). Study name is `recotem_<recipe_name>_<run_id>` and `load_if_exists=True`, so a fresh `run_id` per train invocation always starts a new study (resume requires reusing the same `run_id` — pass `recotem train --run-id <stable>`). **SQLite over NFS corrupts** — keep SQLite databases on a local filesystem. **URLs must not embed userinfo at all** — not only `user:pass@`, but a bare `user@` as well. Both are refused by the same pre-flight, so they report exit **8** with `code: storage_path_unusable` at `recotem validate` time (not `SearchError`/exit 4, which the pre-flight now runs ahead of). The reason is that credentials in a study URL end up in SQLAlchemy exception traces, which the log redaction processor cannot reach because it redacts by dict key. Write the URL with no `user@` part and supply the identity from the environment: for PostgreSQL, `PGUSER` for the user and `PGPASSFILE` / `~/.pgpass` for the password. pymysql reads no user or password variable, so a `mysql` / `mariadb` study backend must accept the OS account the training process runs as — if it cannot, use a PostgreSQL backend or a local SQLite path. |
 | `split.scheme` | string | `random` | `random`, `time_global`, or `time_user`. See semantics below. |
-| `split.heldout_ratio` | float | `0.1` | Fraction of interactions held out. Must be in (0, 1). |
+| `split.heldout_ratio` | float | `0.1` | Fraction of interactions held out. Must be in (0, 1). Applied **per user and floored**, so a user with fewer than `1 / heldout_ratio` distinct items contributes nothing — see [Per-user holdout depth](#per-user-holdout-depth). |
 | `split.test_user_ratio` | float | `1.0` | Fraction of users included in the test split. Must be in (0, 1]. |
-| `split.seed` | int | `42` | Random seed for the split (passed to irspack as `random_state`). |
+| `split.seed` | int | `42` | Random seed for the split (passed to irspack as `random_state`). **Not sufficient on its own for a reproducible run** — see [Reproducibility](#reproducibility). |
+
+### How the parallelism numbers move with the catalogue
+
+The per-algorithm figures in the `parallelism` row were measured on one 100k-row fixture. Two of them are **not** stable properties of the algorithm — they scale with the item count, because a `DenseSLIM` trial's working set is an `n_items × n_items` dense matrix and every concurrent Optuna thread builds its own:
+
+| Fixture | Items | Speedup at `parallelism: 8` | Peak RSS ratio |
+|---|---|---|---|
+| 100k rows | 1,000 | 1.39× | 1.57× |
+| 1M rows | 5,000 | **5.49×** | **3.59×** |
+
+A 5× larger catalogue moved the speedup from 1.4× to 5.5× and the memory cost from 1.6× to 3.6×. **Size on `n_items² × 8 × parallelism` bytes** for the dense matrices — roughly 200 MB per thread at 5,000 items and 8 GB per thread at 32,000 — not on the ratio in the table above.
+
+The same caution runs the other way: `CosineKNN` and `RP3beta` measured 3.6× and 3.7× on an independent 100k-row fixture against the 1.84× / 1.89× quoted above. Treat all of these as order-of-magnitude guidance and measure your own recipe before committing to a host size.
+
+::: tip Measure on a quiet machine
+The same `TruncatedSVD` comparison returned 1.24× on an idle host and 0.98× — no benefit at all — on the same host under heavy external load, because the `parallelism: 8` arm is the one that loses when the cores are already taken. A parallelism measurement on a busy box understates the benefit.
+:::
+
+### Two reasons an even split wastes budget
+
+Leaving `per_algorithm_trials` unset splits `n_trials` evenly. Two things make that a poor default.
+
+**A budgeted slot is spent whether the trial completes or is pruned, and only `IALS` can be pruned.** Pruning needs intermediate values, and `IALS` is the only algorithm here that reports them. Slots are pre-enqueued once per algorithm before the study runs, so a pruned trial is **not** re-enqueued: it consumes one of that algorithm's slots and returns nothing. Measured with `IALS: 20` and four rivals at `5` each, `IALS` explored **12 of its 20** budgeted configurations while every rival got 100% of its. Budget `IALS` above the number of configurations you actually want explored.
+
+**The algorithms do not have comparable amounts to search.** Trials are what a sampler needs to cover a search space, and these spaces differ by a factor of four in dimension:
+
+| Algorithm | Tunable hyperparameters |
+|---|---|
+| `TopPop` | 0 |
+| `DenseSLIM` | 1 (`reg`) |
+| `TruncatedSVD` | 1 (`n_components`) |
+| `IALS` | 3 (`n_components`, `alpha0`, `reg`) — plus `lambda_*_feature` per configured side when [`features`](#features) is set |
+| `RP3beta` | 3 (`top_k`, `beta`, `normalize_weight`) |
+| `CosineKNN` | 4 (`top_k`, `shrinkage`, `normalize`, `feature_weighting`) |
+
+An even split hands `TopPop` — which has nothing to tune — as many trials as `CosineKNN`. In the run above its five trials returned the same objective value five times over, because each one retrains and re-evaluates an identical model. Give `TopPop` one trial and spend the rest on the algorithms that can use them.
 
 Split scheme semantics:
 
@@ -372,6 +439,31 @@ Split scheme semantics:
 
 `time_user` and `time_global` require `schema.time_column`. Missing `time_column` with these schemes is a recipe validation error and exits with code 2.
 
+### Per-user holdout depth
+
+Under `random` and `time_user` the holdout is computed **per user and rounded down**: a user with `n` distinct items contributes `floor(n × heldout_ratio)` interactions to the held-out set. A user below `1 / heldout_ratio` items therefore contributes **nothing**, whatever the size of the dataset:
+
+| `heldout_ratio` | Minimum distinct items per user to contribute |
+|---|---|
+| `0.05` | 20 |
+| `0.1` (default) | 10 |
+| `0.2` | 5 |
+| `0.5` | 2 |
+
+Duplicate `(user, item)` pairs are collapsed before the split, so what counts is a user's **distinct item count**, not their row count.
+
+::: warning Adding more users does not fix an empty holdout
+When no user clears the bar the split produces an empty held-out set and training exits **4** with `"code": "split_error"`. 4,000 users with 8 interactions each fails exactly like 400 users with 8 interactions each. The levers that do work:
+
+- raise `split.heldout_ratio` until `floor(depth × ratio) >= 1` for your deepest users — the error message names the smallest value that would have worked for the data it saw;
+- filter sparse users out of `source.query` or the source data, and collect longer per-user histories;
+- raise `split.test_user_ratio` if deep users exist but were not drawn as validation users (the error message distinguishes these two cases).
+
+`cleansing` has `min_rows` / `min_users` / `min_items` but **no per-user minimum**, so a sparse-user filter has to live in the query or the upstream data, not in the recipe.
+:::
+
+`time_global` has no per-user floor — its cutoff is a single global quantile — but its held-out set is still restricted to the users drawn as validation users.
+
 ::: warning Behaviour change in 2.1
 Earlier releases forwarded `schema.time_column` to the splitter under every scheme, so a recipe combining `split.scheme: random` with a `schema.time_column` silently got a `time_user` (per-user recency) holdout instead of a random one. `random` now ignores `time_column`, as documented above.
 
@@ -379,6 +471,32 @@ If your recipe sets both, the next `recotem train` produces a different split an
 :::
 
 If a search produces no completed trials, training exits with code 4 and `"code": "no_completed_trials"`. If every completed trial scores exactly 0.0, exit 4 with `"code": "zero_score"` (typically caused by too short a `per_trial_timeout_seconds` or a too-small validation set).
+
+### Reproducibility
+
+`split.seed` alone does **not** make a training run reproducible. Two `recotem train` invocations with the same recipe, the same data, and the same `split.seed` can still produce a different `best_score` and different `best_params`.
+
+The cause is upstream, in irspack: its splitter derives the user and item ordering of the interaction matrix from a Python `set` of the id strings, and Python randomises string hashing per process. The `set` iteration order — and with it the row/column ordering of the matrix — therefore changes on every run, shifting which interactions land in the held-out set and how ranking ties are broken, regardless of `split.seed`. Recotem cannot fix this from its own side.
+
+Set `PYTHONHASHSEED=0` **before the interpreter starts** — it cannot be set from inside the process:
+
+```bash
+PYTHONHASHSEED=0 recotem train recipe.yaml
+```
+
+Measured across six of the seven supported algorithms **at `training.parallelism: 1`** (the default), adding `PYTHONHASHSEED=0` makes repeated runs agree exactly on `best_class`, `best_params` and the tuning metadata, with `best_score` agreeing to within 1 ULP. Without it, `best_score` has been observed to move by ~3% between runs, and `best_params` can select a different configuration entirely.
+
+::: danger On a marginal dataset this flips the run between success and a hard failure
+When the held-out set is small enough that a single interaction decides the metric, hash-dependent tie-breaking can drive every trial to a score of exactly 0.0, which aborts with exit **4** and `"code": "zero_score"`. Measured on 400 users with one held-out interaction in total, ten consecutive runs of the same recipe, the same file and the same `split.seed: 42` exited `4 4 4 4 4 4 0 0 4 4`; five runs under `PYTHONHASHSEED=0` were stable. To a nightly CronJob that reads as an unexplained flaky training failure.
+
+Pinning the hash seed makes the outcome *deterministic*, not necessarily *successful* — a marginal held-out set stays marginal. The real fix is a held-out set with room in it: raise `split.heldout_ratio`, or deepen per-user histories (see [Per-user holdout depth](#per-user-holdout-depth)).
+:::
+
+**`PYTHONHASHSEED=0` does not make a run reproducible at `parallelism > 1`.** Optuna schedules concurrent trials nondeterministically, so each worker samples against a different set of already-completed trials from one run to the next. Measured on one recipe and one dataset, three runs at `parallelism: 1` returned an identical `best_score`, while three runs at `parallelism: 4` spread about 4%. If you need a reproducible search, keep `parallelism` at its default of `1`; if you need throughput more than reproducibility, raise it and treat `best_score` as a sample rather than a fixed value.
+
+Inside a container, pass the variable in at run time (`docker run -e PYTHONHASHSEED=0 …`, or a `PYTHONHASHSEED` entry in the Pod spec's `env:`) rather than relying on the image default.
+
+Reproducibility of the *search* is a separate axis from the artifact bytes: the header records `trained_at`, so two runs never produce byte-identical files even when the model is identical.
 
 ---
 
@@ -436,6 +554,26 @@ load on every path field.
 Local paths are resolved to absolute. If `RECOTEM_ARTIFACT_ROOT` is set,
 `output.path` must resolve to a path under it after `realpath` resolution
 (symlink escapes are rejected).
+
+### Where each `sha256` pin is checked
+
+A recipe can carry two integrity pins — `source.sha256` and `item_metadata.sha256` — and **they are enforced by different commands. No single command checks both.**
+
+| Pin that does not match | `recotem validate` | `recotem train` | Artifact written | Model load at `serve` |
+|---|---|---|---|---|
+| `source.sha256` | **0** | 3 | no | — (nothing to load) |
+| `item_metadata.sha256` | 3 | **0** | **yes, and signed** | refused |
+| neither (control) | 0 | 0 | yes | loads |
+
+The split follows which component reads which file: `train` fetches the interactions and never opens the metadata file, while the metadata loader runs in `validate` and in the serving process, which is where the join happens.
+
+::: danger A nightly training job will not notice a tampered metadata file
+A `train` run **succeeds** with a mismatched `item_metadata.sha256`, and the artifact it writes carries a valid HMAC — `recotem inspect` reports `HMAC: OK`. Nothing in the training pipeline signals the mismatch. The refusal arrives later, in the serving process: that recipe registers `loaded: false`, its verbs return `503`, and `/v1/health` reports `degraded` while every other recipe keeps serving. Alert on `/v1/health/details` or on `recotem_artifact_load_failures_total`.
+:::
+
+::: warning `recotem validate` is not an integrity gate for the training data
+It checks the metadata pin but not the source pin — the source pin is verified at fetch time, which only `train` reaches. **A CI step that runs `validate` alone is green against tampered interaction data.** Run `validate` *and* `train` if you want both pins enforced before anything is published; each is the only command that covers its own.
+:::
 
 ---
 

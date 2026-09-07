@@ -43,6 +43,12 @@ description: "Recotem security model: trust boundaries, HMAC-signed artifacts, F
 
 The internet-facing boundary is `recotem serve`. `recotem train` has no inbound network surface.
 
+::: warning API keys are not scoped to a recipe
+There is one authentication boundary, not one per recipe. **Any valid key reaches every recipe the server serves.** The per-client `kid` identifies who to rotate and who to attribute a call to; it does **not** partition access. A key issued to one team, tenant or product surface can call `:recommend` on every other recipe in the same `--recipes` directory.
+
+If different callers must not see each other's recipes, separate them at the process boundary: run one `recotem serve` per trust domain, each with its own `--recipes` directory and its own `RECOTEM_API_KEYS`, and route between them at the proxy.
+:::
+
 ::: warning fsspec input schemes inherit cloud credentials
 When `source.path` uses `s3://`, `gs://`, `az://`, or `abfs(s)://`, the Pod's ambient IAM or service-account credentials are used directly by fsspec — there is no additional credential gate inside Recotem. The SSRF guard applies only to HTTP/HTTPS fetches. In environments where recipe authors are not fully trusted, scope the IAM role or service account to read-only access on the specific bucket(s) and prefix(es) used by your recipes.
 :::
@@ -609,11 +615,17 @@ The default clears the largest schema-valid *single-verb* body — `:recommend-r
 
 **Per-request input fields are all length- and count-bounded.** Every client-controlled request field has an explicit cap so a well-formed but huge body cannot amplify inside validation or the recommender: `user_id` and item ids are 1–256 chars, `exclude_items` ≤ 1000, `seed_items` ≤ 100, batch `requests` ≤ 256. The cold-start feature mappings are bounded on all three axes: the number of keys is capped at 64, each string **value** at 8192 chars, and each **key** at 1–256 chars — covering `user_features` column names, the `item_features` outer seed-id keys, and the nested per-seed feature keys. Before the key cap the dict keys were the one length-unbounded field left: only the key *count* and the *values* were bounded, so an attacker could send megabyte-scale keys. An over-length key now yields a `422` reporting only its length, never its text, so it cannot amplify into the error body or logs.
 
+**A rate limit alone does not bound the body allocation.** `RECOTEM_MAX_BODY_BYTES` caps one request; nothing caps how many such requests are in flight at once, and the allocation happens *before* authentication. Resident memory therefore scales with **peak concurrency × body size**, not with the request rate — a client that opens sixteen large requests simultaneously costs the same whether it does so once a minute or continuously. Bound simultaneous in-flight requests per client with `limit_conn`, alongside the rate limit. See [Operations — Concurrent request bodies are unbounded](./operations#concurrent-request-bodies-are-unbounded) for the measured multiplier and how to size a container against it.
+
 **Recommended nginx configuration:**
 
 ```nginx
 # Define a rate-limit zone keyed by IP address (adjust burst/rate as needed).
 limit_req_zone $binary_remote_addr zone=recotem_predict:10m rate=20r/s;
+# Bound SIMULTANEOUS in-flight requests per client.  This is the other half
+# of the body-size cap: the pre-auth body allocation scales with peak
+# concurrency x body size, so a rate limit alone does not bound it.
+limit_conn_zone $binary_remote_addr zone=recotem_conn:10m;
 
 server {
     # ... TLS and upstream configuration ...
@@ -621,6 +633,17 @@ server {
     location /v1/recipes/ {
         limit_req zone=recotem_predict burst=40 nodelay;
         limit_req_status 429;
+        limit_conn recotem_conn 16;
+        limit_conn_status 429;
+        # Refuse an oversized body at the proxy, before it reaches recotem and
+        # is buffered and JSON-parsed.  Set this to the SMALLEST value that
+        # admits the verbs you actually serve, and keep it below
+        # RECOTEM_MAX_BODY_BYTES: 1m suffices for `:recommend`; cold-start
+        # feature payloads and the batch verbs need more.  Budget the product
+        # -- client_max_body_size x limit_conn x ~5 is roughly the worst-case
+        # resident memory one client can demand -- and raise either knob only
+        # against a pod memory limit you have checked it against.
+        client_max_body_size 1m;
         proxy_pass http://recotem_backend;
     }
 }

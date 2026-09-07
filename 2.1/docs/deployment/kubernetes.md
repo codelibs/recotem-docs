@@ -14,6 +14,117 @@ Two Kubernetes objects cover the Recotem lifecycle:
 
 Recipes can be delivered to both objects via ConfigMap (small, static recipes), PVC (read-write volume), or object storage (S3/GCS — recipes and artifacts both live remotely).
 
+## First install: seed an artifact before serve starts
+
+**Read this before your first `helm install` or `kubectl apply`.** Train and serve are ordered: serve cannot become healthy until train has produced at least one artifact, and **nothing in the chart or the example manifests runs train for you at install time**.
+
+`recotem serve` loads one artifact per recipe at startup. Until at least one recipe has one, `/v1/health/ready` answers **503** with `{"status":"unready","total":1,"loaded":0}`. On an empty artifact store that means:
+
+```
+Warning  Unhealthy  kubelet  Startup probe failed: HTTP probe failed with statuscode: 503
+```
+
+repeatedly, until the startup probe's `failureThreshold` is reached and the container is restarted — a crash loop that looks like a bug but is only a missing artifact. `helm install --wait` fails with a rollout timeout, and the CronJob's default `schedule: "0 2 * * *"` means nothing produces the artifact for up to a day.
+
+**Always train before serving.** Pick whichever fits your setup.
+
+**A. Helm — install with training enabled, seed, then verify.** Install *without* `--wait` (the serve pods will not be Ready yet), kick off the CronJob immediately as a one-off Job, then wait:
+
+```bash
+helm upgrade --install recotem ./helm/recotem -n recotem \
+  -f values-prod.yaml --set train.enabled=true      # no --wait
+
+kubectl -n recotem create job bootstrap-0 --from=cronjob/recotem-train
+kubectl -n recotem wait --for=condition=complete job/bootstrap-0 --timeout=30m
+
+kubectl -n recotem rollout status deployment/recotem --timeout=10m
+```
+
+**B. Raw manifests — apply the bundled bootstrap Job.** `examples/k8s/bootstrap-job.yaml` is a one-shot `recotem train` Job with the same container spec as the CronJob; `kubectl apply -f examples/k8s/` creates it alongside the Deployment.
+
+**C. Train out-of-cluster.** Run `recotem train` anywhere that can write the recipe's `output.path` (an `s3://` / `gs://` URI, or the PVC mounted on a workstation) before creating the Deployment at all. The signing keys must match the ones serve is configured with.
+
+In every case the serve pods recover on their own once an artifact appears — the watcher picks it up within `RECOTEM_WATCH_INTERVAL` seconds and the next probe succeeds. No rollout restart is needed.
+
+::: tip Why the chart has no post-install hook
+Training is an unbounded operation — the CronJob allows it an hour (`activeDeadlineSeconds: 3600`). Wiring it into `helm install` would make every first install block on it and fail against Helm's `--timeout` (5 minutes by default), trading a legible "no artifact yet" crash loop for an opaque failed release. Seeding is kept as an explicit step for that reason.
+:::
+
+### Adding a recipe later is not a first install
+
+All three probes read the same "at least one recipe loaded" state, so a valid recipe whose artifact has not been trained yet leaves the running fleet in the Service **and** lets new pods start. Only that one recipe's verbs answer `503 RECIPE_UNAVAILABLE`, until the next train run; every other recipe keeps serving.
+
+::: danger Point a probe at `/v1/health` and you get the opposite
+`/v1/health` is the strict "is *every* recipe present?" endpoint. A startup probe reading it **restarts the container**, so one untrained recipe stops every new pod — and a rolling update or an HPA scale-out never converges, while the already-running replicas serve happily. Use `/v1/health` for alerting, not for probes.
+:::
+
+### `recipes_directory_empty` is a different failure that looks identical
+
+If the recipes directory holds no `*.yaml` file — a ConfigMap whose keys are not `*.yaml`, an `objectStore` init container that exited 0 having copied nothing, an empty PVC — `serve` has nothing to register. `/v1/health/ready` answers **503** with `{"status":"unready","total":0,"loaded":0}` for that, exactly as it does for an untrained artifact store.
+
+**The log line is the only discriminator:**
+
+| `recipes_directory_empty` warning at startup | Meaning | Fix |
+|---|---|---|
+| present (names the directory) | the **delivery** is wrong | fix the ConfigMap / sync / PVC |
+| absent | the artifact store is simply **cold** | run train |
+
+Check the mount before re-running train:
+
+```bash
+kubectl -n recotem exec deploy/recotem -- ls -la /recipes
+```
+
+### Recovering an install that is already crash-looping
+
+The same fix — the pods need no intervention beyond producing the artifact:
+
+```bash
+kubectl -n recotem create job recover-0 --from=cronjob/recotem-train
+kubectl -n recotem logs -f job/recover-0
+```
+
+If `train.enabled=false` (the chart default) there is no CronJob to copy from; either enable it, or apply `examples/k8s/bootstrap-job.yaml` with the image, Secret and volume names adjusted to your release.
+
+## Verify the install with one request
+
+Nothing above proves the API answers. Two of this page's warnings only show up here, so make the request before you call the install done.
+
+```bash
+NS=recotem
+POD=$(kubectl -n "$NS" get pod -l app.kubernetes.io/name=recotem \
+        -o jsonpath='{.items[0].metadata.name}')
+
+# 1. probes, from inside the pod (Host: localhost always passes)
+kubectl -n "$NS" exec "$POD" -- \
+  python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8080/v1/health/ready').read())"
+
+# 2. a real recommendation, through the Service
+kubectl -n "$NS" port-forward svc/recotem 8080:8080 &
+PF=$!
+RECIPE=news_articles          # your recipe's `name:`, case-sensitive
+curl -sS -X POST \
+  -H 'Host: localhost' \
+  -H "X-API-Key: <the plaintext key, not the sha256 hash>" \
+  -H 'Content-Type: application/json' \
+  -d '{"user_id":"u1","limit":3}' \
+  "http://127.0.0.1:8080/v1/recipes/${RECIPE}:recommend"
+kill "$PF"
+```
+
+Two traps this catches:
+
+- **`-H 'Host: localhost'` is not optional.** Without it the request carries `Host: 127.0.0.1:8080` (or the Service DNS name) and `TrustedHostMiddleware` answers **400** unless `RECOTEM_ALLOWED_HOSTS` lists that name. With chart defaults and no Ingress, an in-cluster request to `http://recotem:8080/v1/health` returns 400 — the chart only widens the list when `ingress.enabled=true`. See the `RECOTEM_ALLOWED_HOSTS` warning under [Service](#service).
+- **`${RECIPE}` must be brace-quoted.** In zsh, `$RECIPE:recommend` is the `:r` history modifier, not a variable followed by a literal colon — the URL silently becomes `/v1/recipes/RECIPEecommend` and the POST lands on the GET route as a **405**, which reads exactly like a missing endpoint.
+
+How to read the result:
+
+| Response | Meaning |
+|---|---|
+| `200` with an `items` array | train, signing keys, the artifact store, the probes and the host allow-list are all wired correctly |
+| `401` | the API key is wrong — the Secret holds `<kid>:sha256:<hex>`; clients send the **plaintext** |
+| `503 RECIPE_UNAVAILABLE` | that one recipe has no artifact yet |
+
 ## CronJob (train)
 
 ```yaml
@@ -225,7 +336,7 @@ Use the three endpoints for the three questions:
 No probe reads `/v1/health`. A failing `startupProbe` **restarts** the container rather than merely withholding traffic, so pointing one at the strict, count-based `/v1/health` turns a single untrained recipe into a restart loop for every new pod. `/v1/health` is the right endpoint for dashboards and alerting — it is the only one that tells you a recipe is missing — but not for a probe. The bundled Helm chart renders exactly this split. See [Serving API — Health](../serving-api#health-and-metrics).
 :::
 
-Note on multiple replicas: each pod holds its own in-memory copy of every model and runs its own watcher thread. This is intentional — there is no shared cache. Budget roughly **4.8x the artifact size** per recipe, not 1x: loading holds the file bytes and the payload slice of them at the same time, and the deserialized model on top. A 644.5 MiB artifact measured 3,292 MiB resident. So 10 recipes at the 512 MiB `RECOTEM_MAX_PAYLOAD_BYTES` default is on the order of 25 GiB per pod, and 10 recipes allowed to reach the 2 GiB `RECOTEM_MAX_ARTIFACT_BYTES` default is on the order of 96 GiB — before allocating replicas.
+Note on multiple replicas: each pod holds its own in-memory copy of every model and runs its own watcher thread. This is intentional — there is no shared cache. Budget roughly **4.8x the artifact size** per recipe, not 1x: loading holds the file bytes and the payload slice of them at the same time, and the deserialized model on top. A 644.5 MiB artifact measured 3,292 MiB resident. So 10 recipes at the 512 MiB `RECOTEM_MAX_PAYLOAD_BYTES` default is on the order of 24 GiB per pod, and 10 recipes allowed to reach the 2 GiB `RECOTEM_MAX_ARTIFACT_BYTES` default is on the order of 96 GiB — before allocating replicas. See [Operations — Sizing recotem serve memory](../operations#sizing-recotem-serve-memory).
 
 ### Pod security context
 
@@ -248,6 +359,12 @@ securityContext:                 # container-level
 ### Rolling updates and warm-up
 
 Each new pod re-fetches and HMAC-verifies every artifact at startup before the `startupProbe` clears (`periodSeconds: 5`, `failureThreshold: 60` — a 5-minute budget) and the readinessProbe passes. With many recipes or large artifacts, raise the `startupProbe` `failureThreshold` and the readiness `initialDelaySeconds` and tune `maxSurge` / `maxUnavailable` so the rollout does not run below the desired-replica count. The watcher polls on a shared interval inside each pod — when `train` writes a new artifact, all replicas pick it up within `RECOTEM_WATCH_INTERVAL` seconds; no rollout is needed for hot-swap.
+
+::: warning On a network filesystem the attribute cache adds to the hot-swap time
+`RECOTEM_WATCH_INTERVAL` is not the whole latency when artifacts live on an NFS-backed `ReadWriteMany` PVC: the client's attribute cache has to expire before the watcher's `stat` can see the new mtime. Measured at a 10 s interval — **25.5 s** on a default-mounted volume, **8.2 s** on the same volume mounted `noac`. Budget the sum, or mount `noac` and accept the extra metadata round-trips.
+
+**Cross-replica agreement during a swap is not guaranteed.** Replicas swap independently, so one `user_id` can get two different models until the last replica has swapped — measured **21.8 s** of divergence with 3 replicas on the same PVC. `model_version` in the response (and the `X-Recotem-Model-Version` header) identifies which model answered, so a client that needs a consistent view within a session can pin on it.
+:::
 
 ### Secret rotation
 
@@ -486,6 +603,102 @@ hpa:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
 ```
+
+### PodDisruptionBudget covers serve only
+
+The serve pods carry `app.kubernetes.io/component: serve`, and the PDB selects on it. That matters because a PDB's allowed-disruption count is `currentHealthy − minAvailable` computed over **the pods its selector matches** — so an unscoped selector would let a train CronJob pod count as healthy:
+
+| Serve replicas | Training running? | `currentHealthy` | `minAvailable: 1` allows |
+|---|---|---|---|
+| 1 | no | 1 | 0 disruptions — serve is protected |
+| 1 | yes | 2 | 1 disruption — **a drain may evict the only serve pod** |
+
+The protection would otherwise lapse exactly while a training job happened to be running, which is schedule-dependent and easy to miss.
+
+The Service selector is deliberately **not** scoped the same way. Train pods stay out of its Endpoints because `targetPort` is the *name* `http`, which the train container does not declare; narrowing the selector instead would empty the Endpoints for the length of the rollout that adds the matching pod label. If you add a port named `http` to the train container, revisit this.
+
+### NetworkPolicy: the defaults are not deny-all inbound
+
+::: danger With chart defaults, inbound to port 8080 is open to every source
+`ingressFromPodSelector: {}` on its own would render no ingress rule, but the default `allowKubeletProbes: true` renders a rule with **no `from:` field** — and in the Kubernetes NetworkPolicy API an ingress rule with no `from:` matches **all** sources, the opposite of deny-all. The canonical deny-all-inbound form is `ingress: []` with `policyTypes` including `Ingress`.
+:::
+
+Verify what you actually got — and **ask for `policyTypes` as well as `ingress`, not `ingress` alone**:
+
+```console
+$ kubectl get networkpolicy recotem -o jsonpath='{.spec.policyTypes} {.spec.ingress}'
+["Ingress","Egress"] [{"ports":[{"port":8080,"protocol":"TCP"}]}]
+```
+
+The API server drops an empty `ingress` list on write, so a working deny-all has no `ingress` key in the stored object at all. A bare `{.spec.ingress}` therefore prints nothing for a deny-all *and* nothing when the policy does not exist (that failure goes to stderr). The two-field form separates all three states without reading stderr:
+
+| Policy | `{.spec.ingress}` | `{.spec.policyTypes} {.spec.ingress}` |
+|---|---|---|
+| not present | *(empty)* | *(empty)* |
+| deny-all | *(empty)* | `["Ingress","Egress"] ` |
+| chart default | `[{"ports":[{"port":8080,"protocol":"TCP"}]}]` | `["Ingress","Egress"] [{"ports":[{"port":8080,"protocol":"TCP"}]}]` |
+
+`allowKubeletProbes` defaults to `true` for a reason: kubelet health checks originate from the **node** network rather than from a pod, so no `podSelector` rule can match them.
+
+::: danger Setting `allowKubeletProbes: false` is worse than a failed rollout
+With `ingressFromPodSelector` also empty the chart renders `ingress: []`, a true deny-all-inbound. Measured on a live 3-node cluster whose CNI enforces NetworkPolicy, three minutes after applying it:
+
+| | Observed |
+|---|---|
+| pods | `1/1 Ready`, `restartCount 0` |
+| Service endpoints | `ready=true` for every replica |
+| in-cluster client → Service | connection timeout |
+| external client → Ingress → Service | connection timeout |
+
+Many CNIs exempt node-originating traffic from pod NetworkPolicies, so the probes keep passing. Kubernetes therefore reports a perfectly healthy fleet while **100% of client traffic is blackholed** — with no pod restart, no endpoint change and no event pointing at the cause. Whether probes survive is CNI-specific; the loss of client traffic is not.
+:::
+
+To narrow inbound while keeping probes working, **do not** set `allowKubeletProbes: false` — list your node CIDRs instead, which converts the probe rule from "any source" to an `ipBlock` match:
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingressFromPodSelector:
+    app.kubernetes.io/name: ingress-nginx   # who may call the API
+  allowKubeletProbes: true
+  kubeletCIDRs:                             # where probes may come from
+    - "10.0.0.0/8"
+```
+
+Only set `allowKubeletProbes: false` when a separate NetworkPolicy already admits **both** node-originating probe traffic and your clients — `ingress: []` denies everything, and additive policies are the only way back. `kubeletCIDRs` does not help there: the template reads it only while `allowKubeletProbes` is `true`. Verify with a request, not with `kubectl get pods`; the pods look healthy either way.
+
+### NetworkPolicy: egress also gates the train CronJob
+
+::: warning The policy selects the train pods too, and its egress rules do not cover SQL or plain HTTP
+`podSelector` matches on `app.kubernetes.io/name` + `app.kubernetes.io/instance`, which the train CronJob's pods carry as well as the serve pods. The built-in egress rules are serve-shaped — DNS plus HTTPS for object storage — so with chart defaults a training run whose recipe uses `source.type: sql`, or a plain-`http://` `source.path`, is dropped by this policy. **There is no NetworkPolicy-shaped error**: the job just times out connecting, which sends you looking at the database instead of at the policy.
+:::
+
+Ports the built-in rules do **not** open, and that you must add for the matching data source:
+
+| Port | Protocol | Needed by |
+|---|---|---|
+| 5432 | TCP | `source.type: sql` against PostgreSQL |
+| 3306 | TCP | `source.type: sql` against MySQL / MariaDB |
+| 1433 | TCP | `source.type: sql` against SQL Server |
+| 80 | TCP | `source.path` on plain `http://` |
+
+BigQuery, object-store paths (`s3://`, `gs://`, `az://`) and `https://` URLs already work: they go over 443.
+
+Use `networkPolicy.extraEgress` to append rules; entries are the Kubernetes `NetworkPolicyEgressRule` schema and are emitted verbatim:
+
+```yaml
+networkPolicy:
+  enabled: true
+  extraEgress:
+    - to:
+        - ipBlock:
+            cidr: "10.0.0.0/8"     # the subnet your database lives on
+      ports:
+        - port: 5432
+          protocol: TCP
+```
+
+Because serve and train share the one policy, **anything opened here is reachable from the serve pods as well** — scope each rule with `to:` when that matters. Confirm what you got with `kubectl get networkpolicy recotem -o jsonpath='{.spec.egress}'`.
 
 Create the auth Secret before installing the chart:
 

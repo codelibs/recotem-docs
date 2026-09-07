@@ -311,6 +311,92 @@ def probe(self) -> dict:
 
 **フィーチャーソースもプローブされます。** [`features:`](./recipe-reference#features) ブロックを持つレシピでは、`features.item.source` / `features.user.source` もトップレベルの `source` と同じ方法でプローブされ、報告される各行には `[<where>]` ラベル (`[features.item.source]` / `[features.user.source]`) が付くため、どのソースが失敗したかが分かります。プラグインがフィーチャーテーブルとして使われる可能性がある場合は、1 回の `recotem validate` で複数回実行されても問題ない程度に `probe()` を軽量に保ってください。
 
+### `probe_columns()` — スキーマカラムのチェック
+
+`recotem train` は、データに存在しないカラムを指定したレシピを `DataSourceError` (終了コード 3) で拒否します。`recotem validate` は 2 つ目のオプションフックを通じて、**トップレベルの `source` についてのみ**同じ問いを投げます。
+
+```python
+def probe_columns(self, ctx: FetchContext) -> bool:
+    """Optional. Called by recotem validate with the recipe's schema columns.
+
+    ctx.extra carries user_column / item_column / time_column, exactly as
+    fetch() receives them.  Implement this only when the column list is
+    cheap to obtain — a CSV header row, a Parquet footer schema — never by
+    running the query or downloading the body.
+
+    Return True when the check ran, False when this configuration cannot
+    answer cheaply.  Raise DataSourceError when a required column is absent.
+    """
+    ...
+```
+
+`recotem validate` は 3 種類の異なる行のいずれかを出力するため、実行していないチェックを実行したかのように見せることはありません。
+
+| 戻り値 | 出力 |
+|---|---|
+| `True` | `Schema columns: OK (<type_name>) [<where>]` |
+| `False` | `Schema columns: not checked (<type_name> cannot list columns without a full fetch) [<where>]` |
+| フックなし | `Schema columns: not checked (<type_name> has no header-only column probe; verified at train time) [<where>]` |
+
+`DataSourceError` が送出された場合は `Schema column check failed [<where>]: <error>` として報告され、`train` と同じ終了コード **3** になります。
+
+フィーチャーソース (`features.item.source` / `features.user.source`) はカラムチェックの対象**外**です。フィーチャーテーブルがインタラクションのカラムを持たないのは正当だからです。`BigQuerySource` と `SQLSource` もこのフックを実装していません。カラム集合はクエリを実行して初めて分かるからです。
+
+## プラグインが実際に生成しうる終了コード
+
+意図的に壊したプラグイン (1 パッケージにつき 1 つの違反、それぞれ独自の `recotem.datasources` エントリポイントを持つ) を素の `pip install recotem` 環境にインストールし、実際の CLI を実行して測定しました。
+
+| プラグインの状態 | `train` | `validate` |
+|---|---|---|
+| 正常 | 0 | 0 |
+| `Config` に `type` ディスクリミネータがない | 2 | 2 |
+| `type` が `Literal` ではなく `str` | 2 | 2 |
+| `type` の `Literal` 値が `type_name` と食い違う | 2 | 2 |
+| `no_expand_fields` がない | 2 | 2 |
+| `no_expand_fields` が `frozenset` ではなく `set` | 2 | 2 |
+| `type_name` が他のインストール済みプラグインと衝突 | 2 | 2 |
+| `__init__` が `DataSourceError` を送出 | 3 | 3 |
+| `__init__` がそれ以外の例外を送出 | 3 | 3 |
+| `probe()` が何らかの例外を送出 | 0 ‡ | 3 |
+| `probe()` が `HttpFetchError` を送出 (またはラップ) | 0 ‡ | 7 |
+| `fetch()` が `DataSourceError` を送出 | 3 | 0 † |
+| `fetch()` がそれ以外の例外を送出 | 3 | 0 † |
+| `fetch()` が DataFrame 以外を返す | 3 | 0 † |
+| `fetch()` が `schema:` で指定されたカラムを欠く | 3 | 0 † |
+| `fetch()` が `HttpFetchError` を送出 (またはラップ) | 7 | 0 † |
+
+† `validate` は `fetch()` を呼びません。‡ `train` は `probe()` を呼びません。
+
+見落としやすい帰結が 4 つあります。
+
+- **コントラクト違反はすべて終了コード 3 ではなく 2 です。** プラグインの探索はレシピのロード内部で実行されるため、レジストリの `DataSourceError` は `RecipeError` として再送出されます。終了コード 3 は、ロードには成功したソースがデータの生成に失敗した場合のものです。
+- **プラグインがどう振る舞っても終了コード 1 にはなりません。** ラップされていない例外は、到達したコマンドの側で Recotem がラップし、3 として報告されます。2/3 の枠から上に抜ける唯一のコードが **7** で、`HttpFetchError` は `__cause__` チェーンを通じてこれを保持します。したがってプラグイン内部での SSRF ガードによる拒否は、平坦化されずに 7 として報告されます。ただしその失敗の構造化 `code` フィールドは依然として `datasource_error` です。7 は `__cause__` チェーン由来なので、`code` を grep しても専用の値は見つかりません。
+- **`train` と `validate` は、両方が到達しうる失敗についてはすべて一致します。** 食い違う行は、ちょうど一方が実行しない行だけです。
+- **`probe()` は `train` に対するゲートではありません。** チェックを `probe()` にだけ置いても得られるのは `validate` の失敗だけです。`probe()` が例外を送出しても `fetch()` が動作するプラグインは、学習に成功して署名付きアーティファクトを書き出します。学習を止めなければならない前提条件は `__init__` か `fetch()` に置いてください。
+
+### 1 つの壊れたプラグインがホスト上の全レシピを壊します
+
+探索は `source.type` ごとの遅延評価ではなく、`recotem.datasources` エントリポイントグループ全体に対して先行して実行されます。まったく別の正常なソースを指定したレシピも失敗します。
+
+```
+Recipe '.../ok.yaml' source: plugin source discovery failed for type 'ok':
+DataSource plugin 'MismatchSource' ... declares Config.type as Literal['something_else'],
+which does not match its type_name 'mismatch'.
+```
+
+このレシピは `MismatchSource` を一切参照していません。つまり、インストール済みのどれか 1 つのプラグインのコントラクト違反が、`train` と `validate` にとって**ホスト全体の障害**になります。しかもエラーが名指しするのは実行したレシピではなく、違反した*プラグインクラス*です。ファイルパスではなくメッセージ中のクラス名を読んでください。
+
+::: danger 危険 — `serve` では同じ障害が素朴なプローブから見えません
+`serve` は意図的に寛容です。壊れたレシピ 1 つが、他のレシピをホストするサーバー全体を落とすことは許されません。`type_name` の衝突と単一のレシピディレクトリで測定した結果:
+
+```console
+$ curl -s http://127.0.0.1:8080/v1/health
+{"status":"ok","total":0,"loaded":0,"skipped":1}
+```
+
+HTTP **200**、`"status": "ok"`、そして**ロード済みレシピ 0 件**。プロセスは生きていて応答もしますが、何も配信していません。ログには `recipe_load_error_skipped` と `recipes_directory_loaded_lenient` が出ています。ステータスコードだけ、あるいは `status` フィールドだけを見る liveness / readiness チェックは「正常」と報告します。**プロセスが生きているかではなく、`loaded` と `skipped` でアラートしてください。**
+:::
+
 ## テスト
 
 CLI を使用せずに `fetch()` を直接テストしてください:

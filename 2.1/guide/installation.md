@@ -13,6 +13,16 @@ Recotem requires **Python 3.12 or newer**. There are two ways to install it: as 
 pip install recotem
 ```
 
+::: warning `pip install recotem` cannot complete on every platform
+Recotem depends on irspack, which publishes wheels only for **Linux on x86-64 or arm64** (glibc or musl), **macOS on Apple Silicon**, and **Windows on x86-64** — and ships **no source distribution**. On **macOS on Intel** and on **Windows on arm64** there is nothing for pip to install and nothing to build from, so the command fails with:
+
+```
+ERROR: No matching distribution found for irspack==0.5.2
+```
+
+No compiler or build flag works around it. Use [Option B — Docker](#option-b-—-docker) instead; the image runs on all of these platforms.
+:::
+
 Verify the install worked:
 
 ```bash
