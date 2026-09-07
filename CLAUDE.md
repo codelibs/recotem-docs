@@ -55,9 +55,9 @@ The site uses an **"unversioned = latest stable"** model. Keep this model when a
 |---|---|---|
 | `/` | General landing (home) | Yes |
 | `docs/`, `guide/`, `learn/` (+ `ja/…`) | **Current stable** — the canonical docs. URLs are **unversioned and stable across releases**. | Yes |
-| `2.1/` (+ `2.1/ja/…`) | In-development next version preview | No (`noindex`) |
-| `1.0/` (+ `1.0/ja/…`) | Old-version archive | No (`noindex`) |
-| `2.0/`, … | Frozen snapshot of a past stable (created at the next release) | No (`noindex`) |
+| `2.1/` (+ `2.1/ja/…`) | In-development next version preview. At 2.1's release its content is promoted to the root and **the directory stays**, as the permanent archive of 2.1. | No (`noindex`) |
+| `1.0/` (+ `1.0/ja/…`) | Archive of a released version | No (`noindex`) |
+| `2.0/`, … | Archive of a released version — the permanent target for `https://recotem.org/x.y/docs/…` links baked into that release | No (`noindex`) |
 
 Rules:
 - Edit the current stable line at the **unversioned** root (`docs/`, `guide/`, `learn/`). **Keep these URLs stable** — that stability is what SEO relies on.
@@ -66,9 +66,40 @@ Rules:
 
 ### Version lifecycle (at each release, part of `release-recotem`)
 
-1. **Freeze**: copy the current unversioned stable (`docs/ guide/` + `ja/…`) into a new `x.y/` snapshot (e.g. `2.0/`, `2.0/ja/`).
-2. **Promote**: replace the unversioned `docs/ guide/` content with the next version's.
-3. **Next**: create a fresh `x.y/` preview for the following in-development version.
+A version directory is created **once**, when that version's development starts,
+and is **never deleted**. It is the preview while the version is in development
+and the archive after it ships; the promote copies its content to the root
+rather than moving it.
+
+1. **Promote**: replace the unversioned `docs/ guide/` (+ `ja/…`) content with the
+   releasing version's `x.y/` content, rewriting the promoted copy's absolute
+   `/x.y/…` links back to the root.
+2. **Keep**: leave `x.y/` in place — it is now the permanent archive of that
+   release. The only edit it needs is its landing page: the "in-development
+   preview" banner in `x.y/index.md` and `x.y/ja/index.md` becomes an archived-
+   version notice pointing at the root.
+3. **Next**: create a fresh `x.(y+1)/` preview for the following in-development
+   version.
+
+**Why `x.y/` is not deleted at promote.** The product bakes versioned
+documentation URLs into shipped source — `DataSourceError` messages, the
+`recotem schema` JSON Schema, the `/v1/metrics` HELP text, `README.md`. Those
+URLs name the version being released, so deleting `x.y/` as part of shipping
+`x.y.0` would break them for that version's entire support window — the exact
+period during which they are read. The cost is that the current stable's content
+is served at two paths; both are `noindex` + self-canonical below the root, so
+neither competes in search.
+
+The version switcher lists the unversioned root as the latest version. A version
+directory whose content is currently promoted to the root is reachable but is
+**not** listed separately; it starts appearing in the switcher at the next
+release, when the root moves on.
+
+**Transitional note (2.0).** `2.0/` does not exist: 2.0 shipped before this
+model, so its content lives only at the unversioned root. The 2.1.0 release must
+therefore *additionally* freeze the outgoing root into `2.0/` — once. From 2.1
+onward no freeze step is needed, because every version directory already exists
+from its preview phase.
 
 To seed a new in-dev preview, copy the current stable into `x.y/` and rewrite **absolute internal links** to stay inside it (`](/docs/…)` → `](/x.y/docs/…)`, `](/guide/…)` → `](/x.y/guide/…)`; leave `](/learn/…)` and relative links alone).
 
