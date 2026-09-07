@@ -251,6 +251,13 @@ function v2DocsSidebar(lang: 'en' | 'ja', version = ''): DefaultTheme.SidebarIte
         { text: lang === 'ja' ? 'セキュリティ' : 'Security', link: `${prefix}/security` },
         { text: lang === 'ja' ? '環境変数' : 'Environment Variables', link: `${prefix}/environment-variables` },
         { text: lang === 'ja' ? '終了コード' : 'Exit Codes', link: `${prefix}/exit-codes` },
+        // `upgrading` exists only in the 2.1 preview so far. The unversioned
+        // stable tree has no such page, so an unconditional entry would put a
+        // 404 in the stable sidebar; promote it by dropping the guard when the
+        // page lands at `docs/`.
+        ...(version
+          ? [{ text: lang === 'ja' ? 'アップグレード' : 'Upgrading', link: `${prefix}/upgrading` }]
+          : []),
         { text: lang === 'ja' ? 'プラグイン作成' : 'Plugin Authoring', link: `${prefix}/plugin-authoring` },
       ],
     },
