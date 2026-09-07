@@ -105,7 +105,7 @@ cleansing:
   min_rows: 5000
 
 training:
-  algorithms: [IALS, RP3beta, TopPop]   # implicit-feedback CF + a popularity fallback
+  algorithms: [IALS, RP3beta, TopPop]   # implicit-feedback CF + a popularity candidate
   metric: ndcg
   cutoff: 20
   n_trials: 40

@@ -105,7 +105,7 @@ cleansing:
   min_rows: 5000
 
 training:
-  algorithms: [IALS, RP3beta, TopPop]   # 暗黙的フィードバックの CF + 人気度フォールバック
+  algorithms: [IALS, RP3beta, TopPop]   # 暗黙的フィードバックの CF + 人気度の候補
   metric: ndcg
   cutoff: 20
   n_trials: 40
