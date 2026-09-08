@@ -575,6 +575,8 @@ environment.
 
 Both `auth_missing_header` and `auth_invalid_key` log `path=<request.url.path>` only; the candidate header value is never logged in any form. The matching kid is attached to `request.state.kid` (and to subsequent log lines via `structlog.contextvars`) on success.
 
+That path is **caller-controlled**. An ASGI server percent-decodes the request target, so `%1B` in the URL arrives as a raw `ESC` byte in `scope["path"]`. Recotem escapes control characters — C0 (`0x00`–`0x1F`), `DEL` and C1 (`0x80`–`0x9F`) — to `\xHH` before the value enters a log field, so an unauthenticated caller cannot send terminal control sequences to an operator tailing `RECOTEM_LOG_FORMAT=console` output. These events fire before any key is checked, so no credential is needed to reach them. `RECOTEM_LOG_FORMAT=json` was never exposed: JSON encoding escapes control characters anyway. Everything that is not a control character is logged verbatim, so a path stays readable.
+
 When `RECOTEM_API_KEYS` is empty, `auth_anonymous_bypass` fires on **every** request (DEBUG) so access-log correlation is possible. `auth_anonymous_bypass_first_seen` fires once per unique `client_host` (INFO) for a first-seen audit trail. The LRU cache tracking first-seen client IPs is bounded to 1024 entries to prevent unbounded memory growth under high IP churn (e.g. rotating CI IPs or attacker scanning).
 
 ## Predict response: information leakage

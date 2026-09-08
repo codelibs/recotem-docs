@@ -46,7 +46,7 @@ source:
 | `encoding` | string | `"utf-8"` | pandas が受け付けるエンコーディング。 |
 | `header` | int | `0` | ヘッダーの行番号。 |
 | `dtype` | map | `null` | キー = カラム名、値 = pandas dtype 文字列。 |
-| `sha256` | string | 任意 (`path` が `http://` または `https://` の場合は必須) | 64 文字の小文字 hex。取得したバイト列に対して検証され、不一致は `DataSourceError` を発生させます。 |
+| `sha256` | string | 任意 (`path` が `http://` または `https://` の場合は必須) | 64 文字の小文字 hex。取得したバイト列に対して検証され、不一致は `DataSourceError` を発生させます。このピンは取得時に照合されるため、`recotem train` では検証されますが `recotem validate` では**検証されません**。[各 `sha256` ピンがどこで検証されるか](#各-sha256-ピンがどこで検証されるか)を参照してください。 |
 
 Parquet ファイルには `type: parquet` を使用します。`path` と (任意の) `sha256` のみ受け付けます。`delimiter`、`encoding`、`header`、`dtype` は Parquet ソースの有効なキーではなく、レシピのロードが失敗します。
 
@@ -172,7 +172,7 @@ item_metadata:
 | `path` | string | required | [パスルール](#パスルール) を参照してください。 |
 | `fields` | list[string] | required | 空不可。列挙されたフィールドのみ推薦レスポンスで返されます。 |
 | `on_field_missing` | string | `error` | `fields` に指定したエントリがファイルに存在しない場合の動作。`error` はモデルのロードを失敗させます (起動時はレシピが `loaded=false` と `last_load_error` 付きで登録され、ホットスワップ時は旧モデルが引き続き配信され、障害は `/v1/health` および `recotem_artifact_load_failures_total` メトリクスで公開されます)。`null` はカラムを `null` で埋めます。 |
-| `sha256` | string | 任意 (`path` が `http://` または `https://` の場合は必須) | 64 文字の小文字 hex。取得したバイト列に対して検証され、不一致は `DataSourceError` を発生させます。 |
+| `sha256` | string | 任意 (`path` が `http://` または `https://` の場合は必須) | 64 文字の小文字 hex。取得したバイト列に対して検証され、不一致は `DataSourceError` を発生させます。`recotem validate` とモデルロード時に検証されますが、`recotem train` では**検証されません**。[各 `sha256` ピンがどこで検証されるか](#各-sha256-ピンがどこで検証されるか)を参照してください。 |
 | `item_id_column` | string | `"item_id"` | メタデータファイルでアイテム識別子を保持するカラム名。メタデータファイルが異なるカラム名 (例: `product_id`) を使用している場合に上書きします。空でない、空白でない文字列である必要があります。 |
 
 サーバーサイドのフィールド抑制は `RECOTEM_METADATA_FIELD_DENY` (カンマ区切りのカラム名) でも可能です。指定されたカラムはメタデータインデックスのロード時に除外されるため、どの推薦エンドポイントのレスポンスにも含まれません。

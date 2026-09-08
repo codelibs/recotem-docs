@@ -496,6 +496,28 @@ Consequences on the shipped chart:
 - With `concurrencyPolicy: Forbid` (the chart default) that one stalled run suppresses every scheduled run behind it for the same window, each skipped with `JobAlreadyActive`.
 - The per-recipe lock is held for the whole stall, on a file the process can no longer reach.
 
+#### If the mount is already stale when the run *starts*, it dies at the lock
+
+Everything above describes the artifact write, which is where a run lands when the outage happens *during* tuning. A run that begins on an already-stale mount never gets that far. The per-recipe lock touches the same directory much earlier — it creates `<output.path>`'s parent before any data is fetched — so the run fails there instead:
+
+```console
+{"error": "[Errno 17] File exists: '/artifacts'", "code": "internal_error",
+ "exit_code": 1, "event": "train_error"}
+```
+
+This is the ordinary ending for the CronJob's *second* recipe when `train.recipeFiles` lists several and the first one ran through the outage, and for any run that starts after an `initContainer` or a long image pull.
+
+Measured on the same rig, one injection, three Jobs whose mounts were established before the export's `fsid` changed:
+
+| `output.path` | where the lock directory sits | how it ends |
+|---|---|---|
+| `/artifacts/a.recotem` | the mount point | `exit 1`, `FileExistsError [Errno 17] File exists: '/artifacts'` |
+| `/artifacts/models/c.recotem` | below the mount | `exit 1`, `OSError [Errno 116] Stale file handle: '/artifacts/models'` |
+
+Same two mechanisms as the table above, and the re-check rescues neither for the same reason: a changed export identity is not a momentary stale answer.
+
+What differs is the timing, and it defeats the alert. Each of these took **4 s** from container start. There is no stall, so a training-run-duration alert never fires, and the Job's `activeDeadlineSeconds` is never approached. **Alert on the artifact's `trained_at` age**, which catches this ending and the stall alike.
+
 If your artifact store is a network filesystem, either mount it `soft` with a bounded `timeo`/`retrans` so the write fails instead of parking (accepting that a soft mount can surface a short write as an error), lower `activeDeadlineSeconds` to something you are willing to wait, or put artifacts in object storage (next section), where a stalled request fails on the HTTP timeout instead of in the kernel.
 
 ### Object storage (S3 / GCS)
