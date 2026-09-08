@@ -34,11 +34,15 @@ Warning  Unhealthy  kubelet  Startup probe failed: HTTP probe failed with status
 helm upgrade --install recotem ./helm/recotem -n recotem \
   -f values-prod.yaml --set train.enabled=true      # --wait は付けない
 
-kubectl -n recotem create job bootstrap-0 --from=cronjob/recotem-train
+CJ=$(kubectl -n recotem get cronjob \
+       -l app.kubernetes.io/instance=recotem,app.kubernetes.io/component=train -o name)
+kubectl -n recotem create job bootstrap-0 --from="${CJ}"
 kubectl -n recotem wait --for=condition=complete job/bootstrap-0 --timeout=30m
 
 kubectl -n recotem rollout status deployment/recotem --timeout=10m
 ```
+
+CronJob は名前を直接指定せずラベルで検索します。CronJob の名前はチャートの fullname に `-train` を付けたものであり、fullname がリリース名そのものになるのは、リリース名に既に "recotem" が含まれている場合だけだからです。`helm install prod …` では `prod-recotem-train` が生成されるため、`cronjob/prod-train` と推測すると `Error from server (NotFound)` で失敗します。チャートの `values.yaml` も同じ検索方法を案内しています。
 
 **B. 素のマニフェスト — 同梱の bootstrap Job を適用する。** `examples/k8s/bootstrap-job.yaml` は CronJob と同じコンテナ仕様を持つ単発の `recotem train` Job です。`kubectl apply -f examples/k8s/` すると Deployment と一緒に作成されます。
 
@@ -188,7 +192,7 @@ spec:
 永続的なデータ問題でのリトライループを防ぐため、本番 CronJob では `backoffLimit: 2` を設定してください — バンドルされた Helm CronJob テンプレートは `backoffLimit` を設定しないため、values オーバーレイ (またはプレーンマニフェスト) で追加してください。バンドルされた Helm CronJob は `activeDeadlineSeconds: 3600` (1 時間ハードキル) を設定しています; Optuna の探索予算やデータソースが遅い場合は値を上げてください。
 :::
 
-`concurrencyPolicy: Forbid` が防ぐのは CronJob が*それ自身*と重なることだけです。同じレシピのロックを他のプロセスが保持している場合については何も保証しません。しかも、チャート自身の初回インストール手順がそのプロセスを作ります — `values.yaml` が案内するブートストラップ Job は `kubectl create job bootstrap-0 --from=cronjob/<release>-train` であり、これは同じレシピ・同じ `<output.path>.lock` に対する 2 つ目の学習プロセスです。クラスター外の cron、手動の `recotem train`、アーティファクトストアを共有する 2 つ目のクラスターも同じ形です。
+`concurrencyPolicy: Forbid` が防ぐのは CronJob が*それ自身*と重なることだけです。同じレシピのロックを他のプロセスが保持している場合については何も保証しません。しかも、チャート自身の初回インストール手順がそのプロセスを作ります — `values.yaml` が案内するブートストラップ Job は `app.kubernetes.io/component=train` ラベルで CronJob を検索して一度限りの Job として実行するもので、これは同じレシピ・同じ `<output.path>.lock` に対する 2 つ目の学習プロセスです。クラスター外の cron、手動の `recotem train`、アーティファクトストアを共有する 2 つ目のクラスターも同じ形です。
 
 `failOnBusy: false` (チャートのデフォルト) でこれが起きたとき、ロックを取れなかった実行は**失敗しません**。INFO レベルで `recipe_lock_contended_skipping` を出力して終了コード 0 で終了し、Job は `succeeded: 1` の `Complete` としてマークされます — 本来書き出されるはずだったアーティファクトは書かれないままです:
 

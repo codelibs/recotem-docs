@@ -34,11 +34,15 @@ repeatedly, until the startup probe's `failureThreshold` is reached and the cont
 helm upgrade --install recotem ./helm/recotem -n recotem \
   -f values-prod.yaml --set train.enabled=true      # no --wait
 
-kubectl -n recotem create job bootstrap-0 --from=cronjob/recotem-train
+CJ=$(kubectl -n recotem get cronjob \
+       -l app.kubernetes.io/instance=recotem,app.kubernetes.io/component=train -o name)
+kubectl -n recotem create job bootstrap-0 --from="${CJ}"
 kubectl -n recotem wait --for=condition=complete job/bootstrap-0 --timeout=30m
 
 kubectl -n recotem rollout status deployment/recotem --timeout=10m
 ```
+
+The CronJob is looked up by label rather than named, because its name is the chart's fullname plus `-train`, and the fullname is the release name only when the release name already contains "recotem". `helm install prod …` renders `prod-recotem-train`, so a guessed `cronjob/prod-train` fails with `Error from server (NotFound)`. The chart's `values.yaml` gives the same lookup.
 
 **B. Raw manifests — apply the bundled bootstrap Job.** `examples/k8s/bootstrap-job.yaml` is a one-shot `recotem train` Job with the same container spec as the CronJob; `kubectl apply -f examples/k8s/` creates it alongside the Deployment.
 
@@ -188,7 +192,7 @@ Exit code mapping for `restartPolicy: OnFailure`:
 Set `backoffLimit: 2` for production CronJobs to avoid runaway retry loops on persistent data issues — the bundled Helm CronJob template does not set `backoffLimit`, so add it via your values overlay (or on plain manifests). The bundled Helm CronJob does set `activeDeadlineSeconds: 3600` (1 h hard kill); raise it for slow Optuna budgets or data sources.
 :::
 
-`concurrencyPolicy: Forbid` stops the CronJob overlapping *itself*, and only that. It says nothing about any other process holding the same recipe's lock, and the chart's own first-install procedure creates one — the bootstrap Job in `values.yaml` is `kubectl create job bootstrap-0 --from=cronjob/<release>-train`, a second trainer on the same recipe and the same `<output.path>.lock`. An out-of-cluster cron, a manual `recotem train`, or a second cluster sharing the artifact store are the same shape.
+`concurrencyPolicy: Forbid` stops the CronJob overlapping *itself*, and only that. It says nothing about any other process holding the same recipe's lock, and the chart's own first-install procedure creates one — the bootstrap Job in `values.yaml` looks the CronJob up by its `app.kubernetes.io/component=train` label and runs it as a one-off Job, a second trainer on the same recipe and the same `<output.path>.lock`. An out-of-cluster cron, a manual `recotem train`, or a second cluster sharing the artifact store are the same shape.
 
 When that happens with `failOnBusy: false` (the chart default), the losing run does **not** fail. It logs `recipe_lock_contended_skipping` at INFO, exits 0, and the Job is marked `Complete` with `succeeded: 1` — while the artifact it was scheduled to produce is not written:
 
