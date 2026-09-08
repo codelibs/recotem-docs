@@ -460,6 +460,14 @@ pip install "recotem[metrics]"
 
 `RECOTEM_METRICS_ENABLED=1` を設定して `/v1/metrics` エンドポイントを有効化してください。
 
+::: warning このサーバーが提供していない名前では `recipe` ラベルは `<unknown>` になります
+`recotem_v1_requests_total` と `recotem_v1_request_latency_seconds` では、レシピ名はリクエストパスに由来し、ルートのパターンはその*形式* (`^[A-Za-z0-9_-]{1,64}$`) しか制約しません。そのままラベルにすると、ひとりの呼び出し元が際限なく時系列を作り出せてしまい、`prometheus_client` はそれを破棄しません。そのため、登録されていない名前はすべて `<unknown>` として記録されます。`<` と `>` は上記のパターンの範囲外なので、実在のレシピがこの値を取ることはありません。
+
+何が起きているかはカウンターから分かります。これらのリクエストには `status="recipe_not_found"` が付きます。名前そのものは `recipe_not_found` ログイベントに残り、こちらはカーディナリティの制限を受けません。*登録済み*のレシピはロードされていない場合でも自分のラベルを保持するため、`recotem_v1_requests_total{recipe="my_recipe",status="unavailable"}` は影響を受けません。
+
+`recipe_not_found` のレートを `recipe` でグルーピングしている場合、そのクエリは試行された名前ごとの系列ではなく `<unknown>` の 1 系列を返すようになります。
+:::
+
 ---
 
 ## ウォッチャーとレジストリのセマンティクス

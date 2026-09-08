@@ -460,6 +460,14 @@ pip install "recotem[metrics]"
 
 Set `RECOTEM_METRICS_ENABLED=1` to activate the `/v1/metrics` endpoint.
 
+::: warning The `recipe` label reads `<unknown>` for a name this server does not serve
+On `recotem_v1_requests_total` and `recotem_v1_request_latency_seconds` the recipe name comes from the request path, and the route pattern bounds only its *shape* (`^[A-Za-z0-9_-]{1,64}$`). Labelling it verbatim would let one caller mint an unbounded number of time series, and `prometheus_client` never evicts one — so every unregistered name is recorded as `<unknown>`, a value no recipe can have because `<` and `>` are outside that pattern.
+
+The counter still tells you it is happening: those requests carry `status="recipe_not_found"`. The names themselves are in the `recipe_not_found` log event, which is not cardinality-bounded. A recipe that *is* registered keeps its own label even when it is not loaded, so `recotem_v1_requests_total{recipe="my_recipe",status="unavailable"}` is unaffected.
+
+If you group a `recipe_not_found` rate by `recipe`, that query now returns one `<unknown>` series instead of one series per name tried.
+:::
+
 ---
 
 ## Watcher and registry semantics
