@@ -551,8 +551,13 @@ export default defineConfig({
           '/ja/guide/': v2GuideSidebar('ja'),
           '/ja/docs/': v2DocsSidebar('ja'),
           '/ja/learn/': learnSidebar('ja'),
-          // v2.1 preview ja pages resolve to the ja locale, so register their
-          // version-scoped sidebars here too.
+          // Every `X.Y/ja/**` page resolves to the ja locale, not the root
+          // one, so each archive's version-scoped sidebars must be registered
+          // here as well as in root. Registering them only in root is not a
+          // no-op that renders an English sidebar — it renders no sidebar at
+          // all, which is how the whole 1.0 ja archive lost its navigation.
+          '/1.0/ja/guide/': v1GuideSidebar('ja'),
+          '/1.0/ja/docs/': v1DocsSidebar('ja'),
           '/2.1/ja/guide/': v2GuideSidebar('ja', '/2.1'),
           '/2.1/ja/docs/': v2DocsSidebar('ja', '/2.1'),
         },
