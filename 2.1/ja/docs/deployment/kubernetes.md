@@ -178,7 +178,7 @@ spec:
 | 2 | RecipeError | リトライなし (設定バグ; ConfigMap を修正すること) |
 | 3 | DataSourceError | 通常リトライなし (CSV/Parquet フォーマットエラー、必須列の欠落、ローカル FS パスが見つからない — 永続的) |
 | 4 | TrainingError | `backoffLimit` までリトライ |
-| 5 | ArtifactError | リトライなし (署名鍵の設定問題; Secret を修正すること) |
+| 5 | ArtifactError | リトライなし (アーティファクトの破損または検証不能 — HMAC 不一致、未知の kid、ペイロード切り詰め。再学習すること)。`RECOTEM_SIGNING_KEYS` のエントリ不正は 5 ではなく 8 になる。 |
 | 6 | LockContestedError (`--fail-on-busy` 設定時) | リトライまたはオーケストレーターに委任 |
 | 7 | HttpFetchError | リトライ (ネットワークフェッチにおける一時的な HTTP/SSRF/タイムアウト/sha256 不一致/バイト上限超過) |
 | 8 | 設定エラー | リトライなし (署名鍵の欠落、不正な環境変数) |

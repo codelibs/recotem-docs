@@ -66,7 +66,7 @@ description: "Recotem のセキュリティモデル。信頼境界と脅威モ�
 | レシピの環境変数展開を通じた認証情報注入 | `RECOTEM_SIGNING_KEYS`、`RECOTEM_API_KEYS`、`*_SECRET*`、`*_PASSWORD*`、`*_TOKEN*`、`*_KEY*` およびクラウドプレフィックス (`AWS_*`、`GCP_*`、`GOOGLE_*`、`AZURE_*`、`ALIYUN_*`、`ALICLOUD_*`、`OCI_*`、`IBM_*`、`DO_*`、`HCLOUD_*`、`DIGITALOCEAN_*`) は `${...}` 展開のブラックリストに登録済み |
 | レシピを通じた SQL インジェクション | 環境変数展開は `source.query` 内では実行されない; 動的な値は BigQuery の `@param` プレースホルダーを使用すること |
 | レシピを通じたパストラバーサル | `name` は読み込み時およびすべてのファイルシステム使用前に `^[A-Za-z0-9_-]{1,64}$` で検証される; `RECOTEM_ARTIFACT_ROOT` によるアーティファクトルート制限 |
-| ネットワークフェッチデータの改ざんまたはローテーション | スキームが `http://` または `https://` の場合、`source.path` / `item_metadata.path` に sha256 整合性ピンが**必須**; 不一致はバイトがパーサーに到達する前に `DataSourceError` (終了コード 3) を発生させる |
+| ネットワークフェッチデータの改ざんまたはローテーション | スキームが `http://` または `https://` の場合、`source.path` / `item_metadata.path` に sha256 整合性ピンが**必須**; 不一致はバイトがパーサーに到達する前に `DataSourceError` (終了コード 7 — ピンは HTTP フェッチパイプラインの最終ステップであるため、失敗は連鎖され、同じフェッチのリダイレクト・タイムアウト・バイト上限の失敗と同じ扱いで報告される) を発生させる |
 | 巨大なネットワークフェッチによるリソース枯渇 | `RECOTEM_MAX_DOWNLOAD_BYTES` (デフォルト 256 MiB) がフェッチ中の生 I/O ボディをキャップ; 超過 → ストリーム途中で `DataSourceError`。解凍後の DataFrame はキャップしない — [解凍後サイズ上限の未適用](#解凍後サイズ上限の未適用-medium-5) を参照 |
 | 公衆インターネット上のプレーンテキスト HTTP ソース | オペレーターの判断。`http://` は (信頼されたネットワーク内では正当な) 許可されているが、オペレーターは公衆インターネット上ではプレーンテキストを使用してはならない; sha256 は到達可能なレスポンスのコンテンツ改ざんを緩和する |
 | 任意コードを読み込む未認識プラグイン | 競合するプラグインの `type_name` は起動に失敗する; インストールされたプラグインは信頼されたコードとして扱われる (バージョンをピン留めすること) |
@@ -225,7 +225,7 @@ irspack の `IDMappedRecommender` は scipy のスパース行列と numpy 配�
 
 FQCN 許可リストは irspack 0.5.x ごとに凍結されています。irspack がレコメンダークラスを追加または名前変更した場合、リストが更新され、その変更は当該リリースの [GitHub Release ノート](https://github.com/codelibs/recotem/releases) に明記されます。
 
-FQCN 許可リストはこれらのクラスのみを許可します。このリストとモジュールプレフィックス許可リストの両方の外にあるクラスは、構築前に `ArtifactError` をトリガーします:
+手動列挙の FQCN 許可リストは以下の **41** クラスを保持します。これが許可される全体ではありません: 学習済みレコメンダーは単一のオブジェクトではないため、pickle グラフは属性として保持するトレーナー・設定・列挙型クラスも運び、2 つのアルゴリズムでは埋め込まれたサードパーティ推定器も運びます。さらに **5** つの FQCN が別の `_DENY_PREFIX_EXEMPTIONS` 集合を通じて許可され(下記の拒否リストの項を参照)、許可される合計は **46** になります。許可される全体とモジュールプレフィックス許可リストの両方の外にあるクラスは、構築前に `ArtifactError` をトリガーします:
 
 ```
 recotem._idmap.IDMappedRecommender
@@ -258,11 +258,24 @@ builtins.complex
 builtins.set
 builtins.frozenset
 collections.OrderedDict
+irspack.recommenders.ials.IALSTrainer
+irspack.recommenders.ials.IALSConfigScaling
+irspack.recommenders._ials_core.IALSTrainer
+irspack.recommenders._ials_core.IALSModelConfig
+irspack.recommenders._ials_core.IALSSolverConfig
+irspack.recommenders._ials_core.LossType
+irspack.recommenders._ials_core.SolverType
+irspack.recommenders.knn.FeatureWeightingScheme
+irspack.recommenders.bpr.BPRFMTrainer
+sklearn.decomposition._truncated_svd.TruncatedSVD
+lightfm.lightfm.LightFM
 ```
+
+末尾の 2 つは irspack のクラスではなく、サードパーティの推定器です: `TruncatedSVDRecommender` は scikit-learn の推定器を、`BPRFMRecommender` (`bprfm` エクストラ) は LightFM のモデルをペイロードに pickle 化するため、いずれのレコメンダーのアーティファクトをロードしてもこれらが構築されます。これらは許可リストを科学計算スタックの外へ広げており、scikit-learn はガードのない互換性の軸です — 上記のフィーチャーエンコーディングの注記を参照。
 
 このリストは Recotem リリースごとに凍結されます。変更は当該リリースの [GitHub Release ノート](https://github.com/codelibs/recotem/releases) に明記されます。
 
-FQCN リストに加えて、定義モジュールが以下の狭いプレフィックスの 1 つにあるクラスはプレフィックス許可リストを通じて許可されます (numpy と scipy はリリース間で内部レイアウトを再編成します — `_reconstruct` のような再構築ヘルパーはサブモジュール間を移動します):
+FQCN リストに加えて、定義モジュールが以下の狭いプレフィックスの 1 つにあり、**かつ**リーフ名が 6 つの既知の再構築ヘルパー名のいずれかであるクラスが、プレフィックス許可リストを通じて許可されます (numpy と scipy はリリース間で内部レイアウトを再編成します — `_reconstruct` のような再構築ヘルパーはサブモジュール間を移動します):
 
 ```
 numpy._core.       numpy 2.x 再構築ヘルパー + スカラー / dtype 機構
@@ -274,6 +287,8 @@ scipy.sparse._coo. COO 同等物
 
 `numpy.dtypes` はこのリストに**含まれていません**。numpy 2.x のパラメトリック dtype クラス (`Float64DType`、`BoolDType` など) はこのモジュール直下にあり、ドットで終わるプレフィックスはサブモジュールにしかマッチしないため、エントリを置いても何にもマッチしません。必要でもありません。numpy は配列と dtype を、個別列挙された `numpy.dtype` と `numpy._core.multiarray._frombuffer` を経由してラウンドトリップします。将来の numpy がこれらの FQCN を出力するようになった場合は、個別のクラスを列挙リストに追加すべきです。プレフィックスをモジュール全体に広げると、クラスでない 2 つの呼び出し可能オブジェクトまで許可してしまいます。
 
+プレフィックスの一致だけでは**十分ではありません**。リーフ名も 6 つの既知の再構築ヘルパー名 — `_reconstruct`、`scalar`、`_frombuffer`、`csr_matrix`、`csc_matrix`、`coo_matrix` — のいずれかである必要があり、許可されたプレフィックス配下であってもそれ以外は拒否されます。この 2 番目のゲートがなければ、プレフィックスはその配下のすべてのサブモジュールのすべての属性を許可してしまいます。たとえば任意の `module:attr` を値として返す getattr-by-string である `numpy._core._multiarray_tests.npy_import_entry_point` や、任意のファイル作成・切り詰めのプリミティブである `numpy._core.memmap.memmap` です。いずれも現在は拒否されています。
+
 トップレベルのベアモジュール (`numpy`、`scipy.sparse`) は意図的にプレフィックスリストに**含まれていません**。正当なトップレベル FQCN (`numpy.ndarray`、`numpy.dtype`) は手動列挙リストによってピン留めされているため、`numpy.frompyfunc`、`numpy.vectorize`、`numpy.piecewise`、`scipy.sparse.load_npz` などの呼び出し可能/ファイル I/O ガジェットは、同じパッケージ「配下」に存在してもブロックされます。
 
 拒否リストは、許可されたプレフィックス配下にあるが、コード実行ガジェット (テストランナー、ビルドヘルパー、外部関数バインディング、ファイル I/O コンストラクタ) を公開するリスクの高いサブモジュールを除外します。以下のモジュールは、プレフィックス許可リストとは独立した多層防御のトリップワイヤーとして明示的に拒否リストに登録されています:
@@ -281,7 +296,21 @@ scipy.sparse._coo. COO 同等物
 - `numpy.testing`, `numpy.distutils`, `numpy.f2py`, `numpy.ctypeslib`, `numpy.lib`, `numpy.compat`, `numpy.random`, `numpy._core._exceptions`
 - `scipy.sparse.linalg`, `scipy.sparse.tests`, `scipy.sparse.csgraph`
 
-`numpy.random` は防御的に拒否されています。RNG の状態オブジェクトは Recotem のアーティファクトに必要なく、将来の numpy リリースが副作用を伴う reduce 呼び出し可能オブジェクトをこのモジュールに導入する可能性があるためです。将来の irspack バージョンで必要になった正当な RNG クラスは、拒否リストを広げるのではなく、正確な FQCN を手動列挙許可リストに追加してください。`numpy._core._exceptions` は広い `numpy._core.*` プレフィックス許可リストを通じて露出する内部攻撃サーフェスを縮小するために拒否されています。
+`numpy.random` は防御的に拒否されています。将来の numpy リリースが副作用を伴う reduce 呼び出し可能オブジェクトをこのモジュールに導入する可能性があるためです。
+
+ただし拒否リストは絶対ではありません。意図的に非常に小さい例外集合 `_DENY_PREFIX_EXEMPTIONS` が拒否リストより**先に**参照され、これが拒否リストを上回る唯一の仕組みです。現在は `numpy.random` 配下の 5 つの FQCN を保持しています:
+
+```
+numpy.random._pickle.__randomstate_ctor
+numpy.random._pickle.__bit_generator_ctor
+numpy.random._mt19937.MT19937
+numpy.random.bit_generator.SeedSequence
+numpy.random.bit_generator.__pyx_unpickle_SeedSequence
+```
+
+これらが存在するのは、LightFM が numpy の `RandomState` で自身をシードし属性として保持するため、`BPRFMRecommender` のアーティファクトに埋め込まれたトレーナーが RNG 状態の pickle グラフを引き込むからです。5 つはいずれも RNG の*状態*を再構築するだけで、呼び出し側が指定する callable を受け取らないため、ガジェットにはなりません。`numpy.random` の残りは拒否されたままです。
+
+順序による帰結に注意してください: 拒否リストは例外集合の**後**、`_ALLOWED_CLASSES` の**前**に評価されます。したがって手動列挙許可リストに正確な FQCN を追加しても、拒否されたモジュールは再許可され**ません**。将来の irspack バージョンで必要になった正当な RNG クラスは例外集合に入れる必要があり、そこでは迂回が diff 上で可視になります。`numpy._core._exceptions` は広い `numpy._core.*` プレフィックス許可リストを通じて露出する内部攻撃サーフェスを縮小するために拒否されています。
 
 いずれのプレフィックスにも含まれないサブモジュール (例: `numpy.linalg`、`numpy.fft`、`numpy.polynomial`) は暗黙的にブロックされます — FQCN リストにもプレフィックス許可リストにも含まれないため、拒否リストのチェックに到達することさえありません。
 
