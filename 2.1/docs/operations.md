@@ -500,6 +500,34 @@ The startup-only event variants are:
 | `initial_artifact_deserialize_failed` | FQCN allow-list rejection or payload decode error |
 | `initial_artifact_hmac_skipped_dev` | `--dev-allow-unsigned` |
 
+### The recipe changed after the artifact was trained
+
+`recotem serve` compares the `recipe_hash` in an artifact's header against the
+recipe it is loading under. When they differ it logs
+`artifact_recipe_hash_mismatch` at WARNING and **keeps serving** — on both load
+paths, startup and hot-swap.
+
+```json
+{"event": "artifact_recipe_hash_mismatch", "name": "news_articles",
+ "artifact_recipe_hash": "9f1c2a4b7e05", "current_recipe_hash": "3d80ba61cc17"}
+```
+
+Both digests are the first 12 characters of the full sha256.
+
+This is a warning rather than a refusal because a hash difference is the
+expected state after any edit that does not require retraining — a comment, a
+rename, a serve-side `item_metadata` field. Refusing would take a working
+server down for a typo fix.
+
+What it tells you is that **the model reflects the older recipe**, while
+`/v1/recipes/{name}` reports the *current* recipe's `algorithms`, `metric` and
+`cutoff`. Read together, those are a description of a model that was never
+trained. Retrain to make them agree, or ignore the warning if the edit does not
+affect training.
+
+An artifact whose header carries no `recipe_hash` at all fails open and is
+silent: the field predates 2.0.
+
 ### Unparseable recipe files
 
 A file that cannot be parsed *at all* — YAML syntax error, schema violation — is treated differently from a recipe whose artifact failed to load. It declares no recipe: it has no name, no artifact, and nothing to serve. Such a file is **skipped**:
