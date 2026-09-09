@@ -515,15 +515,21 @@ paths, startup and hot-swap.
 Both digests are the first 12 characters of the full sha256.
 
 This is a warning rather than a refusal because a hash difference is the
-expected state after any edit that does not require retraining — a comment, a
-rename, a serve-side `item_metadata` field. Refusing would take a working
-server down for a typo fix.
+expected state after any edit that does not require retraining — a rename, a
+`cleansing` threshold relaxed below what the data already satisfies. Refusing
+would take a working server down for a typo fix.
 
-What it tells you is that **the model reflects the older recipe**, while
-`/v1/recipes/{name}` reports the *current* recipe's `algorithms`, `metric` and
-`cutoff`. Read together, those are a description of a model that was never
-trained. Retrain to make them agree, or ignore the warning if the edit does not
-affect training.
+Note which edits *cannot* produce it. The hash is taken over the recipe's
+parsed representation, so a comment, a whitespace change and a reordering of
+mapping keys all canonicalise to the same digest and never warn. Only a change
+to a *value* does.
+
+What it tells you is that **the model reflects the older recipe** — and so
+does everything the server reports about it. `/v1/recipes/{name}` returns the
+*artifact's* `algorithms`, `metric` and `cutoff`, not the ones in the file you
+just edited, because the running server answers from the body it built the
+model from. The warning is the only place the difference is visible. Retrain to
+make them agree, or ignore it if the edit does not affect training.
 
 An artifact whose header carries no `recipe_hash` at all fails open and is
 silent: the field predates 2.0.
