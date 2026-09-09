@@ -25,7 +25,9 @@ description: "Recotem のセキュリティモデル。信頼境界と脅威モ�
                         │  GET  /v1/recipes/{name}                   │
                         │  GET  /v1/health/details                   │
                         │  GET  /v1/metrics  (opt-in; auth required) │
-                        │  GET  /v1/health   (no auth required)      │
+                        │  GET  /v1/health         (no auth)         │
+                        │  GET  /v1/health/live    (no auth)         │
+                        │  GET  /v1/health/ready   (no auth)         │
                         │  X-API-Key header (all other endpoints)    │
                         └──────────────┬────────────────────────────┘
                                        │ reads (signed)
@@ -111,7 +113,7 @@ cgroup / RLIMIT コントロールは OOM イベントを防ぐのではなく �
 - **証明書検証**: stdlib `urllib` のデフォルト — システムトラストストア、オプトアウト不可。
 - **プロキシ自動検出の上書きなし**: `HTTP(S)_PROXY` 環境変数は尊重するが、他の自動検出は使用しない。
 - **User-Agent ヘッダー**: オリジンサーバーがクライアントを識別できるよう Recotem 固定の文字列に設定。
-- **URL ユーザー情報のリダクション**: `https://user:pass@host/...` 形式は `csv_source_*` イベントで `https://[REDACTED]@host/...` としてログに記録される。レシピローダーはユーザー情報を含む URL をパース時に拒否する。
+- **URL ユーザー情報のリダクション**: `https://user:pass@host/...` 形式は `csv_source_*` イベントで `https://host/...` としてログに記録される。ユーザー情報は削除されるのであって、マーカーに置き換えられるわけではない。レシピローダーはユーザー情報を含む URL をパース時に拒否する。
 - **ボディ上限**: ストリーム読み取りで、`RECOTEM_MAX_DOWNLOAD_BYTES` を超えた時点でストリーム途中で拒否。
 - **タイムアウト**: リクエストごとに `RECOTEM_HTTP_TIMEOUT_SECONDS` (1〜600 にクランプ)。
 - **sha256 必須**: スキームがネットワークで `sha256` が未設定の場合、レシピロード時に拒否される; フェッチ後に `hmac.compare_digest` で検証される。
@@ -457,7 +459,7 @@ azure_*
 
 デバッグ中のログ行で値が `[REDACTED]` に置き換えられている場合、フィールド名が上記のパターンの 1 つに一致しています。これは意図的です。
 
-**URL ユーザー情報のリダクション。** 埋め込まれた認証情報を含む URL (例: `https://user:pass@host/path`) は、HTTP フェッチャー境界で `redact_url_userinfo` により `https://[REDACTED]@host/path` としてログに記録されます。レシピローダーはユーザー情報を含む URL をパース時に拒否するため、このリダクションが効くのは内部で構築された URL とリダイレクト先のみです。独自のアプリケーションコードでユーザー情報を含む生の URL をログに記録しないでください。
+**URL ユーザー情報のリダクション。** 埋め込まれた認証情報を含む URL (例: `https://user:pass@host/path`) は、HTTP フェッチャー境界で `redact_url_userinfo` により `https://host/path` としてログに記録されます。ユーザー情報は**削除**され、その位置に `[REDACTED]` のようなマーカーは残りません。したがって、そうしたマーカーをログ検索しても一致することはありません。パスワードを伴わない裸のユーザー名は保持されます (`gs://project@bucket/key`)。そこではアドレス指定の構文であって認証情報ではないためです。レシピローダーはユーザー情報を含む URL をパース時に拒否するため、このリダクションが効くのは内部で構築された URL とリダイレクト先のみです。独自のアプリケーションコードでユーザー情報を含む生の URL をログに記録しないでください。
 
 ## アーティファクトセキュリティポスチャーフラグ
 

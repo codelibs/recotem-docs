@@ -25,7 +25,9 @@ description: "Recotem security model: trust boundaries, HMAC-signed artifacts, F
                         │  GET  /v1/recipes/{name}                   │
                         │  GET  /v1/health/details                   │
                         │  GET  /v1/metrics  (opt-in; auth required) │
-                        │  GET  /v1/health   (no auth required)      │
+                        │  GET  /v1/health         (no auth)         │
+                        │  GET  /v1/health/live    (no auth)         │
+                        │  GET  /v1/health/ready   (no auth)         │
                         │  X-API-Key header (all other endpoints)    │
                         └──────────────┬────────────────────────────┘
                                        │ reads (signed)
@@ -132,7 +134,8 @@ cgroup / RLIMIT controls do not prevent the OOM event — they contain it. A del
 - **User-Agent header**: set to a fixed Recotem string so origin servers can
   identify the client.
 - **URL userinfo redaction**: any `https://user:pass@host/...` form is logged
-  as `https://[REDACTED]@host/...` in `csv_source_*` events. The recipe
+  as `https://host/...` in `csv_source_*` events — the userinfo is
+  removed, not replaced with a marker. The recipe
   loader rejects userinfo-bearing URLs at parse time anyway.
 - **Body cap**: streamed read, refuses past `RECOTEM_MAX_DOWNLOAD_BYTES` mid-stream.
 - **Timeout**: `RECOTEM_HTTP_TIMEOUT_SECONDS` per request (clamped 1–600).
@@ -554,7 +557,7 @@ The redaction processor is the first in the chain and runs at every log level in
 
 If a value is replaced with `[REDACTED]` in a log line you are debugging, the field name matched one of the patterns above. This is intentional.
 
-**URL userinfo redaction.** Any URL containing embedded credentials (e.g. `https://user:pass@host/path`) is logged as `https://[REDACTED]@host/path` at the HTTP-fetcher boundary via `redact_url_userinfo`. The recipe loader rejects userinfo-bearing URLs at parse time, so this redaction applies only to internally-constructed URLs and redirect targets. Do not log raw URLs with userinfo in your own application code — strip credentials before logging.
+**URL userinfo redaction.** Any URL containing embedded credentials (e.g. `https://user:pass@host/path`) is logged as `https://host/path` at the HTTP-fetcher boundary via `redact_url_userinfo` — the userinfo is **removed**, and no `[REDACTED]` marker is left in its place, so a log search for such a marker will never match. A bare username with no password is preserved (`gs://project@bucket/key`), because there it is addressing syntax rather than a credential. The recipe loader rejects userinfo-bearing URLs at parse time, so this redaction applies only to internally-constructed URLs and redirect targets. Do not log raw URLs with userinfo in your own application code — strip credentials before logging.
 
 ## Artifact security posture flags
 
