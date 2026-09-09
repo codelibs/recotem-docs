@@ -84,7 +84,10 @@ kubectl -n recotem exec deploy/recotem -- ls -la /recipes
 The same fix — the pods need no intervention beyond producing the artifact:
 
 ```bash
-kubectl -n recotem create job recover-0 --from=cronjob/recotem-train
+CJ=$(kubectl -n recotem get cronjob \
+       -l app.kubernetes.io/name=recotem,app.kubernetes.io/component=train \
+       -o name)
+kubectl -n recotem create job recover-0 --from="$CJ"
 kubectl -n recotem logs -f job/recover-0
 ```
 
@@ -96,7 +99,9 @@ Nothing above proves the API answers. Two of this page's warnings only show up h
 
 ```bash
 NS=recotem
-POD=$(kubectl -n "$NS" get pod -l app.kubernetes.io/name=recotem \
+POD=$(kubectl -n "$NS" get pod \
+        -l app.kubernetes.io/name=recotem,app.kubernetes.io/component=serve \
+        --field-selector=status.phase=Running \
         -o jsonpath='{.items[0].metadata.name}')
 
 # 1. probes, from inside the pod (Host: localhost always passes)
@@ -365,7 +370,7 @@ securityContext:                 # container-level
 Each new pod re-fetches and HMAC-verifies every artifact at startup before the `startupProbe` clears (`periodSeconds: 5`, `failureThreshold: 60` — a 5-minute budget) and the readinessProbe passes. With many recipes or large artifacts, raise the `startupProbe` `failureThreshold` and the readiness `initialDelaySeconds` and tune `maxSurge` / `maxUnavailable` so the rollout does not run below the desired-replica count. The watcher polls on a shared interval inside each pod — when `train` writes a new artifact, all replicas pick it up within `RECOTEM_WATCH_INTERVAL` seconds; no rollout is needed for hot-swap.
 
 ::: warning On a network filesystem the attribute cache adds to the hot-swap time
-`RECOTEM_WATCH_INTERVAL` is not the whole latency when artifacts live on an NFS-backed `ReadWriteMany` PVC: the client's attribute cache has to expire before the watcher's `stat` can see the new mtime. Measured at a 10 s interval — **25.5 s** on a default-mounted volume, **8.2 s** on the same volume mounted `noac`. Budget the sum, or mount `noac` and accept the extra metadata round-trips.
+`RECOTEM_WATCH_INTERVAL` is not the whole latency when artifacts live on an NFS-backed `ReadWriteMany` PVC: the client's attribute cache has to expire before the watcher's `stat` can see the new mtime. That cache term is a **distribution, not a constant** — the Linux client holds regular-file attributes for `clamp(file_age/10, acregmin=3 s, acregmax=60 s)`, and a write lands at an arbitrary point in that window, so a long-idle file can be slow and the next one fast. Measured at a 10 s interval over 7 trials on a default-mounted volume: **1.2 s to 54.5 s**. The same volume mounted `noac` removes the term: **1.9 s to 4.2 s** over 4 trials, bounded by the watcher tick alone. Budget `acregmax` + `RECOTEM_WATCH_INTERVAL` (~70 s at defaults), or mount `noac` and accept the extra metadata round-trips.
 
 **Cross-replica agreement during a swap is not guaranteed.** Replicas swap independently, so one `user_id` can get two different models until the last replica has swapped — measured **21.8 s** of divergence with 3 replicas on the same PVC. `model_version` in the response (and the `X-Recotem-Model-Version` header) identifies which model answered, so a client that needs a consistent view within a session can pin on it.
 :::
