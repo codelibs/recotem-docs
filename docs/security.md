@@ -126,8 +126,11 @@ cgroup / RLIMIT controls do not prevent the OOM event — they contain it. A del
 - **User-Agent header**: set to a fixed Recotem string so origin servers can
   identify the client.
 - **URL userinfo redaction**: any `https://user:pass@host/...` form is logged
-  as `https://[REDACTED]@host/...` in `csv_source_*` events. The recipe
-  loader rejects userinfo-bearing URLs at parse time anyway.
+  as `https://host/...` in `csv_source_*` events — the userinfo is
+  removed, not replaced with a marker. The recipe
+  loader rejects credential-bearing URLs at parse time for `http`, `https`,
+  `ftp`, `ftps`, `s3`, `abfs` and `abfss`, but not for `gs`, `az` or `file`,
+  where a password in the userinfo reaches the log unredacted.
 - **Body cap**: streamed read, refuses past `RECOTEM_MAX_DOWNLOAD_BYTES` mid-stream.
 - **Timeout**: `RECOTEM_HTTP_TIMEOUT_SECONDS` per request (clamped 1–600).
 - **sha256 mandatory**: refused at recipe-load time when the scheme is
@@ -429,7 +432,7 @@ The redaction processor is the first in the chain and runs at every log level in
 
 If a value is replaced with `[REDACTED]` in a log line you are debugging, the field name matched one of the patterns above. This is intentional.
 
-**URL userinfo redaction.** Any URL containing embedded credentials (e.g. `https://user:pass@host/path`) is logged as `https://[REDACTED]@host/path` at the HTTP-fetcher boundary via `redact_url_userinfo`. The recipe loader rejects userinfo-bearing URLs at parse time, so this redaction applies only to internally-constructed URLs and redirect targets. Do not log raw URLs with userinfo in your own application code — strip credentials before logging.
+**URL userinfo redaction.** Any URL containing embedded credentials (e.g. `https://user:pass@host/path`) is logged as `https://host/path` at the HTTP-fetcher boundary via `redact_url_userinfo` — the userinfo is **removed**, and no `[REDACTED]` marker is left in its place, so a log search for such a marker will never match. The recipe loader rejects credential-bearing URLs at parse time for `http`, `https`, `ftp`, `ftps`, `s3`, `abfs` and `abfss`, so for those schemes this redaction applies only to internally-constructed URLs and redirect targets. It does **not** apply to `gs://`, `az://` or `file://`, where userinfo is permitted as addressing syntax: a path in one of those schemes whose userinfo carries a password is accepted from a recipe and reaches the log unredacted. Never put a credential in a path field, and if one has been, rotate it and purge the logs that carry it. Do not log raw URLs with userinfo in your own application code — strip credentials before logging.
 
 ## Artifact security posture flags
 
