@@ -448,7 +448,7 @@ Recotem does not enforce SLOs internally. Recommended baseline targets for produ
 | Recommendation endpoints p99 latency | < 50 ms (pure recommender, no metadata join) |
 | `/v1/health` p99 latency | < 5 ms |
 | Availability (per recipe) | Measure via `recotem_model_loaded{recipe}` Prometheus gauge |
-| Artifact hot-swap time | ≤ `RECOTEM_WATCH_INTERVAL` + model load time **on local or block storage**. On a network filesystem the client's attribute cache adds to it: measured **25.5 s** at a 10 s interval on a default-mounted NFS `ReadWriteMany` PVC, and **8.2 s** on the same volume mounted `noac` |
+| Artifact hot-swap time | ≤ `RECOTEM_WATCH_INTERVAL` + model load time **on local or block storage**. On a network filesystem the client's attribute cache adds a term that is a **distribution, not a constant**: the Linux NFS client holds regular-file attributes for `clamp(file_age/10, acregmin=3 s, acregmax=60 s)`, and a write lands at an arbitrary point in that window. Measured at a 10 s interval on a default-mounted NFS `ReadWriteMany` PVC: **1.2 s to 54.5 s** over 7 trials, with no usable central value — budget for `acregmax` + `RECOTEM_WATCH_INTERVAL` (~70 s at defaults), not for an average. The same volume mounted `noac` removes the term entirely: **1.9 s to 4.2 s** over 4 trials, bounded by the watcher tick alone |
 | Train-to-serve lag | Schedule train; serve detects in ≤ `RECOTEM_WATCH_INTERVAL` seconds, plus the attribute-cache term above when artifacts live on a network filesystem |
 | Cross-replica agreement during a swap | **Not guaranteed.** Replicas swap independently, so one `user_id` can get two different models until the last replica has swapped — measured **21.8 s** with 3 replicas on a default-mounted NFS RWX PVC. `model_version` in the response identifies which model answered |
 
@@ -515,15 +515,21 @@ paths, startup and hot-swap.
 Both digests are the first 12 characters of the full sha256.
 
 This is a warning rather than a refusal because a hash difference is the
-expected state after any edit that does not require retraining — a comment, a
-rename, a serve-side `item_metadata` field. Refusing would take a working
-server down for a typo fix.
+expected state after any edit that does not require retraining — a rename, a
+`cleansing` threshold relaxed below what the data already satisfies. Refusing
+would take a working server down for a typo fix.
 
-What it tells you is that **the model reflects the older recipe**, while
-`/v1/recipes/{name}` reports the *current* recipe's `algorithms`, `metric` and
-`cutoff`. Read together, those are a description of a model that was never
-trained. Retrain to make them agree, or ignore the warning if the edit does not
-affect training.
+Note which edits *cannot* produce it. The hash is taken over the recipe's
+parsed representation, so a comment, a whitespace change and a reordering of
+mapping keys all canonicalise to the same digest and never warn. Only a change
+to a *value* does.
+
+What it tells you is that **the model reflects the older recipe** — and so
+does everything the server reports about it. `/v1/recipes/{name}` returns the
+*artifact's* `algorithms`, `metric` and `cutoff`, not the ones in the file you
+just edited, because the running server answers from the body it built the
+model from. The warning is the only place the difference is visible. Retrain to
+make them agree, or ignore it if the edit does not affect training.
 
 An artifact whose header carries no `recipe_hash` at all fails open and is
 silent: the field predates 2.0.

@@ -84,7 +84,10 @@ kubectl -n recotem exec deploy/recotem -- ls -la /recipes
 対処は同じです。アーティファクトを生成する以外に Pod へ手を加える必要はありません。
 
 ```bash
-kubectl -n recotem create job recover-0 --from=cronjob/recotem-train
+CJ=$(kubectl -n recotem get cronjob \
+       -l app.kubernetes.io/name=recotem,app.kubernetes.io/component=train \
+       -o name)
+kubectl -n recotem create job recover-0 --from="$CJ"
 kubectl -n recotem logs -f job/recover-0
 ```
 
@@ -96,7 +99,9 @@ kubectl -n recotem logs -f job/recover-0
 
 ```bash
 NS=recotem
-POD=$(kubectl -n "$NS" get pod -l app.kubernetes.io/name=recotem \
+POD=$(kubectl -n "$NS" get pod \
+        -l app.kubernetes.io/name=recotem,app.kubernetes.io/component=serve \
+        --field-selector=status.phase=Running \
         -o jsonpath='{.items[0].metadata.name}')
 
 # 1. Pod 内部からのプローブ (Host: localhost は常に通る)
@@ -364,7 +369,7 @@ securityContext:                 # コンテナレベル
 各新しい Pod は、`startupProbe` が通過し (`periodSeconds: 5`、`failureThreshold: 60` — 5 分の猶予) readinessProbe が通過する前に、起動時にすべてのアーティファクトを再フェッチして HMAC 検証します。レシピ数が多い場合や大きなアーティファクトがある場合は、`startupProbe` の `failureThreshold` と readiness の `initialDelaySeconds` を増やし、ロールアウトが希望のレプリカ数を下回らないように `maxSurge` / `maxUnavailable` を調整してください。ウォッチャーは各 Pod 内で共有インターバルでポーリングします — `train` が新しいアーティファクトを書き込むと、すべてのレプリカは `RECOTEM_WATCH_INTERVAL` 秒以内にそれを検知します。ホットスワップにロールアウトは不要です。
 
 ::: warning 注意 — ネットワークファイルシステムでは属性キャッシュがホットスワップ時間に上乗せされます
-アーティファクトが NFS ベースの `ReadWriteMany` PVC 上にある場合、レイテンシは `RECOTEM_WATCH_INTERVAL` だけでは決まりません。ウォッチャーの `stat` が新しい mtime を見るには、クライアントの属性キャッシュが期限切れになる必要があります。インターバル 10 秒での実測は、デフォルトマウントで **25.5 秒**、同じボリュームを `noac` でマウントすると **8.2 秒**でした。合計時間で見積もるか、`noac` でマウントしてメタデータの往復が増えることを受け入れてください。
+アーティファクトが NFS ベースの `ReadWriteMany` PVC 上にある場合、レイテンシは `RECOTEM_WATCH_INTERVAL` だけでは決まりません。ウォッチャーの `stat` が新しい mtime を見るには、クライアントの属性キャッシュが期限切れになる必要があります。このキャッシュ項は定数ではなく**分布**です。Linux クライアントは通常ファイルの属性を `clamp(file_age/10, acregmin=3 秒, acregmax=60 秒)` の間保持し、書き込みはその窓の任意の位置に落ちるため、長時間アイドルだったファイルが遅く、次のものが速い、ということが起こります。インターバル 10 秒でデフォルトマウントの実測は 7 試行で **1.2 秒～54.5 秒**。同じボリュームを `noac` でマウントするとこの項は消え、4 試行で **1.9 秒～4.2 秒**、ウォッチャのティックのみで押さえられます。`acregmax` + `RECOTEM_WATCH_INTERVAL`（既定値で約 70 秒）で見積もるか、`noac` でマウントしてメタデータの往復が増えることを受け入れてください。
 
 **スワップ中のレプリカ間の一致は保証されません。** レプリカは独立してスワップするため、最後のレプリカがスワップし終えるまで同じ `user_id` が 2 つの異なるモデルから応答を受け取りえます。同じ PVC 上の 3 レプリカで **21.8 秒**の乖離を実測しました。どのモデルが応答したかはレスポンスの `model_version` (および `X-Recotem-Model-Version` ヘッダー) で識別できるため、セッション内で一貫した結果が必要なクライアントはこれで固定できます。
 :::
