@@ -13,6 +13,16 @@ Recotem requires **Python 3.12 or newer**. There are two ways to install it: as 
 pip install recotem
 ```
 
+::: warning `pip install recotem` cannot complete on every platform
+Recotem depends on irspack, which publishes wheels only for **Linux on x86-64 or arm64** (glibc or musl), **macOS on Apple Silicon**, and **Windows on x86-64** — and ships **no source distribution**. On **macOS on Intel** and on **Windows on arm64** there is nothing for pip to install and nothing to build from, so the command fails with:
+
+```
+ERROR: No matching distribution found for irspack==0.5.2
+```
+
+No compiler or build flag works around it. Use [Option B — Docker](#option-b-—-docker) instead; the image runs on all of these platforms.
+:::
+
 Verify the install worked:
 
 ```bash
@@ -35,16 +45,15 @@ The core package ships with CSV and Parquet data sources. Install extras for add
 | Google Cloud Storage | `pip install "recotem[gcs]"` | Read/write artifacts and data from GCS |
 | Azure Blob Storage | `pip install "recotem[azure]"` | Read/write artifacts and data from Azure |
 | Prometheus metrics | `pip install "recotem[metrics]"` | Opt-in `/v1/metrics` endpoint for monitoring (requires `X-API-Key`) |
+| `BPRFM` algorithm | `pip install "recotem[bprfm]"` | Makes the `BPRFM` algorithm available to `training.algorithms` |
 | Everything | `pip install "recotem[all]"` | All of the above at once |
 
 Extras can be combined: `pip install "recotem[s3,metrics]"`.
 
-::: warning `BPRFM` is not selectable on this release
-irspack gates `BPRFMRecommender` behind the separately installed `lightfm` package and drops the class from its exports when that import fails. This release of Recotem does not declare a `bprfm` extra and the official image does not bundle `lightfm`, so listing `BPRFM` in `training.algorithms` makes both `recotem validate` and `recotem train` exit **4** with `irspack does not know recommender class 'BPRFMRecommender'`, before any data is fetched.
+::: warning `BPRFM` needs its extra
+irspack gates `BPRFMRecommender` behind the separately installed `lightfm` package and drops the class from its exports when that import fails. Listing `BPRFM` in `training.algorithms` without the `bprfm` extra makes both `recotem validate` and `recotem train` exit **4** with `irspack does not know recommender class 'BPRFMRecommender'`, before any data is fetched. The official Docker image already includes it. One serving limitation comes with it: a recipe whose search winner is BPRFM cannot answer `:recommend-related` or `:batch-recommend-related`, which return `501 RELATED_NOT_SUPPORTED` (see [Serving API](/docs/serving-api#post-v1-recipes-name-recommend-related)).
 
-`pip install "recotem[bprfm]"` does **not** report this. Unknown extras are not an error: pip resolves the base package, installs it, and says nothing — leaving you with an install that looks complete and a recipe that fails at `train`.
-
-To use `BPRFM` on this release, install the dependency yourself alongside Recotem: `pip install lightfm-next`. That is [`lightfm-next`](https://pypi.org/project/lightfm-next/), a maintained fork that provides the same `lightfm` module — upstream `lightfm` has shipped no release since 1.17 and does not build on Python 3.12. Two caveats: it publishes no linux/aarch64 wheel, so on arm64 it builds from source and needs a C compiler; and on macOS it is built without OpenMP, so BPRFM training there is single-threaded.
+The dependency is [`lightfm-next`](https://pypi.org/project/lightfm-next/), a maintained fork that installs the same `lightfm` module — upstream `lightfm` has shipped no release since 1.17 and does not build on Python 3.12. Two caveats: it publishes no linux/aarch64 wheel, so on arm64 `pip install "recotem[bprfm]"` builds it from source and needs a C compiler (the published image is unaffected, having compiled it at build time on both architectures); and on macOS it is built without OpenMP, so BPRFM training there is single-threaded.
 :::
 
 ## Option B — Docker
@@ -92,7 +101,7 @@ export RECOTEM_SIGNING_KEYS="prod:<64-char hex string>"
 
 ### API key
 
-The API key controls who can call the serving API: every endpoint except `GET /v1/health` requires it, including `/v1/recipes/{name}:recommend` and the other recipe verbs. Clients send it as an `X-API-Key` HTTP header. The server stores only a hash of the key, not the plaintext.
+The API key controls who can call the serving API: every endpoint except the three unauthenticated probes (`GET /v1/health`, `GET /v1/health/live`, `GET /v1/health/ready`) requires it, including `/v1/recipes/{name}:recommend` and the other recipe verbs. Clients send it as an `X-API-Key` HTTP header. The server stores only a hash of the key, not the plaintext.
 
 ```bash
 recotem keygen --type api --kid client-a
@@ -122,7 +131,7 @@ If `RECOTEM_API_KEYS` is not set, the server binds to `127.0.0.1` only (loopback
 |---|---|---|
 | `RECOTEM_SIGNING_KEYS` | `train` and `serve` | HMAC sign and verify artifact files |
 | `RECOTEM_API_KEYS` | `serve` | Authenticate `/v1` API callers (server stores hash only) |
-| `X-API-Key: <plaintext>` | HTTP clients | Sent on every `/v1` request except `GET /v1/health` |
+| `X-API-Key: <plaintext>` | HTTP clients | Sent on every `/v1` request except the three probes `GET /v1/health`, `GET /v1/health/live`, `GET /v1/health/ready` |
 
 Both `RECOTEM_SIGNING_KEYS` and `RECOTEM_API_KEYS` accept multiple comma-separated entries (`kid1:value,kid2:value`) to enable key rotation without downtime. See the [Operations](/docs/operations) guide for the rotation procedure.
 

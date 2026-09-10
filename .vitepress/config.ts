@@ -251,13 +251,19 @@ function v2DocsSidebar(lang: 'en' | 'ja', version = ''): DefaultTheme.SidebarIte
         { text: lang === 'ja' ? 'セキュリティ' : 'Security', link: `${prefix}/security` },
         { text: lang === 'ja' ? '環境変数' : 'Environment Variables', link: `${prefix}/environment-variables` },
         { text: lang === 'ja' ? '終了コード' : 'Exit Codes', link: `${prefix}/exit-codes` },
-        // `upgrading` exists only in the 2.1 preview so far. The unversioned
-        // stable tree has no such page, so an unconditional entry would put a
-        // 404 in the stable sidebar; promote it by dropping the guard when the
-        // page lands at `docs/`.
-        ...(version
-          ? [{ text: lang === 'ja' ? 'アップグレード' : 'Upgrading', link: `${prefix}/upgrading` }]
-          : []),
+        // `upgrading` exists in every tree this sidebar serves EXCEPT `2.0/`.
+        // 2.0 shipped before the page existed and `2.0/` is a frozen archive of
+        // that tree, so it has no `upgrading.md` and never will.  This guard
+        // used to test `version` as a proxy for "does the page exist", which
+        // held only while the 2.1 preview was the sole tree carrying it.  The
+        // 2.1 promote inverts that proxy in both directions at once: the root
+        // gains the page, and a freshly frozen `2.0/` is a version directory
+        // without it.  So name the archive rather than infer from the shape of
+        // the path -- and note a missing page here is a 404 in the sidebar,
+        // which `docs:build` does not fail on.
+        ...(version === '/2.0'
+          ? []
+          : [{ text: lang === 'ja' ? 'アップグレード' : 'Upgrading', link: `${prefix}/upgrading` }]),
         { text: lang === 'ja' ? 'プラグイン作成' : 'Plugin Authoring', link: `${prefix}/plugin-authoring` },
       ],
     },
@@ -532,6 +538,11 @@ export default defineConfig({
           '/2.1/docs/': v2DocsSidebar('en', '/2.1'),
           '/2.1/ja/guide/': v2GuideSidebar('ja', '/2.1'),
           '/2.1/ja/docs/': v2DocsSidebar('ja', '/2.1'),
+
+          '/2.0/guide/': v2GuideSidebar('en', '/2.0'),
+          '/2.0/docs/': v2DocsSidebar('en', '/2.0'),
+          '/2.0/ja/guide/': v2GuideSidebar('ja', '/2.0'),
+          '/2.0/ja/docs/': v2DocsSidebar('ja', '/2.0'),
         },
       },
     },
@@ -560,6 +571,9 @@ export default defineConfig({
           '/1.0/ja/docs/': v1DocsSidebar('ja'),
           '/2.1/ja/guide/': v2GuideSidebar('ja', '/2.1'),
           '/2.1/ja/docs/': v2DocsSidebar('ja', '/2.1'),
+
+          '/2.0/ja/guide/': v2GuideSidebar('ja', '/2.0'),
+          '/2.0/ja/docs/': v2DocsSidebar('ja', '/2.0'),
         },
       },
     },

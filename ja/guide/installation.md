@@ -13,6 +13,16 @@ Recotem には **Python 3.12 以上** が必要です。インストール方法
 pip install recotem
 ```
 
+::: warning 注意 — `pip install recotem` が完了できないプラットフォームがあります
+Recotem が依存する irspack は、**Linux の x86-64 と arm64** (glibc または musl)、**Apple Silicon の macOS**、**x86-64 の Windows** 向けにしかホイールを公開しておらず、**ソースディストリビューションも配布していません**。そのため **Intel の macOS** と **arm64 の Windows** では、pip がインストールできるものもビルドできるものも存在せず、次のエラーで失敗します。
+
+```
+ERROR: No matching distribution found for irspack==0.5.2
+```
+
+コンパイラやビルドフラグでは回避できません。代わりに[オプション B — Docker](#オプション-b-—-docker) を使ってください。イメージはこれらのプラットフォームすべてで動作します。
+:::
+
 インストールが成功したか確認します。
 
 ```bash
@@ -35,16 +45,15 @@ recotem --help
 | Google Cloud Storage | `pip install "recotem[gcs]"` | GCS からアーティファクトとデータを読み書きする |
 | Azure Blob Storage | `pip install "recotem[azure]"` | Azure からアーティファクトとデータを読み書きする |
 | Prometheus メトリクス | `pip install "recotem[metrics]"` | モニタリング用のオプトイン `/v1/metrics` エンドポイント (`X-API-Key` が必要) |
+| `BPRFM` アルゴリズム | `pip install "recotem[bprfm]"` | `training.algorithms` で `BPRFM` を使えるようにする |
 | すべて | `pip install "recotem[all]"` | 上記すべてを一度に導入 |
 
 エクストラは組み合わせて使えます: `pip install "recotem[s3,metrics]"`
 
-::: warning このリリースでは `BPRFM` を選択できません
-irspack は `BPRFMRecommender` を別途インストールする `lightfm` パッケージの背後にゲートしており、そのインポートに失敗するとクラスをエクスポートしません。このリリースの Recotem は `bprfm` エクストラを宣言しておらず、公式イメージにも `lightfm` は含まれていません。そのため `training.algorithms` に `BPRFM` を指定すると、`recotem validate` も `recotem train` もデータ取得の前に終了コード **4** と `irspack does not know recommender class 'BPRFMRecommender'` で失敗します。
+::: warning `BPRFM` にはエクストラが必要です
+irspack は `BPRFMRecommender` を別途インストールする `lightfm` パッケージの背後にゲートしており、そのインポートに失敗するとクラスをエクスポートしません。`bprfm` エクストラなしで `training.algorithms` に `BPRFM` を指定すると、`recotem validate` も `recotem train` もデータ取得の前に終了コード **4** と `irspack does not know recommender class 'BPRFMRecommender'` で失敗します。公式 Docker イメージには既に含まれています。サービング側の制限が 1 つあります。探索の勝者が BPRFM になったレシピは `:recommend-related` と `:batch-recommend-related` に応答できず、`501 RELATED_NOT_SUPPORTED` を返します ([サービング API](/ja/docs/serving-api#post-v1-recipes-name-recommend-related) を参照)。
 
-`pip install "recotem[bprfm]"` を実行してもこのことは通知されません。存在しないエクストラはエラーになりません。pip はベースパッケージを解決してインストールし、何も言いません。インストールは完了したように見え、レシピは `train` で失敗します。
-
-このリリースで `BPRFM` を使うには、依存パッケージを自分で併せてインストールしてください: `pip install lightfm-next`。これは [`lightfm-next`](https://pypi.org/project/lightfm-next/) で、同じ `lightfm` モジュールを提供する保守されたフォークです (本家 `lightfm` は 1.17 以降リリースがなく、Python 3.12 でビルドできません)。注意点が 2 つあります。linux/aarch64 のホイールが公開されていないため、arm64 ではソースからビルドされ C コンパイラが必要です。また macOS では OpenMP なしでビルドされるため、BPRFM の学習はシングルスレッドになります。
+依存パッケージは [`lightfm-next`](https://pypi.org/project/lightfm-next/) で、同じ `lightfm` モジュールを提供する保守されたフォークです (本家 `lightfm` は 1.17 以降リリースがなく、Python 3.12 でビルドできません)。注意点が 2 つあります。linux/aarch64 のホイールが公開されていないため、arm64 では `pip install "recotem[bprfm]"` がソースからビルドされ C コンパイラが必要です (公開 Docker イメージは両アーキテクチャでビルド済みのため影響を受けません)。また macOS では OpenMP なしでビルドされるため、BPRFM の学習はシングルスレッドになります。
 :::
 
 ## オプション B — Docker
@@ -92,7 +101,7 @@ export RECOTEM_SIGNING_KEYS="prod:<64 文字の hex 文字列>"
 
 ### API キー
 
-API キーはサービング API を呼び出せるクライアントを制御します。`GET /v1/health` を除くすべてのエンドポイントで必要で、`/v1/recipes/{name}:recommend` などのレシピ動詞も含まれます。クライアントは `X-API-Key` HTTP ヘッダーとして送信します。サーバーはキーのハッシュのみを保存し、平文は保存しません。
+API キーはサービング API を呼び出せるクライアントを制御します。認証不要の 3 つのプローブ (`GET /v1/health`、`GET /v1/health/live`、`GET /v1/health/ready`) を除くすべてのエンドポイントで必要で、`/v1/recipes/{name}:recommend` などのレシピ動詞も含まれます。クライアントは `X-API-Key` HTTP ヘッダーとして送信します。サーバーはキーのハッシュのみを保存し、平文は保存しません。
 
 ```bash
 recotem keygen --type api --kid client-a
@@ -122,7 +131,7 @@ export RECOTEM_API_PLAINTEXT="<43 文字の base64url 文字列>"
 |---|---|---|
 | `RECOTEM_SIGNING_KEYS` | `train` と `serve` | アーティファクトファイルの HMAC 署名と検証 |
 | `RECOTEM_API_KEYS` | `serve` | `/v1` API 呼び出し元の認証 (サーバーはハッシュのみ保存) |
-| `X-API-Key: <plaintext>` | HTTP クライアント | `GET /v1/health` を除くすべての `/v1` リクエストに付加して送信 |
+| `X-API-Key: <plaintext>` | HTTP クライアント | 3 つのプローブ `GET /v1/health`、`GET /v1/health/live`、`GET /v1/health/ready` を除くすべての `/v1` リクエストに付加して送信 |
 
 `RECOTEM_SIGNING_KEYS` と `RECOTEM_API_KEYS` はどちらも複数のエントリをカンマ区切りで指定できます (`kid1:value,kid2:value`)。これにより、ダウンタイムなしで鍵のローテーションが可能です。ローテーション手順については[オペレーション](/ja/docs/operations)ガイドを参照してください。
 

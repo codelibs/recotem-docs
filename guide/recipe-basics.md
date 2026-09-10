@@ -11,7 +11,7 @@ You write a recipe once and then run `recotem train` as often as you like — on
 
 ## Top-level structure
 
-A recipe has seven sections:
+A recipe has eight sections:
 
 ```yaml
 name: my_model          # required: the endpoint name
@@ -19,6 +19,7 @@ source: ...             # required: where the interaction data comes from
 schema: ...             # required: which columns are user IDs and item IDs
 cleansing: ...          # optional: data quality checks
 item_metadata: ...      # optional: extra item details to include in predictions
+features: ...           # optional: item/user attributes for cold-start scoring
 training: ...           # required: which algorithms to try, how many trials
 output: ...             # required: where to write the trained model file
 ```
@@ -129,6 +130,47 @@ This section is optional. Without it, recommendation responses return only `item
 
 ---
 
+## `features` — attributes for cold start
+
+Everything above trains on interactions alone, so a user or item with no interaction history cannot be scored. The `features` section fixes that: point it at a table of item or user attributes, and Recotem trains a **feature-aware iALS** model that can score a brand-new user from their profile, or a brand-new item from its attributes.
+
+There is no separate flag — the presence of this block is what turns the feature-aware path on.
+
+```yaml
+features:
+  item:
+    source: {type: csv, path: ./items.csv}   # same source types as `source`
+    id_column: item_id                       # must match schema.item_column values
+    columns:
+      - {name: genres,       encoding: multi_label, delimiter: "|"}
+      - {name: release_year, encoding: numerical}
+      - {name: country,      encoding: categorical, min_frequency: 5}
+  user:
+    source: {type: csv, path: ./users.csv}
+    id_column: user_id
+    columns:
+      - {name: age_band, encoding: categorical}
+```
+
+Declare `item`, `user`, or both. Each column gets one of three encodings:
+
+| Encoding | Use it for | Example |
+|---|---|---|
+| `categorical` | One value per row, from a fixed set | `country: JP` |
+| `numerical` | A number, standardized during training | `release_year: 1994` |
+| `multi_label` | Several tags in one cell, split on `delimiter` | `genres: "Action\|Sci-Fi"` |
+
+Two things to get right the first time:
+
+- **`training.algorithms` must include `IALS`.** It is the only feature-capable algorithm today; a `features:` block without it is rejected at recipe load.
+- **`id_column` values must match your interaction ids as strings.** `1` matches `"1"`, but `1.0` does not. A single blank cell makes pandas read an integer id column as `float64`, which turns every id into `1.0` and aborts training with `feature_axis_error`. Pin the type at the source — `dtype: {item_id: str}` on a CSV, `CAST(item_id AS STRING)` on BigQuery or SQL.
+
+Once trained, send the new user's attributes as `user_features` on `:recommend` (or a new item's as `item_features` on `:recommend-related`) and you get real recommendations instead of a `404 UNKNOWN_USER`. See [Serving API — Feature-aware cold start](/docs/serving-api#feature-aware-cold-start).
+
+This section is optional. Without it, you get plain iALS and unknown users get a `404`.
+
+---
+
 ## `training` — algorithm search
 
 This section describes which recommendation algorithms to consider and how thoroughly to search for the best settings. Recotem uses [Optuna](https://optuna.org/) — a hyperparameter optimization library — to run trials across the chosen algorithms and pick the one with the highest score on a held-out validation set.
@@ -156,7 +198,7 @@ training:
 | `RP3beta` | Graph-based random-walk algorithm |
 | `DenseSLIM` | Dense variant of the SLIM item-to-item model |
 | `TruncatedSVD` | Dimensionality reduction via Singular Value Decomposition |
-| `BPRFM` | Bayesian Personalized Ranking with factorization machines — **not selectable on this release** without installing `lightfm-next` yourself ([Installation](./installation#optional-extras)) |
+| `BPRFM` | Bayesian Personalized Ranking with factorization machines — **requires the `bprfm` extra** ([Installation](./installation#optional-extras)), and a recipe it wins cannot answer the two related verbs ([Serving API](/docs/serving-api#post-v1-recipes-name-recommend-related)) |
 
 You do not need to pick a winner upfront. List several candidates and let Optuna explore the space within your trial budget (`n_trials`). Including `TopPop` costs only a few trials and adds a popularity candidate to the comparison. It is a candidate, not a floor: nothing compares the winner against it for you, and popularity is not always a working baseline — on a catalogue that turns over (news, job postings, flash sales) it scores zero, so a list containing `TopPop` can still settle on a model that is no better than a random ranking. See [Is the model any good?](/learn/basics/collaborative-filtering#is-the-model-any-good).
 

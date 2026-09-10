@@ -90,7 +90,16 @@ description: "Recotem の終了コードとエラーのリファレンス。reco
 | `search_error` | Optuna 探索そのものが失敗した。`training.storage_path` が認証情報 (`user:pass@host`) を埋め込んでいる場合 (代わりに `PGPASSFILE` などの環境変数ベースの認証を使用してください)、および `training.per_trial_timeout_seconds` がアルゴリズムの実行時間に対して短すぎて孤立スレッドの上限に達した場合に発生します。 |
 | `final_training_error` | ハイパーパラメータ探索完了後の最終学習 (再フィット) ステップが失敗した。 |
 | `signing_key_missing` | アーティファクト書き込み時に署名鍵の設定が欠落している (一部のパスでは ConfigError も発生 — 終了コード 8 を参照)。 |
-| `unknown_algorithm` | `training.algorithms` の要素がサポートされている irspack のレコメンダークラスに解決できない。エイリアスをサポート対象のアルゴリズム一覧と照合してください。 |
+| `datasource_error` | `DataSourceError` が学習パイプラインを通じて表面化した。 |
+| `invalid_metric` | `training.metric` がサポートされているメトリクスのいずれでもない。 |
+| `no_active_algorithms` | `training.per_algorithm_trials` によってすべてのアルゴリズムが無効化されている (すべての予算が 0)。 |
+| `time_unit_required` | `schema.time_column` が数値を保持しているが `schema.time_unit` が未設定。Unix タイムスタンプがナノ秒として黙って解釈されるのを避けるため `time_unit` (`s`、`ms`、`us`、`ns`) を設定してください。 |
+| `unknown_algorithm` | `training.algorithms` の要素がサポートされている irspack のレコメンダークラスに解決できない。エイリアスをサポート対象のアルゴリズム一覧と照合してください。(下記の `unknown_algorithm_in_budget` は、同じ失敗が `training.per_algorithm_trials` 経由で発生したものです。) |
+| `unknown_algorithm_in_budget` | `training.per_algorithm_trials` が解決できないアルゴリズムのエイリアスを指定している。 |
+| `cutoff_exceeds_item_count` | `training.cutoff` が正解行列のアイテム次元より大きい。 |
+| `feature_axis_error` | [`features:`](./recipe-reference#features) のいずれかのサイドのフィーチャーテーブルが、インタラクションデータと ID の重なりを**まったく**持たない。[オペレーション — recotem train が feature_axis_error で終了コード 4 で終了する](./operations#recotem-train-が-feature-axis-error-で終了コード-4-で終了する) を参照。 |
+| `feature_cholesky_error` | **最終リフィット**中にフィーチャーリッジの Cholesky 分解またはソルブが失敗した (探索中はトライアルを打ち切るだけ)。高カーディナリティのカラムで `min_frequency` を上げると通常は解決します。 |
+| `feature_table_error` | フィーチャーテーブルを取得または使用できなかった — `features.<side>.source` の `type` ディスクリミネータの欠落、取得したテーブルに存在しない `id_column`、宣言されたフィーチャーカラムの不在など。 |
 | `training_error` | `TrainingError` 基底クラスが持つ既定のサブコード。より具体的なコードを伴わずに送出された学習ドメインの失敗はすべてこれを報告します — 詳細は `train_error` イベントの `error` フィールドを参照してください。 |
 
 **推奨対応:** 一時的な問題 (ネットワーク周辺のデータロード、不安定な学習) にはリトライ。`min_data_violation` はデータソースが期待より少ない行を返していないか調査してからリトライしてください。`zero_score` や空のテスト分割の問題には、レシピの `split` または `cleansing` 設定を調整してください。
@@ -163,8 +172,17 @@ SSRF ガード付きの HTTP/HTTPS フェッチャーでネットワークソー
 - バインドポートが既に使用中またはパーミッション拒否 (`EADDRINUSE`、`EACCES`、`EADDRNOTAVAIL`)。
 - レシピ単位の学習ロックパスがファイルシステムのパーミッション不足 (`EACCES` / `EPERM`) により作成またはオープンできず、`LockPermissionError` が発生した。これは意図的に終了コード 6 では**ありません** — 下記の `--fail-on-busy` の動作セクションを参照してください。
 - 起動を妨げる方法で環境変数の値がクランプ範囲外である。
+- `training.storage_path` が、サポートされない、あるいは SQLAlchemy が削除したダイアレクト (`oracle://`、`postgres://`) を指している場合や、ドライバがインストールされていない場合 (裸の `postgresql://` は未インストールの `psycopg2` にフォールバックします)。`train_error` イベントは `code: storage_path_unusable` を伴います。これは `recotem validate` で、また `recotem train` でも**データ取得の前に**事前チェックされるため、不正な study バックエンドがスキャン費用を無駄にすることはなくなりました。
+- **書き込めないリモートの `output.path`**。認証情報が解決できない (`code: artifact_write_credentials`)、またはバケット / コンテナーが存在しないか解決された認証情報が拒否された (`code: artifact_write_destination`) 場合。`TrainingError` として発生しますが終了コード 4 ではなくここにマップされます。スケジューラーが「この設定では決して成功しない」と「リトライしてよい」を区別できるようにするためです。
+- **既存のディレクトリを指しているローカルの `output.path`** (`code: artifact_write_destination`)。レシピごとのロックは `<output.path>.lock`、つまり書き込み先の*兄弟*パスに取られるため、ロック自体は問題なく作成され、アーティファクトを書けるかどうかについては何も語りません。`_write_atomic` には作成すべき親ディレクトリもありません。その結果、実行は `os.replace` まで到達して `IsADirectoryError` を受け取ります。2.1.0 より前はこれがマップされておらず、終了コード 1 (`internal_error`) として報告されていました。`recotem validate` は書き込み先を意図的に検査しないため、ここでは捕まりません。
 
-**推奨対応:** 設定を修正せずにリトライしないでください。`RECOTEM_SIGNING_KEYS`、`RECOTEM_ENV`、およびエラーメッセージに記載されている環境変数を確認してください。
+::: warning リモート書き込みの失敗が終了コード 8 になるのは恒久的な場合だけです
+`s3://`、`gs://`、`az://` では、401 は認証情報の失敗、403 と 404 は書き込み先の失敗として分類され、いずれも終了コード 8 になります。**5xx と 429 は意図的に除外**されており終了コード 1 のままです。一時的なオブジェクトストアのエラーがリトライロジックから見て一時的なままであるようにするためです。
+
+これは学習 1 回分のコストを伴います。この分類はアーティファクト書き込み時 — 探索と学習が終わったあと — に行われます。`recotem validate` は `output.path` の書き込み認証情報を検査しないため、ロールの設定ミスは計算資源を消費する前には捕まりません。
+:::
+
+**推奨対応:** 設定を修正せずにリトライしないでください。`RECOTEM_SIGNING_KEYS`、`RECOTEM_ENV`、およびエラーメッセージに記載されている環境変数を確認してください。`artifact_write_credentials` / `artifact_write_destination` の場合は、`output.path` に指定したバケットに対する書き込みロールまたはキーを確認してください。ローカルパスの場合は、`output.path` がディレクトリではなく*ファイル*を指しているかを確認してください。
 
 ---
 

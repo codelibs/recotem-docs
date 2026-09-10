@@ -62,6 +62,12 @@ recotem serve --recipes <directory> [flags]
 recotem serve --recipes ./recipes/ --port 8080
 ```
 
+`--port` / `-p` と `--host` / `-H` は、その 1 回の実行に限って `RECOTEM_PORT` と `RECOTEM_HOST` を上書きします。環境変数を書き換えずに、1 回分だけバインド先を変えられます。
+
+::: warning 注意 — ループバック強制はフラグより優先されます
+`RECOTEM_API_KEYS` が未設定で `--insecure-no-auth` も指定されていない場合、何を渡してもバインドホストは `127.0.0.1` に戻されます (`--host 0.0.0.0` を含む)。サーバーは起動を拒否せず、要求されたホストを記録する `host_forced_to_loopback` 警告を出したうえでループバックにバインドします。設定したポートでコンテナや Pod に到達できない場合は、ネットワークを調べる前にこの警告を確認してください。実際のインターフェースにバインドするには API キーを設定してください ([インストール](/ja/guide/installation#api-キー)を参照)。
+:::
+
 サーバーは `RECOTEM_WATCH_INTERVAL` 秒ごと (デフォルト 5 秒) に新しいアーティファクトをポーリングします。`recotem train` が新しいアーティファクトを書き出すと、サーバーが読み込んで更新済みモデルの配信を開始します。再起動は不要です。
 
 ---
@@ -108,16 +114,23 @@ recotem validate <recipe.yaml>
    - **BigQuery** — ADC、プロジェクトアクセス、SQL/パラメータ構文を検証する無料のドライランクエリを実行します。
    - **SQL** — 接続を開いて軽微な疎通確認クエリを実行します。
 
+::: tip ヒント — 全体が読み込まれるのは `item_metadata` だけです
+`source` と `features.*.source` は到達性と宣言されたカラムについてプローブされるだけです。BigQuery のスキャンは課金され、大きな CSV は時間がかかるからです。`item_metadata:` だけが例外で、`validate` は**全体を読み込みます**。アイテムメタデータは `train` が一切触れないサービング時の結合だからです。そのため、壊れたメタデータブロックは `validate` も `train` も通過してしまい (どちらも終了コード 0、アーティファクトは署名済み)、`serve` の起動時にレシピが `loaded: false` で登録されて初めて表面化します。メタデータファイルはインタラクションではなくカタログのサイズであり、読み込みは `RECOTEM_MAX_DOWNLOAD_BYTES` で上限が設けられているため、コストは制限されています。
+:::
+
 **例:**
 
 ```bash
 recotem validate recipes/news_articles.yaml
 # Recipe 'news_articles': schema OK
-# DataSource: probe OK (csv)
+# Algorithms: OK (IALSRecommender, CosineKNNRecommender, TopPopRecommender)
+# Optuna storage: OK (in-memory, no resume)
+# DataSource: probe OK (csv) [source]
+# Schema columns: OK (csv) [source]
 # Validation passed.
 ```
 
-検証に失敗した場合、終了コードで何が問題かがわかります (レシピスキーマエラーは 2、データソースエラーは 3)。[終了コード](/ja/docs/exit-codes)を参照してください。
+検証に失敗した場合、終了コードで何が問題かがわかります。レシピスキーマ・環境変数・パススキームのエラーは **2**、データソースエラーは **3**、未知のアルゴリズム名は **4**、開けない `training.storage_path` (サポートされないダイアレクト、またはエクストラ未インストールのドライバ) は **8** です。[終了コード](/ja/docs/exit-codes)を参照してください。
 
 ---
 

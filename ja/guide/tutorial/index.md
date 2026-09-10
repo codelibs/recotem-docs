@@ -117,8 +117,10 @@ docker compose run --rm train
 
 ```json
 {"event":"train_done","name":"purchase_log","exit_code":0,
- "artifact":"./artifacts/purchase_log....recotem","best_class":"IALSRecommender"}
+ "artifact":"/workspace/artifacts/purchase_log.<sha8>.recotem","best_class":"IALSRecommender"}
 ```
+
+`artifact` フィールドは常に**絶対パス**です。レシピが `output.path: ./artifacts/purchase_log.recotem` と相対パスで書いていても、ログに出る前にプロセスの作業ディレクトリを基準に解決されます。compose ファイルではその作業ディレクトリが `/workspace` なので、レシピの相対パスは `/workspace/artifacts/` の下に落ちます。書き出されたファイルをスクリプトから探す場合は、レシピの記述ではなくこのフィールドを使ってください。
 
 ### ステップ 3 — 配信
 
@@ -162,6 +164,19 @@ curl -sX POST http://localhost:8080/v1/recipes/purchase_log:recommend \
 ```
 
 `model_version` は `sha256:` に続いて読み込まれたアーティファクトの 64 文字の hex SHA-256 ダイジェストが付きます。同じダイジェストは `X-Recotem-Model-Version` レスポンスヘッダーにも返されるため、クライアントはどのモデルバージョンが各予測を生成したかを記録できます。
+
+### ステップ 4b — 関連アイテムの推薦
+
+`:recommend` は「**このユーザー**に次に何を見せるか」に答えます。もう 1 つの単一動詞である `:recommend-related` は「**このアイテム**と一緒に何を見せるか」に答えます。「関連商品」ウィジェットやコンテンツカルーセルの裏側にあるクエリです。ユーザーではなくシードアイテムを受け取るため、まだ見たことのない訪問者に対しても使えます。
+
+```bash
+curl -sX POST http://localhost:8080/v1/recipes/purchase_log:recommend-related \
+  -H "X-API-Key: $RECOTEM_API_PLAINTEXT" \
+  -H "Content-Type: application/json" \
+  -d '{"seed_items": ["42"], "limit": 5}' | python3 -m json.tool
+```
+
+シードにはステップ 4 のレスポンスに含まれる任意の `item_id` を使えます。レスポンスの形式は `:recommend` と同じで、シードアイテム自身が結果に現れることはありません。全フィールドについては[サービング API](/ja/docs/serving-api#post-v1-recipes-name-recommend-related) を参照してください。
 
 ### ステップ 5 — 後片付け
 

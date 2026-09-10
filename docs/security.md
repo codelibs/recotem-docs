@@ -25,7 +25,9 @@ description: "Recotem security model: trust boundaries, HMAC-signed artifacts, F
                         │  GET  /v1/recipes/{name}                   │
                         │  GET  /v1/health/details                   │
                         │  GET  /v1/metrics  (opt-in; auth required) │
-                        │  GET  /v1/health   (no auth required)      │
+                        │  GET  /v1/health         (no auth)         │
+                        │  GET  /v1/health/live    (no auth)         │
+                        │  GET  /v1/health/ready   (no auth)         │
                         │  X-API-Key header (all other endpoints)    │
                         └──────────────┬────────────────────────────┘
                                        │ reads (signed)
@@ -42,6 +44,12 @@ description: "Recotem security model: trust boundaries, HMAC-signed artifacts, F
 ```
 
 The internet-facing boundary is `recotem serve`. `recotem train` has no inbound network surface.
+
+::: warning API keys are not scoped to a recipe
+There is one authentication boundary, not one per recipe. **Any valid key reaches every recipe the server serves.** The per-client `kid` identifies who to rotate and who to attribute a call to; it does **not** partition access. A key issued to one team, tenant or product surface can call `:recommend` on every other recipe in the same `--recipes` directory.
+
+If different callers must not see each other's recipes, separate them at the process boundary: run one `recotem serve` per trust domain, each with its own `--recipes` directory and its own `RECOTEM_API_KEYS`, and route between them at the proxy.
+:::
 
 ::: warning fsspec input schemes inherit cloud credentials
 When `source.path` uses `s3://`, `gs://`, `az://`, or `abfs(s)://`, the Pod's ambient IAM or service-account credentials are used directly by fsspec — there is no additional credential gate inside Recotem. The SSRF guard applies only to HTTP/HTTPS fetches. In environments where recipe authors are not fully trusted, scope the IAM role or service account to read-only access on the specific bucket(s) and prefix(es) used by your recipes.
@@ -60,7 +68,7 @@ When `source.path` uses `s3://`, `gs://`, `az://`, or `abfs(s)://`, the Pod's am
 | Credential injection via recipe env expansion | `RECOTEM_SIGNING_KEYS`, `RECOTEM_API_KEYS`, `*_SECRET*`, `*_PASSWORD*`, `*_TOKEN*`, `*_KEY*`, and cloud prefixes (`AWS_*`, `GCP_*`, `GOOGLE_*`, `AZURE_*`, `ALIYUN_*`, `ALICLOUD_*`, `OCI_*`, `IBM_*`, `DO_*`, `HCLOUD_*`, `DIGITALOCEAN_*`) are blacklisted from `${...}` expansion |
 | SQL injection via recipe | Env expansion never performed inside `source.query`; dynamic values must use `@param` BigQuery placeholders |
 | Path traversal via recipe | `name` validated with `^[A-Za-z0-9_-]{1,64}$` at load and before every filesystem use; artifact root confinement via `RECOTEM_ARTIFACT_ROOT` |
-| Tampered or rotated network-fetched data | `sha256` integrity pin is **mandatory** on `source.path` / `item_metadata.path` when the scheme is `http://` or `https://`; mismatch raises `DataSourceError` (exit 3) before the bytes reach the parser |
+| Tampered or rotated network-fetched data | `sha256` integrity pin is **mandatory** on `source.path` / `item_metadata.path` when the scheme is `http://` or `https://`; mismatch raises `DataSourceError` (exit 7 — the pin is the closing step of the HTTP fetch pipeline, so the failure is chained and reported alongside the redirect, timeout and byte-cap failures of the same fetch) before the bytes reach the parser |
 | Resource exhaustion via giant network fetch | `RECOTEM_MAX_DOWNLOAD_BYTES` (default 256 MiB) caps the raw I/O body during fetch; cap exceeded → `DataSourceError` mid-stream. Does NOT cap the decompressed DataFrame — see [Decompressed-size cap not enforced](#decompressed-size-cap-not-enforced-medium-5) |
 | Plaintext HTTP source on the public internet | Operator policy. `http://` is allowed (legitimate inside trusted networks) but operators MUST avoid plaintext on the public internet; sha256 mitigates content tampering for any reachable response |
 | Unrecognised plugin loading arbitrary code | Conflicting plugin `type_name` fails startup; installed plugins are treated as trusted code (pin versions) |
@@ -128,9 +136,7 @@ cgroup / RLIMIT controls do not prevent the OOM event — they contain it. A del
 - **URL userinfo redaction**: any `https://user:pass@host/...` form is logged
   as `https://host/...` in `csv_source_*` events — the userinfo is
   removed, not replaced with a marker. The recipe
-  loader rejects credential-bearing URLs at parse time for `http`, `https`,
-  `ftp`, `ftps`, `s3`, `abfs` and `abfss`, but not for `gs`, `az` or `file`,
-  where a password in the userinfo reaches the log unredacted.
+  loader rejects userinfo-bearing URLs at parse time anyway.
 - **Body cap**: streamed read, refuses past `RECOTEM_MAX_DOWNLOAD_BYTES` mid-stream.
 - **Timeout**: `RECOTEM_HTTP_TIMEOUT_SECONDS` per request (clamped 1–600).
 - **sha256 mandatory**: refused at recipe-load time when the scheme is
@@ -184,6 +190,82 @@ Specific operator responsibilities:
 - **Compute and pin sha256 once, then alert on changes.** A mismatch is
   the signal. Don't bypass it by silently regenerating during CI.
 
+## Feature-aware iALS
+
+A recipe's [`features:`](./recipe-reference#features) block introduces a new input surface on both sides: feature tables fetched at training time, and client-supplied feature values at request time. This section covers both.
+
+### Feature-source path and integrity rules
+
+A recipe's `features.item.source` / `features.user.source` are full DataSource configs — same registry as the top-level `source` — and are **not** a lower-trust surface just because they feed side features instead of interactions. The recipe loader applies the identical rules to `features.item.source.path` / `features.user.source.path` that it applies to `source.path`:
+
+- The same [path-scheme allow-list](./recipe-reference#path-rules) (bare local path, `file://`, `s3://`, `gs://`, `az://`, `abfs(s)://`, `http://`, `https://`; chained fsspec protocols rejected).
+- The same mandatory `sha256` integrity pin whenever the scheme is `http://` or `https://`.
+- Embedded URI credentials are rejected on feature-source paths exactly as on `source.path` / `item_metadata.path`.
+
+`recotem validate` probes feature-source connectivity the same way it probes `source`, so a missing extra or an unreachable feature source is caught before `recotem train` does real work.
+
+### Feature-encoder version gate
+
+Every artifact trained with a `features:` block carries a small `features.version` field in its (unencrypted, HMAC-covered) header. Before serve deserializes the payload, it checks that field against this build's known encoder-state version:
+
+- **`features` key absent** → load proceeds (fail **open**). This is a pre-feature artifact or a model trained without `features:`; there is no encoder state to misinterpret.
+- **`features` present but `version` missing, non-integer, or not the exact version this build knows** → refuse to load (fail **closed**), reason `feature_version`.
+
+::: warning Why the asymmetry is deliberate
+It mirrors the posture of the pre-existing [irspack version-skew guard](./operations#irspack-version-skew). An old serve with no feature code never reads the encoder state and keeps serving known-user recommendations correctly — safe by ignorance. A serve that *does* have feature code but does not recognize the state's shape is the one that must be stopped, because silently proceeding would encode a request's `user_features` / `item_features` into the wrong vector space and return **incorrect recommendations that look like correct ones** — the one failure mode a request-count or error-rate metric cannot catch.
+:::
+
+### Feature header/payload reconciliation
+
+The version gate above reads `features.version` and nothing else, so on its own it validates the descriptor against nothing: the rest of the `features` object describes an encoder state the gate never sees. After deserialization — the first point at which both halves exist — serve reconciles the two and refuses (reason `feature_state`) when they disagree:
+
+- the payload carries encoder state the header does not declare (including the case where the whole `features` key was removed, which would otherwise delete the version gate along with it);
+- the header declares a side the payload does not back;
+- `n_features` or `columns` differ from the deserialized state;
+- the state's own version is not the version this build implements;
+- the descriptor carries a key this build does not understand — accepted-and-ignored is how a reader admits a fabricated field;
+- `features.active` contradicts the payload recommender's actual ability to consume feature state.
+
+Absent `features` over a payload with no state passes untouched: that is every pre-feature artifact, and every features-less recipe since.
+
+::: tip This is defence in depth, not a trust boundary
+Reaching any of these refusals requires a validly-signed artifact — i.e. possession of the HMAC signing key, which already permits substituting the model wholesale, so this adds no privilege separation. What it buys is that an internally inconsistent artifact — a mis-built one, or one partially tampered with by something holding the key — fails loudly at load rather than serving quietly wrong answers.
+:::
+
+One disagreement is deliberately **not** detected: a payload vocabulary permuted within an unchanged shape. That is the genuinely wrong vector space, but no header field can catch it. Header and payload are built from the *same* in-memory state object at train time, so a fingerprint of the state would be a hash of one value compared against itself — it cannot diverge through a bug — and against a key holder it is defeated by recomputing the fingerprint. The protection against that case is the HMAC, not the descriptor.
+
+### Request-side PII: `user_features` / `item_features`
+
+`user_features` (on `:recommend` and `:recommend-related`) and per-seed `item_features` (on `:recommend-related`) are attacker- or client-supplied request fields that carry personal data **by construction** — an age band, a country, a device category. This is a request-side PII vector distinct from anything else in the v1 API surface, and Recotem's posture is:
+
+1. **Raw feature values are never logged.** The code paths that touch feature values (encoding, the unknown-category counter) log column names and counts only — never the value itself.
+2. The [log redaction](#log-redaction) processor also strips `user_features` / `item_features` wholesale, as defence in depth in case a future code path ever logs a raw request body.
+3. Feature values are never echoed back in a response body, so no response-side deny-list is needed for them. `RECOTEM_METADATA_FIELD_DENY` is the existing **response-side** counterpart for a different field: it strips configured item-metadata columns from `:recommend` / `:recommend-related` responses. The two controls address opposite directions of PII flow — one on the way in, one on the way out — and neither substitutes for the other.
+
+### Extreme numerical feature values map to a 400, not a 500
+
+A client-supplied `numerical` feature value that is extreme but still a finite float (e.g. `1e22`) is not rejected by schema validation — it is a legal float. Standardized against the training column's mean/std, such a value can produce a magnitude large enough to make irspack's per-request conjugate-gradient cold-start solve numerically ill-conditioned. irspack's native core raises a bare `RuntimeError` ("Conjugate-gradient solver encountered a singular system.") in that case, with no awareness that the offending value came from an untrusted client rather than a bug.
+
+Recotem catches that `RuntimeError` at each of the three cold-start call sites that feed a features-derived matrix into irspack's solver and re-raises `ColdStartNumericalError`, which the router maps to `400 FEATURE_VALUE_UNUSABLE` (see [Serving API — Feature-aware cold start](./serving-api#feature-aware-cold-start)) rather than letting it surface as an unhandled `500`.
+
+::: warning What this does and does not guarantee
+The catch is **signature-gated**: it re-raises only when the `RuntimeError`'s message matches one of the irspack numerical-failure signatures verified present in the installed binary. That narrowness is deliberate — a bare `except RuntimeError` would silently reattribute an unrelated irspack bug to client input — but it means the mapping is only as complete as that list. An irspack release that rewords one of those messages would re-raise past the gate and surface as a `500`.
+
+Equally out of scope is any path where a client value fails as something other than a `RuntimeError` from the solver. One live instance of exactly that shape was fixed before release: a `numerical` value supplied as a JSON integer literal of 309 or more digits raised `OverflowError` (an `ArithmeticError`, not a `ValueError`) out of `float()`, escaped the `except (TypeError, ValueError)` around the parse, and reached the generic 500 handler with nothing but a valid API key. The honest claim is therefore narrower than "cannot crash the request": the **known** ill-conditioning paths are mapped to a 400, and both the signature list and the parse-path exception handling are the places to extend when a new one is found.
+:::
+
+The fix is otherwise conservative: it does not change what value a `numerical` column standardizes to, at either train or serve time. The same extreme value flowing through training-time encoding is untouched, and a resulting final-refit Cholesky failure on an ill-conditioned *training* matrix already surfaces as `TrainingError` (exit 4) through an unrelated code path. Only the three serve-time cold-start solves are wrapped.
+
+### Why hand-rolled encoding, not scikit-learn preprocessing
+
+Feature encoding deliberately reimplements one-hot, standardization, and multi-hot encoding rather than persisting a fitted `sklearn.preprocessing.OneHotEncoder` / `StandardScaler` inside the artifact. [Operations — Upgrades](./operations#upgrades) already documents scikit-learn as a **further, unguarded** compatibility axis: `TruncatedSVDRecommender` pickles an sklearn estimator into the payload, and sklearn's own `InconsistentVersionWarning` says unpickling across its own minor versions "might lead to breaking code or invalid results" — Recotem range-pins `scikit-learn` to narrow this window but cannot close it. Pickling `OneHotEncoder` / `StandardScaler` into the feature-encoder state would **voluntarily widen** that same unguarded axis, and would do so via private sklearn module paths (e.g. `sklearn.preprocessing._data`) that have no entry in the FQCN allow-list's narrow prefix list to absorb a future rename.
+
+The encoder state is instead plain Python data — nested `dict` / `list`, `str` vocabularies, and `int` / `float` scalars, with no numpy or pandas object anywhere in it. `build_encoder_state` constructs every scalar through `str()` / `float()` / `int()`; the numpy arrays are built inside `encode()` at call time and are not part of the persisted state. This was verified to round-trip through the existing `SafeUnpickler` with **no allow-list change**.
+
+::: warning The allow-list is only a partial backstop for that invariant
+The limit is worth stating precisely, because it is what makes those coercions load-bearing. A stray `pandas.Index` really would be refused at load time (`pandas.core.indexes.base._new_Index` is not allow-listed — verified). A `numpy.str_` would **not**: it pickles via `numpy._core.multiarray.scalar` plus `numpy.dtype`, both allow-listed (the former via the `numpy._core.*` module-prefix list, the latter via its explicit FQCN entry), so it loads and keeps its type. Nothing downstream catches it either — `numpy.str_` subclasses `str` and hashes and compares equal to it, so every vocabulary lookup keeps working and the leak stays invisible at runtime. The `str()` coercions in `build_encoder_state` are therefore the only thing keeping numpy's scalar types out of the state, not a belt-and-braces gesture on top of a gate that would fail closed anyway.
+:::
+
 ## Artifact payload and the FQCN allow-list
 
 irspack's `IDMappedRecommender` depends on scipy sparse matrices and numpy arrays. These cannot be expressed in JSON without losing structure. The native irspack binary serialization format is required, and it is unavoidable.
@@ -203,9 +285,9 @@ The four layered controls:
 
 The FQCN allow-list in `SafeUnpickler.find_class` is a secondary layer that operates independently of HMAC. Its purpose is to bound the blast radius if HMAC is ever bypassed (e.g. a signing-key compromise that has not yet been rotated, or a future HMAC vulnerability). It does **not** guarantee safety by itself: a sufficiently broad allow-list still exposes whatever API surface the permitted libraries expose.
 
-The allow-list is frozen per irspack 0.4.x. If irspack adds or renames recommender classes, the list is updated and the change is called out in that release's [GitHub Release notes](https://github.com/codelibs/recotem/releases).
+The allow-list is frozen per irspack 0.5.x. If irspack adds or renames recommender classes, the list is updated and the change is called out in that release's [GitHub Release notes](https://github.com/codelibs/recotem/releases).
 
-The FQCN allow-list permits only these classes. Any other class outside both this list and the module-prefix allow-list triggers `ArtifactError` before construction:
+The hand-enumerated FQCN allow-list holds the **41** classes below. They are not the whole permitted set: a trained recommender is not a single object, so the pickle graph also carries the trainer, config and enum classes it holds as attributes, and for two algorithms an embedded third-party estimator. **Five** further FQCNs are admitted through a separate `_DENY_PREFIX_EXEMPTIONS` set — described with the deny-list below — for a permitted total of **46**. Any class outside the whole permitted set and the module-prefix allow-list triggers `ArtifactError` before construction:
 
 ```
 recotem._idmap.IDMappedRecommender
@@ -238,15 +320,28 @@ builtins.complex
 builtins.set
 builtins.frozenset
 collections.OrderedDict
+irspack.recommenders.ials.IALSTrainer
+irspack.recommenders.ials.IALSConfigScaling
+irspack.recommenders._ials_core.IALSTrainer
+irspack.recommenders._ials_core.IALSModelConfig
+irspack.recommenders._ials_core.IALSSolverConfig
+irspack.recommenders._ials_core.LossType
+irspack.recommenders._ials_core.SolverType
+irspack.recommenders.knn.FeatureWeightingScheme
+irspack.recommenders.bpr.BPRFMTrainer
+sklearn.decomposition._truncated_svd.TruncatedSVD
+lightfm.lightfm.LightFM
 ```
+
+The last two are third-party estimators, not irspack classes: `TruncatedSVDRecommender` pickles a scikit-learn estimator into the payload and `BPRFMRecommender` (the `bprfm` extra) pickles a LightFM model, so loading either recommender's artifact constructs them. They widen the allow-list beyond the scientific stack, and scikit-learn is an unguarded compatibility axis — see the feature-encoding note above.
 
 This list is frozen per Recotem release. Changes are called out in that release's [GitHub Release notes](https://github.com/codelibs/recotem/releases).
 
 In addition to the FQCN list, classes whose defining module sits under
-one of the following narrow prefixes are permitted via the prefix
-allow-list (numpy and scipy reorganise their internal layout between
-releases — reconstruction helpers like `_reconstruct` move between
-submodules):
+one of the following narrow prefixes **and** whose leaf name is one of six
+known reconstruction helpers are permitted via the prefix allow-list (numpy
+and scipy reorganise their internal layout between releases — reconstruction
+helpers like `_reconstruct` move between submodules):
 
 ```
 numpy._core.       numpy 2.x reconstruction helpers + scalar / dtype machinery
@@ -257,6 +352,15 @@ scipy.sparse._coo. COO equivalent
 ```
 
 `numpy.dtypes` is **not** on this list. numpy 2.x parametric dtype classes (`Float64DType`, `BoolDType`, …) live directly in that module, and a prefix entry ending in a dot only matches sub-modules, so an entry for it would match nothing. Nothing needs it: numpy round-trips arrays and dtypes through the hand-enumerated `numpy.dtype` plus `numpy._core.multiarray._frombuffer`. If a future numpy starts emitting those FQCNs, the individual classes belong in the hand-enumerated list — widening the prefix list to the whole module would also admit its two non-class callables.
+
+A prefix match alone is **not** sufficient. The leaf name must also be one
+of six known reconstruction-helper names — `_reconstruct`, `scalar`,
+`_frombuffer`, `csr_matrix`, `csc_matrix`, `coo_matrix` — and anything else
+under an allowed prefix is refused. Without that second gate a prefix would
+admit every attribute of every submodule beneath it, including
+`numpy._core._multiarray_tests.npy_import_entry_point`, a getattr-by-string
+that returns any `module:attr` as a value, and `numpy._core.memmap.memmap`,
+an arbitrary file create/truncate primitive. Both are refused today.
 
 The bare top-level modules (`numpy`, `scipy.sparse`) are intentionally
 **not** on the prefix list. The legitimate top-level FQCNs
@@ -275,11 +379,32 @@ the prefix allow-list:
   `numpy.lib`, `numpy.compat`, `numpy.random`, `numpy._core._exceptions`
 - `scipy.sparse.linalg`, `scipy.sparse.tests`, `scipy.sparse.csgraph`
 
-`numpy.random` is denied defensively: RNG state objects are not needed in
-Recotem artifacts, and a future numpy release could introduce a
-reduce-callable in that module with side-effects. Any legitimate RNG class
-required by a future irspack version should be added by exact FQCN to the
-hand-enumerated allow-list rather than widening the deny-list.
+`numpy.random` is denied defensively: a future numpy release could introduce
+a reduce-callable in that module with side-effects.
+
+The deny-list is not absolute. A separate, deliberately tiny exemption set —
+`_DENY_PREFIX_EXEMPTIONS` — is consulted **before** it, and is the only thing
+that outranks it. It currently holds five FQCNs, all under `numpy.random`:
+
+```
+numpy.random._pickle.__randomstate_ctor
+numpy.random._pickle.__bit_generator_ctor
+numpy.random._mt19937.MT19937
+numpy.random.bit_generator.SeedSequence
+numpy.random.bit_generator.__pyx_unpickle_SeedSequence
+```
+
+They exist because LightFM seeds itself with a numpy `RandomState` and keeps
+it as an attribute, so the trainer embedded in every `BPRFMRecommender`
+artifact drags in the RNG-state pickle graph. All five reconstruct RNG
+*state* and none accepts a caller-supplied callable, so none is a gadget. The
+rest of `numpy.random` stays denied.
+
+Note the ordering consequence: the deny-list is checked **after** the
+exemption set but **before** `_ALLOWED_CLASSES`, so adding an exact FQCN to
+the hand-enumerated allow-list does **not** re-permit a denied module. A
+legitimate RNG class required by a future irspack version has to go into the
+exemption set, where the bypass is visible in the diff.
 `numpy._core._exceptions` is denied to shrink the internal attack surface
 exposed through the broad `numpy._core.*` prefix allow-list.
 
@@ -432,7 +557,7 @@ The redaction processor is the first in the chain and runs at every log level in
 
 If a value is replaced with `[REDACTED]` in a log line you are debugging, the field name matched one of the patterns above. This is intentional.
 
-**URL userinfo redaction.** Any URL containing embedded credentials (e.g. `https://user:pass@host/path`) is logged as `https://host/path` at the HTTP-fetcher boundary via `redact_url_userinfo` — the userinfo is **removed**, and no `[REDACTED]` marker is left in its place, so a log search for such a marker will never match. The recipe loader rejects credential-bearing URLs at parse time for `http`, `https`, `ftp`, `ftps`, `s3`, `abfs` and `abfss`, so for those schemes this redaction applies only to internally-constructed URLs and redirect targets. It does **not** apply to `gs://`, `az://` or `file://`, where userinfo is permitted as addressing syntax: a path in one of those schemes whose userinfo carries a password is accepted from a recipe and reaches the log unredacted. Never put a credential in a path field, and if one has been, rotate it and purge the logs that carry it. Do not log raw URLs with userinfo in your own application code — strip credentials before logging.
+**URL userinfo redaction.** Any URL containing embedded credentials (e.g. `https://user:pass@host/path`) is logged as `https://host/path` at the HTTP-fetcher boundary via `redact_url_userinfo` — the userinfo is **removed**, and no `[REDACTED]` marker is left in its place, so a log search for such a marker will never match. A bare username with no password is preserved (`gs://project@bucket/key`), because there it is addressing syntax rather than a credential. The recipe loader rejects userinfo-bearing URLs at parse time, so this redaction applies only to internally-constructed URLs and redirect targets. Do not log raw URLs with userinfo in your own application code — strip credentials before logging.
 
 ## Artifact security posture flags
 
@@ -496,6 +621,8 @@ environment.
 
 Both `auth_missing_header` and `auth_invalid_key` log `path=<request.url.path>` only; the candidate header value is never logged in any form. The matching kid is attached to `request.state.kid` (and to subsequent log lines via `structlog.contextvars`) on success.
 
+That path is **caller-controlled**. An ASGI server percent-decodes the request target, so `%1B` in the URL arrives as a raw `ESC` byte in `scope["path"]`. Recotem escapes control characters — C0 (`0x00`–`0x1F`), `DEL` and C1 (`0x80`–`0x9F`) — to `\xHH` before the value enters a log field, so an unauthenticated caller cannot send terminal control sequences to an operator tailing `RECOTEM_LOG_FORMAT=console` output. These events fire before any key is checked, so no credential is needed to reach them. `RECOTEM_LOG_FORMAT=json` was never exposed: JSON encoding escapes control characters anyway. Everything that is not a control character is logged verbatim, so a path stays readable.
+
 When `RECOTEM_API_KEYS` is empty, `auth_anonymous_bypass` fires on **every** request (DEBUG) so access-log correlation is possible. `auth_anonymous_bypass_first_seen` fires once per unique `client_host` (INFO) for a first-seen audit trail. The LRU cache tracking first-seen client IPs is bounded to 1024 entries to prevent unbounded memory growth under high IP churn (e.g. rotating CI IPs or attacker scanning).
 
 ## Predict response: information leakage
@@ -528,11 +655,25 @@ The recommendation endpoints (`/v1/recipes/`) are also CPU-bound for recommendat
 rates above the recommender's inference throughput will queue under uvicorn
 and cause request latency to climb. Measure and cap at the proxy.
 
+**Cold-start solves are bounded per request.** [Case C](./serving-api#feature-aware-cold-start) of the feature-aware cold start (a `:recommend-related` seed carrying `item_features`) runs one irspack conjugate-gradient solve **per cold seed** — measured ~0.25–0.45 ms each. That per-solve cost is effectively **flat in model size**: 0.27 ms at `n_components=8`, 0.30 ms at 128, 0.45 ms at 256, and flat across encoded feature dimensions from 3 to 501. The solve is call-overhead-dominated rather than Cholesky-dominated at every size a recipe can produce, so a production-sized model does not make this bound materially worse. The aggregate is capped at **512 solves per request** on `:batch-recommend-related` — roughly 230 ms of single-threaded CPU in the worst case. An element that would exceed the cap receives a per-element `VALIDATION_ERROR` inside a 200, matching the aggregate-`limit` cap's existing posture, rather than failing the whole request with a 422. The single verbs need no cap of their own: they are structurally bounded at 100 solves by `seed_items`' maximum length. As with everything else in this section, that bounds the work a **single request** can demand and says nothing about the rate; sustained rates remain the proxy's job.
+
+**Request body is size-capped before it is parsed.** A `BodySizeLimitMiddleware` rejects any request body larger than `RECOTEM_MAX_BODY_BYTES` (default 128 MiB, clamped [1 MiB, 2 GiB]) with a `413 PAYLOAD_TOO_LARGE` **before** Starlette buffers and JSON-parses it. Without this an authenticated client could send a multi-GB body and force the process to allocate and parse it in full ahead of any pydantic validation. The middleware enforces the cap at two points so the header cannot be omitted to bypass it: a declared `Content-Length` over the cap is refused outright, and a chunked/streamed body with no `Content-Length` is counted as it arrives and cut off the moment the running total crosses the cap.
+
+The default clears the largest schema-valid *single-verb* body — `:recommend-related` tops out near 52 MiB once `user_features` / `item_features` are filled to their per-field caps — but deliberately not the largest *batch* body: `:batch-recommend` tops out near 196 MiB and `:batch-recommend-related` near 13 GiB, the latter beyond even the 2 GiB clamp. Those are refused with `413`; an operator who genuinely sends batches that large must raise the cap. This bounds a **single request**; sustained rates are still the proxy's job.
+
+**Per-request input fields are all length- and count-bounded.** Every client-controlled request field has an explicit cap so a well-formed but huge body cannot amplify inside validation or the recommender: `user_id` and item ids are 1–256 chars, `exclude_items` ≤ 1000, `seed_items` ≤ 100, batch `requests` ≤ 256. The cold-start feature mappings are bounded on all three axes: the number of keys is capped at 64, each string **value** at 8192 chars, and each **key** at 1–256 chars — covering `user_features` column names, the `item_features` outer seed-id keys, and the nested per-seed feature keys. Before the key cap the dict keys were the one length-unbounded field left: only the key *count* and the *values* were bounded, so an attacker could send megabyte-scale keys. An over-length key now yields a `422` reporting only its length, never its text, so it cannot amplify into the error body or logs.
+
+**A rate limit alone does not bound the body allocation.** `RECOTEM_MAX_BODY_BYTES` caps one request; nothing caps how many such requests are in flight at once, and the allocation happens *before* authentication. Resident memory therefore scales with **peak concurrency × body size**, not with the request rate — a client that opens sixteen large requests simultaneously costs the same whether it does so once a minute or continuously. Bound simultaneous in-flight requests per client with `limit_conn`, alongside the rate limit. See [Operations — Concurrent request bodies are unbounded](./operations#concurrent-request-bodies-are-unbounded) for the measured multiplier and how to size a container against it.
+
 **Recommended nginx configuration:**
 
 ```nginx
 # Define a rate-limit zone keyed by IP address (adjust burst/rate as needed).
 limit_req_zone $binary_remote_addr zone=recotem_predict:10m rate=20r/s;
+# Bound SIMULTANEOUS in-flight requests per client.  This is the other half
+# of the body-size cap: the pre-auth body allocation scales with peak
+# concurrency x body size, so a rate limit alone does not bound it.
+limit_conn_zone $binary_remote_addr zone=recotem_conn:10m;
 
 server {
     # ... TLS and upstream configuration ...
@@ -540,6 +681,17 @@ server {
     location /v1/recipes/ {
         limit_req zone=recotem_predict burst=40 nodelay;
         limit_req_status 429;
+        limit_conn recotem_conn 16;
+        limit_conn_status 429;
+        # Refuse an oversized body at the proxy, before it reaches recotem and
+        # is buffered and JSON-parsed.  Set this to the SMALLEST value that
+        # admits the verbs you actually serve, and keep it below
+        # RECOTEM_MAX_BODY_BYTES: 1m suffices for `:recommend`; cold-start
+        # feature payloads and the batch verbs need more.  Budget the product
+        # -- client_max_body_size x limit_conn x ~5 is roughly the worst-case
+        # resident memory one client can demand -- and raise either knob only
+        # against a pod memory limit you have checked it against.
+        client_max_body_size 1m;
         proxy_pass http://recotem_backend;
     }
 }
@@ -554,7 +706,8 @@ value.
 - **Generation**: `recotem keygen --type signing` derives keys from
   `os.urandom(32)`, i.e. 256 bits of OS entropy. Reject any operator
   attempt to use a shorter or non-random value — `KeyRing` enforces exactly
-  32 bytes after hex-decoding and refuses anything else with `ArtifactError`.
+  32 bytes after hex-decoding and refuses anything else with `ArtifactError`
+  (`KeyRingConfigError`, exit 8).
 - **Storage**: same controls as `RECOTEM_API_KEYS` (see [Secrets handling](#secrets-handling)
   above). On a multi-tenant host, prefer a secrets manager that injects
   the env var at process start rather than a static `.env` file.
