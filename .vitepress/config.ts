@@ -539,6 +539,11 @@ export default defineConfig({
           '/2.1/ja/guide/': v2GuideSidebar('ja', '/2.1'),
           '/2.1/ja/docs/': v2DocsSidebar('ja', '/2.1'),
 
+          '/2.2/guide/': v2GuideSidebar('en', '/2.2'),
+          '/2.2/docs/': v2DocsSidebar('en', '/2.2'),
+          '/2.2/ja/guide/': v2GuideSidebar('ja', '/2.2'),
+          '/2.2/ja/docs/': v2DocsSidebar('ja', '/2.2'),
+
           '/2.0/guide/': v2GuideSidebar('en', '/2.0'),
           '/2.0/docs/': v2DocsSidebar('en', '/2.0'),
           '/2.0/ja/guide/': v2GuideSidebar('ja', '/2.0'),
@@ -571,6 +576,9 @@ export default defineConfig({
           '/1.0/ja/docs/': v1DocsSidebar('ja'),
           '/2.1/ja/guide/': v2GuideSidebar('ja', '/2.1'),
           '/2.1/ja/docs/': v2DocsSidebar('ja', '/2.1'),
+
+          '/2.2/ja/guide/': v2GuideSidebar('ja', '/2.2'),
+          '/2.2/ja/docs/': v2DocsSidebar('ja', '/2.2'),
 
           '/2.0/ja/guide/': v2GuideSidebar('ja', '/2.0'),
           '/2.0/ja/docs/': v2DocsSidebar('ja', '/2.0'),
