@@ -27,7 +27,7 @@ description: cron、Docker Compose、または Kubernetes CronJob を使って�
 
 ```bash
 # /etc/recotem/secrets — パーミッション 600、サービスユーザーが所有
-RECOTEM_SIGNING_KEYS=prod-2026-q2:aabbcc...
+export RECOTEM_SIGNING_KEYS="prod-2026-q2:aabbcc..."
 ```
 
 ```cron
@@ -45,6 +45,15 @@ chmod 600 /etc/recotem/secrets
 chown recotem:recotem /etc/recotem/secrets
 ```
 
+::: tip
+cron の行はこのファイルを `.` で**ソース**するため `export` が必要です。`export`
+がないと代入はソース元のシェルに留まり、`recotem train` は
+`RECOTEM_SIGNING_KEYS` が無い状態で起動して終了コード 8 で終わります。systemd の
+`EnvironmentFile=` は逆で、シェル構文ではなく素の `KEY=VALUE` ペアとして読むため、
+先頭の `export ` を変数名の一部として扱います。したがって下記のタイマーでは別の
+ファイルを使います。[cron と systemd](/ja/docs/deployment/cron-systemd) を参照。
+:::
+
 ### systemd タイマー
 
 systemd タイマーを使うと、より良いロギング (journald 経由) が得られ、実行が漏れた場合もクリーンに処理されます。
@@ -59,7 +68,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=recotem
-EnvironmentFile=/etc/recotem/secrets
+# 素の KEY=VALUE ペア、`export` は付けない — 上記の tip を参照。
+EnvironmentFile=/etc/recotem/secrets.env
 ExecStart=/usr/local/bin/recotem train /etc/recotem/recipes/my_recipe.yaml
 StandardOutput=journal
 StandardError=journal

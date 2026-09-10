@@ -133,7 +133,9 @@ class EchoSource:
    - For most plugins, declare `no_expand_fields: ClassVar[frozenset[str]] = frozenset()` — the global baseline (`query`, `query_parameters`) is already guarded unconditionally by the recipe loader.
    - For plugins with SQL or parameterised-query fields, list them explicitly: `no_expand_fields: ClassVar[frozenset[str]] = frozenset({"sql", "bind_params"})`. This provides defence-in-depth and documents the security intent for future maintainers.
 
-5. **`fetch(ctx)`** must return a `pandas.DataFrame`. The DataFrame must contain at least the columns referenced in `recipe.schema` (`user_column`, `item_column`, and optionally `time_column`). The training pipeline accesses those columns by name immediately after fetch — a missing column surfaces as a `KeyError` and exits the train run.
+5. **`fetch(ctx)`** must return a `pandas.DataFrame`. When the source backs the recipe's top-level `source` block, the DataFrame must contain at least the columns referenced in `recipe.schema` (`user_column`, `item_column`, and optionally `time_column`). The training pipeline accesses those columns by name immediately after fetch — a missing column surfaces as a `KeyError` and exits the train run.
+
+   The `recipe.schema` rule applies to the **interaction source only**. The same registry also serves [`features.item.source` / `features.user.source`](./recipe-reference#features), where the required columns are instead that side's `id_column` and every declared `columns[].name`. A plugin needs no special handling for this — `FetchContext` carries no interaction-specific fields, so any registered source can serve as a feature table — but do not hard-code an assumption that a `user_column` / `item_column` will be wanted.
 
 6. **`fetch()` must raise `DataSourceError`** for any external or transient failure (auth errors, network errors, query errors, empty results). `DataSourceError` is mapped to exit code 3. Any other exception raised from `__init__` or `fetch()` is wrapped by Recotem and **also** reported as exit code 3 — by `train` as `Data fetch failed: <exc>` (construction happens inside the fetch step, so an `__init__` failure reports under that wording too) and, for `__init__` only, by `validate` as `DataSource probe failed [source]: DataSource construction failed: <exc>`. `__init__` is the only hook both commands call: `validate` never calls `fetch()` and **`train` never calls `probe()`**, so a failure in either of those reaches one command and not the other. In particular a plugin whose `probe()` raises but whose `fetch()` works trains to exit 0 and writes a signed artifact, while `recotem validate` on the identical recipe reports 3 — so a precondition enforced only in `probe()` does **not** gate a training run. Wrapping is therefore about the *message*, not the exit code: an unwrapped exception reaches the operator as the third-party library's own wording, which names neither the extra nor the credential that is missing. Wrap third-party exceptions explicitly:
 
@@ -370,6 +372,136 @@ When `probe()` is defined, `recotem validate` reports `DataSource: probe OK
 (<type_name>)`; when it is not, it reports `DataSource: extras OK
 (<type_name>, no probe defined)`. The builtin `CSVSource` / `ParquetSource`
 use `fsspec` `exists()`, and `BigQuerySource` uses a dry-run query job.
+
+**Feature sources are probed too.** A recipe with a
+[`features:`](./recipe-reference#features) block has its
+`features.item.source` / `features.user.source` probed the same way as the
+top-level `source`, and each reported line carries a `[<where>]` label —
+`[features.item.source]` / `[features.user.source]` — so a failure names which
+source failed. If your plugin can be used as a feature table, keep `probe()`
+cheap enough to run several times per `recotem validate` invocation.
+
+### `probe_columns()` — the schema-column check
+
+`recotem train` rejects a recipe naming a column the data does not have with a
+`DataSourceError` (exit 3). `recotem validate` asks the same question for the
+**top-level `source` only**, via a second optional hook:
+
+```python
+def probe_columns(self, ctx: FetchContext) -> bool:
+    """Optional. Called by recotem validate with the recipe's schema columns.
+
+    ctx.extra carries user_column / item_column / time_column, exactly as
+    fetch() receives them.  Implement this only when the column list is
+    cheap to obtain — a CSV header row, a Parquet footer schema — never by
+    running the query or downloading the body.
+
+    Return True when the check ran, False when this configuration cannot
+    answer cheaply.  Raise DataSourceError when a required column is absent.
+    """
+    ...
+```
+
+`recotem validate` prints one of three distinct lines, so it never claims a
+check that did not run:
+
+| Return | Line |
+|---|---|
+| `True` | `Schema columns: OK (<type_name>) [<where>]` |
+| `False` | `Schema columns: not checked (<type_name> cannot list columns without a full fetch) [<where>]` |
+| hook absent | `Schema columns: not checked (<type_name> has no header-only column probe; verified at train time) [<where>]` |
+
+A raised `DataSourceError` is reported as `Schema column check failed
+[<where>]: <error>` and exits **3**, matching `train`.
+
+Feature sources (`features.item.source` / `features.user.source`) are **not**
+column-checked — a feature table legitimately does not carry the interaction
+columns. `BigQuerySource` and `SQLSource` do not implement the hook either,
+because their column set is only known once the query runs.
+
+## Exit codes a plugin can actually produce
+
+Measured by installing deliberately broken plugins — one violation per
+package, each with its own `recotem.datasources` entry point — into a bare
+`pip install recotem` environment and running the real CLI.
+
+| What your plugin does | `train` | `validate` |
+|---|---|---|
+| works | 0 | 0 |
+| `Config` omits the `type` discriminator | 2 | 2 |
+| `type` is `str` rather than `Literal` | 2 | 2 |
+| `type` `Literal` value disagrees with `type_name` | 2 | 2 |
+| `no_expand_fields` missing | 2 | 2 |
+| `no_expand_fields` is a `set`, not a `frozenset` | 2 | 2 |
+| `type_name` collides with another installed plugin | 2 | 2 |
+| `__init__` raises `DataSourceError` | 3 | 3 |
+| `__init__` raises any other exception | 3 | 3 |
+| `probe()` raises any exception | 0 ‡ | 3 |
+| `probe()` raises `HttpFetchError` (or wraps one) | 0 ‡ | 7 |
+| `fetch()` raises `DataSourceError` | 3 | 0 † |
+| `fetch()` raises any other exception | 3 | 0 † |
+| `fetch()` returns something that is not a DataFrame | 3 | 0 † |
+| `fetch()` omits a column named in `schema:` | 3 | 0 † |
+| `fetch()` raises `HttpFetchError` (or wraps one) | 7 | 0 † |
+
+† `validate` never calls `fetch()`. ‡ `train` never calls `probe()`.
+
+Four things follow that are easy to get wrong:
+
+- **Every contract violation is exit 2, not 3.** Plugin discovery runs inside
+  recipe loading, so the registry's `DataSourceError` is re-raised as a
+  `RecipeError`. Exit 3 is for a source that loaded and then failed to produce
+  data.
+- **Nothing your plugin does produces exit 1.** An unwrapped exception is
+  wrapped by Recotem on whichever command reaches it and reports 3. The one
+  code that escapes the 2/3 split upward is **7**, which a `HttpFetchError`
+  keeps through the `__cause__` chain — so an SSRF-guard refusal inside a
+  plugin still reports 7 rather than being flattened. Note that the structured
+  `code` field on that failure is still `datasource_error`: the 7 comes from
+  the `__cause__` chain, so an operator grepping `code` will not find a
+  separate value for it.
+- **`train` and `validate` agree on every failure they can both reach.** The
+  rows they disagree on are exactly the rows one of them never executes.
+- **`probe()` is not a gate on `train`.** Putting a check only in `probe()`
+  buys a `validate` failure and nothing else — a plugin whose `probe()` raises
+  but whose `fetch()` works trains successfully and writes a signed artifact.
+  A precondition that must stop a training run has to be enforced in
+  `__init__` or in `fetch()`.
+
+### One broken plugin breaks every recipe on the host
+
+Discovery is eager across the whole `recotem.datasources` entry-point group,
+not lazy per `source.type`. A recipe that names a completely different, valid
+source fails too:
+
+```
+Recipe '.../ok.yaml' source: plugin source discovery failed for type 'ok':
+DataSource plugin 'MismatchSource' ... declares Config.type as Literal['something_else'],
+which does not match its type_name 'mismatch'.
+```
+
+Nothing in that recipe refers to `MismatchSource`. A contract violation in any
+installed plugin is therefore a **host-wide outage** for `train` and
+`validate`, and the error names the offending *plugin class* rather than the
+recipe you ran — read the class name in the message, not the file path.
+
+::: danger Under `serve` the same fault is invisible to a naive probe
+`serve` is deliberately lenient: one malformed recipe is not allowed to take
+down a server hosting others. Measured with a colliding `type_name` and a
+single recipe directory:
+
+```console
+$ curl -s http://127.0.0.1:8080/v1/health
+{"status":"ok","total":0,"loaded":0,"skipped":1}
+```
+
+HTTP **200**, `"status": "ok"`, and **zero recipes loaded**. The process is
+alive, answering, and serving nothing; the log carries
+`recipe_load_error_skipped` and `recipes_directory_loaded_lenient`. A liveness
+or readiness check that reads only the status code — or only the `status`
+field — reports healthy. **Alert on `loaded` and `skipped`, not on the process
+being up.**
+:::
 
 ## Testing
 

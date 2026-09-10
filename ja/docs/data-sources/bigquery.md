@@ -39,7 +39,7 @@ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
 
 BigQuery データセットに必要な IAM ロール: `roles/bigquery.dataViewer` + プロジェクトへの `roles/bigquery.jobUser`。
 
-Storage Read API (大規模な結果セットに使用) の場合: `roles/bigquery.readSessionUser`。このロールは**任意**です — 取得パスは最初に `create_bqstorage_client=True` を試みます。Storage Read API の失敗は**IAM 形状の失敗** (PermissionDenied / Forbidden / 403) の場合のみ REST へのフォールバックにマッピングされます。クォータエラー、5xx バックエンド失敗、その他の非パーミッションエラーは `DataSourceError` を発生させるため、REST フォールバックによる二重課金が発生しません。`RECOTEM_BQ_REQUIRE_STORAGE_API=1` を設定すると IAM フォールバックパスを完全に無効化できます (`bigquery.readSessions.create` 権限が必要)。
+Storage Read API (大規模な結果セットに使用) の場合: `roles/bigquery.readSessionUser`。このロールは**任意**です — 取得パスは最初に `create_bqstorage_client=True` を試みます。Storage Read API の失敗は**IAM 形状の失敗** (PermissionDenied / Forbidden / 403) の場合のみ REST へのフォールバックにマッピングされます。クォータエラー、5xx バックエンド失敗、その他の非パーミッションエラーは `DataSourceError` を発生させるため、REST フォールバックによる二重課金が発生しません。`RECOTEM_BQ_REQUIRE_STORAGE_API=1` を設定すると高速パスが必須になります — `google-cloud-bigquery-storage` パッケージと `bigquery.readSessions.create` 権限の両方が必要です。[Storage Read API のフォールバックポリシー](#storage-read-api-のフォールバックポリシー) を参照してください。
 
 Recotem が使用するサービスアカウントに推奨する最小限のロールセット:
 
@@ -209,18 +209,29 @@ curl -X POST http://localhost:8080/v1/recipes/{name}:recommend \
 
 ## Storage Read API のフォールバックポリシー
 
-Recotem は大規模な結果セットの効率化のために、まず BigQuery Storage Read API (`create_bqstorage_client=True`) を試みます。標準 REST API へのフォールバックは**選択的**であり、無条件ではありません:
+Recotem は大規模な結果セットの効率化のために、まず BigQuery Storage Read API (`create_bqstorage_client=True`) を試みます。これは**結果のダウンロードのみ**に適用されます — 実行に失敗したクエリはこの段階に到達しません。
 
-- **IAM 形状の失敗** (PermissionDenied / Forbidden / HTTP 403): Storage Read API は暗黙的にスキップされ、REST パスが使用されます。`roles/bigquery.readSessionUser` が付与されていない一般的なケースをカバーします。
-- **その他のすべての失敗** (クォータ超過、5xx バックエンドエラー、ネットワークタイムアウトなど): REST フォールバックを試みることなく即座に `DataSourceError` が発生します。これにより、クォータ超過の Storage Read API 呼び出しが REST でリトライされることによる二重課金を防ぎます。
+高速パスが利用できなくなる要因は 2 つあります:
 
-Storage Read API の使用を強制し IAM フォールバックパスを完全に無効化するには:
+1. **`google-cloud-bigquery-storage` がインストールされていない。** Recotem はエラーを待つのではなく依存関係の有無を自分で確認します。`google-cloud-bigquery` はエラーを送出しないためです — `UserWarning` を出して REST でダウンロードします。厳格モードでない場合、これは暗黙的な (ログには残る) フォールバックになります (`bigquery_storage_fallback`)。
+2. **ダウンロード自体が失敗した。** その場合の REST へのフォールバックは**選択的**であり、無条件ではありません:
+   - **IAM 形状の失敗** (PermissionDenied / Forbidden / HTTP 403): Storage Read API は暗黙的にスキップされ、REST パスが使用されます。`roles/bigquery.readSessionUser` が付与されていない一般的なケースをカバーします。
+   - **その他のすべての失敗** (クォータ超過、5xx バックエンドエラー、ネットワークタイムアウトなど): REST フォールバックを試みることなく即座に `DataSourceError` が発生します。これにより、クォータ超過の Storage Read API 呼び出しが REST でリトライされることによる二重課金を防ぎます。
+
+Storage Read API を必須とし、上記**両方**の暗黙的な経路を無効化するには:
 
 ```bash
 export RECOTEM_BQ_REQUIRE_STORAGE_API=1
 ```
 
-この変数が真の値 (`1`、`true`、`yes`、`on`) の場合、Storage Read API の失敗は REST へのフォールバックの代わりに `DataSourceError` を発生させます。サービスアカウントが `bigquery.readSessions.create` を保持することが期待され、強制的に検証したい場合にこの設定を使用してください。
+この変数が真の値 (`1`、`true`、`yes`、`on`) の場合:
+
+- `google-cloud-bigquery-storage` が未インストールであれば、インストールすべきエクストラを示す `DataSourceError` が発生します。これは**クエリを送信する前**に検査されるため、厳格モードの設定ミスによるコストは発生しません — スキャンは課金されません。
+- Storage Read API の**ダウンロード**失敗は、REST へのフォールバックの代わりに `DataSourceError` を発生させます。
+
+厳格モードが制御するのは**ダウンロードのトランスポートのみ**です。クエリ実行の失敗の報告方法は変わりません: `RECOTEM_BQ_REQUIRE_STORAGE_API=1` の下でも SQL の誤りは `BigQuery query execution failed: 400 Syntax error: ...` のままであり、`readSessions` に関する助言にはなりません。
+
+サービスアカウントが `bigquery.readSessions.create` を保持することが期待され、強制的に検証したい場合にこの設定を使用してください。
 
 ## 備考
 

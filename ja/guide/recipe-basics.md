@@ -11,7 +11,7 @@ description: Recotem のレシピファイルの各セクションを、注釈�
 
 ## トップレベルの構造
 
-レシピには 7 つのセクションがあります。
+レシピには 8 つのセクションがあります。
 
 ```yaml
 name: my_model          # 必須: エンドポイント名
@@ -19,6 +19,7 @@ source: ...             # 必須: インタラクションデータの取得元
 schema: ...             # 必須: ユーザー ID とアイテム ID の列名
 cleansing: ...          # 任意: データ品質のチェック
 item_metadata: ...      # 任意: 予測レスポンスに含めるアイテムの追加情報
+features: ...           # 任意: コールドスタート用のアイテム/ユーザー属性
 training: ...           # 必須: 試行するアルゴリズムとトライアル数
 output: ...             # 必須: 学習済みモデルファイルの書き出し先
 ```
@@ -129,6 +130,47 @@ item_metadata:
 
 ---
 
+## `features` — コールドスタート用の属性
+
+ここまでの設定はインタラクションのみで学習するため、インタラクション履歴のないユーザーやアイテムはスコアリングできません。`features` セクションはこれを解決します。アイテムまたはユーザーの属性テーブルを指定すると、Recotem は**フィーチャーアウェア iALS** モデルを学習し、新規ユーザーをそのプロフィールから、新規アイテムをその属性からスコアリングできるようになります。
+
+別途フラグを立てる必要はありません。このブロックが存在することがフィーチャーアウェアな経路を有効にします。
+
+```yaml
+features:
+  item:
+    source: {type: csv, path: ./items.csv}   # same source types as `source`
+    id_column: item_id                       # must match schema.item_column values
+    columns:
+      - {name: genres,       encoding: multi_label, delimiter: "|"}
+      - {name: release_year, encoding: numerical}
+      - {name: country,      encoding: categorical, min_frequency: 5}
+  user:
+    source: {type: csv, path: ./users.csv}
+    id_column: user_id
+    columns:
+      - {name: age_band, encoding: categorical}
+```
+
+`item`、`user`、またはその両方を宣言します。各カラムには 3 つのエンコーディングのいずれかを指定します。
+
+| エンコーディング | 用途 | 例 |
+|---|---|---|
+| `categorical` | 決まった集合から 1 行に 1 つの値 | `country: JP` |
+| `numerical` | 数値。学習時に標準化されます | `release_year: 1994` |
+| `multi_label` | 1 つのセルに複数のタグ。`delimiter` で分割します | `genres: "Action\|Sci-Fi"` |
+
+最初から正しく設定しておきたい点が 2 つあります。
+
+- **`training.algorithms` に `IALS` を含める必要があります。** 現時点で唯一のフィーチャー対応アルゴリズムです。`IALS` を含まない `features:` ブロックはレシピのロード時に拒否されます。
+- **`id_column` の値はインタラクションの ID と文字列として一致する必要があります。** `1` は `"1"` に一致しますが、`1.0` は一致しません。空セルが 1 つあるだけで pandas は整数の ID カラムを `float64` として読み込み、すべての ID が `1.0` になって学習が `feature_axis_error` で中断します。ソース側で型を固定してください — CSV なら `dtype: {item_id: str}`、BigQuery や SQL なら `CAST(item_id AS STRING)` です。
+
+学習後は、新規ユーザーの属性を `:recommend` の `user_features` として (新規アイテムの属性なら `:recommend-related` の `item_features` として) 送信すると、`404 UNKNOWN_USER` の代わりに実際の推薦が返ります。[サービング API — フィーチャーアウェアなコールドスタート](/ja/docs/serving-api#フィーチャーアウェアなコールドスタート) を参照してください。
+
+このセクションは任意です。指定しない場合は通常の iALS となり、未知のユーザーには `404` が返ります。
+
+---
+
 ## `training` — アルゴリズム探索
 
 このセクションでは、どの推薦アルゴリズムを試すか、最適な設定をどこまで探索するかを指定します。Recotem は [Optuna](https://optuna.org/) (ハイパーパラメータ最適化ライブラリ) を使用して、選択したアルゴリズムに対してトライアルを実行し、ホールドアウト検証セットで最もスコアの高いものを選択します。
@@ -156,7 +198,7 @@ training:
 | `RP3beta` | グラフベースのランダムウォークアルゴリズム |
 | `DenseSLIM` | SLIM アイテム間モデルの Dense バリアント |
 | `TruncatedSVD` | 特異値分解による次元削減 |
-| `BPRFM` | 因子分解マシンによるベイズ個人化ランキング — **このリリースでは選択できません**。`lightfm-next` を自分でインストールする必要があります ([インストール](./installation#オプションエクストラ)) |
+| `BPRFM` | 因子分解マシンによるベイズ個人化ランキング — **`bprfm` エクストラが必要** ([インストール](./installation#オプションエクストラ))。さらに、これが勝者になったレシピは related 系 2 動詞に応答できません ([サービング API](/ja/docs/serving-api#post-v1-recipes-name-recommend-related)) |
 
 最初から勝者を選ぶ必要はありません。複数の候補を列挙して、トライアル予算 (`n_trials`) の範囲内で Optuna に探索させましょう。`TopPop` を含めると数トライアルしかかからず、比較対象として人気度の候補が 1 つ加わります。ただしこれは候補であって下限ではありません。勝者を `TopPop` と比較してくれる仕組みはなく、人気度が常に「動くベースライン」になるわけでもありません。カタログが入れ替わる領域 (ニュース、求人、タイムセールなど) では人気度のスコアはゼロになるため、`TopPop` を含むリストであっても、ランダムな順位付けと変わらないモデルに落ち着くことがあります。[モデルは本当に良いのか](/ja/learn/basics/collaborative-filtering#モデルは本当に良いのか)を参照してください。
 

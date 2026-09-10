@@ -154,7 +154,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: train
-              image: ghcr.io/codelibs/recotem:2.0.0
+              image: ghcr.io/codelibs/recotem:2.1.0
               command: ["recotem", "train", "/recipes/my_recipe.yaml"]
               volumeMounts:
                 - name: recipes
@@ -246,7 +246,7 @@ spec:
       terminationGracePeriodSeconds: 35
       containers:
         - name: serve
-          image: ghcr.io/codelibs/recotem:2.0.0
+          image: ghcr.io/codelibs/recotem:2.1.0
           command: ["recotem", "serve", "--recipes", "/recipes/"]
           ports:
             - containerPort: 8080
@@ -566,7 +566,7 @@ Key values (excerpt from `helm/recotem/values.yaml`):
 ```yaml
 image:
   repository: ghcr.io/codelibs/recotem
-  tag: "2.0.0"
+  tag: "2.1.0"
   pullPolicy: IfNotPresent
 
 # serve Deployment

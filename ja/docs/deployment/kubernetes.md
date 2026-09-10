@@ -14,6 +14,126 @@ Recotem のライフサイクルは 2 つの Kubernetes オブジェクトでカ
 
 レシピは ConfigMap (小規模・静的なレシピ)、PVC (読み書きボリューム)、またはオブジェクトストレージ (S3/GCS — レシピとアーティファクトの両方をリモートに格納) を通じて両オブジェクトに配布できます。
 
+## 初回インストール: serve を起動する前にアーティファクトを用意する
+
+**最初の `helm install` や `kubectl apply` の前にこの節を読んでください。** train と serve には順序があります。train が少なくとも 1 つのアーティファクトを生成するまで serve は正常になれず、しかも**チャートにもサンプルマニフェストにも、インストール時に train を実行してくれるものはありません**。
+
+`recotem serve` は起動時にレシピごとに 1 つのアーティファクトをロードします。どのレシピにもアーティファクトがないあいだ、`/v1/health/ready` は `{"status":"unready","total":1,"loaded":0}` とともに **503** を返します。アーティファクトストアが空の場合、これは次を意味します。
+
+```
+Warning  Unhealthy  kubelet  Startup probe failed: HTTP probe failed with statuscode: 503
+```
+
+これが startupProbe の `failureThreshold` に達するまで繰り返され、コンテナが再起動されます。バグのように見えて、実際にはアーティファクトが無いだけのクラッシュループです。`helm install --wait` はロールアウトのタイムアウトで失敗し、CronJob のデフォルト `schedule: "0 2 * * *"` のため、最大 1 日のあいだアーティファクトを生成するものが存在しません。
+
+**必ず serve の前に train を実行してください。** 環境に合うものを選んでください。
+
+**A. Helm — 学習を有効にしてインストールし、シードしてから確認する。** `--wait` を**付けずに**インストールし (serve Pod はまだ Ready になりません)、CronJob を単発 Job としてすぐ起動し、その後で待ちます。
+
+```bash
+helm upgrade --install recotem ./helm/recotem -n recotem \
+  -f values-prod.yaml --set train.enabled=true      # --wait は付けない
+
+CJ=$(kubectl -n recotem get cronjob \
+       -l app.kubernetes.io/instance=recotem,app.kubernetes.io/component=train -o name)
+kubectl -n recotem create job bootstrap-0 --from="${CJ}"
+kubectl -n recotem wait --for=condition=complete job/bootstrap-0 --timeout=30m
+
+kubectl -n recotem rollout status deployment/recotem --timeout=10m
+```
+
+CronJob は名前を直接指定せずラベルで検索します。CronJob の名前はチャートの fullname に `-train` を付けたものであり、fullname がリリース名そのものになるのは、リリース名に既に "recotem" が含まれている場合だけだからです。`helm install prod …` では `prod-recotem-train` が生成されるため、`cronjob/prod-train` と推測すると `Error from server (NotFound)` で失敗します。チャートの `values.yaml` も同じ検索方法を案内しています。
+
+**B. 素のマニフェスト — 同梱の bootstrap Job を適用する。** `examples/k8s/bootstrap-job.yaml` は CronJob と同じコンテナ仕様を持つ単発の `recotem train` Job です。`kubectl apply -f examples/k8s/` すると Deployment と一緒に作成されます。
+
+**C. クラスタ外で学習する。** Deployment を作る前に、レシピの `output.path` (`s3://` / `gs://` URI、またはワークステーションにマウントした PVC) に書き込める場所で `recotem train` を実行します。署名鍵は serve に設定するものと一致している必要があります。
+
+いずれの場合も、アーティファクトが現れれば serve Pod は自力で回復します。ウォッチャーが `RECOTEM_WATCH_INTERVAL` 秒以内に検知し、次のプローブが成功します。ロールアウトの再起動は不要です。
+
+::: tip ヒント — チャートに post-install フックがない理由
+学習は時間の上限がない処理です (CronJob は 1 時間まで許可しています: `activeDeadlineSeconds: 3600`)。これを `helm install` に組み込むと、あらゆる初回インストールがそこでブロックし、Helm の `--timeout` (デフォルト 5 分) に対して失敗します。読み取れる「まだアーティファクトが無い」クラッシュループを、不透明なリリース失敗と引き換えにすることになります。シードを明示的な手順として残しているのはそのためです。
+:::
+
+### あとからレシピを追加するのは初回インストールとは違います
+
+3 つのプローブはすべて「少なくとも 1 つのレシピがロードされているか」という同じ状態を読みます。したがって、まだ学習していないアーティファクトを持つ正当なレシピを追加しても、稼働中のフリートは Service に残り**かつ**新規 Pod も起動できます。503 `RECIPE_UNAVAILABLE` を返すのはそのレシピの動詞だけで、次の学習実行までのあいだも他のレシピは配信を続けます。
+
+::: danger 危険 — プローブを `/v1/health` に向けると逆になります
+`/v1/health` は「*すべての*レシピが揃っているか」を問う厳格なエンドポイントです。これを読む startupProbe は**コンテナを再起動する**ため、未学習のレシピが 1 つあるだけで新規 Pod がすべて止まります。稼働中のレプリカは問題なく配信を続けているのに、ローリングアップデートや HPA のスケールアウトが収束しなくなります。`/v1/health` はアラート用であってプローブ用ではありません。
+:::
+
+### `recipes_directory_empty` は見た目が同じ別の障害です
+
+レシピディレクトリに `*.yaml` ファイルが 1 つも無い場合 (キーが `*.yaml` でない ConfigMap、何もコピーせずに 0 で終了した `objectStore` の init コンテナ、空の PVC など)、`serve` は登録するものを持ちません。この場合も `/v1/health/ready` は `{"status":"unready","total":0,"loaded":0}` とともに **503** を返します。学習されていないアーティファクトストアのときとまったく同じです。
+
+**両者を区別できるのはログ行だけです。**
+
+| 起動時の `recipes_directory_empty` 警告 | 意味 | 対処 |
+|---|---|---|
+| あり (ディレクトリ名を含む) | **配布**が間違っている | ConfigMap / 同期 / PVC を修正する |
+| なし | アーティファクトストアが単に**空**である | train を実行する |
+
+train を再実行する前にマウントを確認してください。
+
+```bash
+kubectl -n recotem exec deploy/recotem -- ls -la /recipes
+```
+
+### すでにクラッシュループしているインストールの復旧
+
+対処は同じです。アーティファクトを生成する以外に Pod へ手を加える必要はありません。
+
+```bash
+CJ=$(kubectl -n recotem get cronjob \
+       -l app.kubernetes.io/name=recotem,app.kubernetes.io/component=train \
+       -o name)
+kubectl -n recotem create job recover-0 --from="$CJ"
+kubectl -n recotem logs -f job/recover-0
+```
+
+`train.enabled=false` (チャートのデフォルト) の場合はコピー元の CronJob が存在しません。有効化するか、イメージ・Secret・ボリューム名をリリースに合わせて調整した `examples/k8s/bootstrap-job.yaml` を適用してください。
+
+## リクエスト 1 本でインストールを確認する
+
+ここまでの手順は API が応答することを証明しません。このページの警告のうち 2 つはここでしか現れないので、インストール完了と判断する前にこのリクエストを送ってください。
+
+```bash
+NS=recotem
+POD=$(kubectl -n "$NS" get pod \
+        -l app.kubernetes.io/name=recotem,app.kubernetes.io/component=serve \
+        --field-selector=status.phase=Running \
+        -o jsonpath='{.items[0].metadata.name}')
+
+# 1. Pod 内部からのプローブ (Host: localhost は常に通る)
+kubectl -n "$NS" exec "$POD" -- \
+  python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8080/v1/health/ready').read())"
+
+# 2. Service 経由の実際の推薦リクエスト
+kubectl -n "$NS" port-forward svc/recotem 8080:8080 &
+PF=$!
+RECIPE=news_articles          # レシピの `name:`、大文字小文字を区別
+curl -sS -X POST \
+  -H 'Host: localhost' \
+  -H "X-API-Key: <sha256 ハッシュではなく平文のキー>" \
+  -H 'Content-Type: application/json' \
+  -d '{"user_id":"u1","limit":3}' \
+  "http://127.0.0.1:8080/v1/recipes/${RECIPE}:recommend"
+kill "$PF"
+```
+
+これが捕まえる罠が 2 つあります。
+
+- **`-H 'Host: localhost'` は省略できません。** これがないとリクエストは `Host: 127.0.0.1:8080` (または Service の DNS 名) を伴い、`RECOTEM_ALLOWED_HOSTS` にその名前が無い限り `TrustedHostMiddleware` が **400** を返します。チャートのデフォルトで Ingress 無しの場合、クラスタ内から `http://recotem:8080/v1/health` を叩くと 400 になります。チャートがリストを広げるのは `ingress.enabled=true` のときだけです。[Service](#service) の `RECOTEM_ALLOWED_HOSTS` の警告を参照してください。
+- **`${RECIPE}` は波括弧で囲む必要があります。** zsh では `$RECIPE:recommend` は変数とリテラルのコロンではなく `:r` ヒストリ修飾子として解釈されます。URL は黙って `/v1/recipes/RECIPEecommend` になり、POST が GET のルートに当たって **405** を返します。エンドポイントが存在しないときとまったく同じ見た目です。
+
+結果の読み方:
+
+| レスポンス | 意味 |
+|---|---|
+| `items` 配列を伴う `200` | train、署名鍵、アーティファクトストア、プローブ、ホスト許可リストがすべて正しく配線されている |
+| `401` | API キーが違う — Secret に入るのは `<kid>:sha256:<hex>` で、クライアントが送るのは**平文** |
+| `503 RECIPE_UNAVAILABLE` | そのレシピにまだアーティファクトが無い |
+
 ## CronJob (train)
 
 ```yaml
@@ -34,7 +154,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: train
-              image: ghcr.io/codelibs/recotem:2.0.0
+              image: ghcr.io/codelibs/recotem:2.1.0
               command: ["recotem", "train", "/recipes/my_recipe.yaml"]
               volumeMounts:
                 - name: recipes
@@ -67,7 +187,7 @@ spec:
 | 2 | RecipeError | リトライなし (設定バグ; ConfigMap を修正すること) |
 | 3 | DataSourceError | 通常リトライなし (CSV/Parquet フォーマットエラー、必須列の欠落、ローカル FS パスが見つからない — 永続的) |
 | 4 | TrainingError | `backoffLimit` までリトライ |
-| 5 | ArtifactError | リトライなし (署名鍵の設定問題; Secret を修正すること) |
+| 5 | ArtifactError | リトライなし (アーティファクトの破損または検証不能 — HMAC 不一致、未知の kid、ペイロード切り詰め。再学習すること)。`RECOTEM_SIGNING_KEYS` のエントリ不正は 5 ではなく 8 になる。 |
 | 6 | LockContestedError (`--fail-on-busy` 設定時) | リトライまたはオーケストレーターに委任 |
 | 7 | HttpFetchError | リトライ (ネットワークフェッチにおける一時的な HTTP/SSRF/タイムアウト/sha256 不一致/バイト上限超過) |
 | 8 | 設定エラー | リトライなし (署名鍵の欠落、不正な環境変数) |
@@ -77,7 +197,7 @@ spec:
 永続的なデータ問題でのリトライループを防ぐため、本番 CronJob では `backoffLimit: 2` を設定してください — バンドルされた Helm CronJob テンプレートは `backoffLimit` を設定しないため、values オーバーレイ (またはプレーンマニフェスト) で追加してください。バンドルされた Helm CronJob は `activeDeadlineSeconds: 3600` (1 時間ハードキル) を設定しています; Optuna の探索予算やデータソースが遅い場合は値を上げてください。
 :::
 
-`concurrencyPolicy: Forbid` が防ぐのは CronJob が*それ自身*と重なることだけです。同じレシピのロックを他のプロセスが保持している場合については何も保証しません。しかも、チャート自身の初回インストール手順がそのプロセスを作ります — `values.yaml` が案内するブートストラップ Job は `kubectl create job bootstrap-0 --from=cronjob/<release>-train` であり、これは同じレシピ・同じ `<output.path>.lock` に対する 2 つ目の学習プロセスです。クラスター外の cron、手動の `recotem train`、アーティファクトストアを共有する 2 つ目のクラスターも同じ形です。
+`concurrencyPolicy: Forbid` が防ぐのは CronJob が*それ自身*と重なることだけです。同じレシピのロックを他のプロセスが保持している場合については何も保証しません。しかも、チャート自身の初回インストール手順がそのプロセスを作ります — `values.yaml` が案内するブートストラップ Job は `app.kubernetes.io/component=train` ラベルで CronJob を検索して一度限りの Job として実行するもので、これは同じレシピ・同じ `<output.path>.lock` に対する 2 つ目の学習プロセスです。クラスター外の cron、手動の `recotem train`、アーティファクトストアを共有する 2 つ目のクラスターも同じ形です。
 
 `failOnBusy: false` (チャートのデフォルト) でこれが起きたとき、ロックを取れなかった実行は**失敗しません**。INFO レベルで `recipe_lock_contended_skipping` を出力して終了コード 0 で終了し、Job は `succeeded: 1` の `Complete` としてマークされます — 本来書き出されるはずだったアーティファクトは書かれないままです:
 
@@ -126,7 +246,7 @@ spec:
       terminationGracePeriodSeconds: 35
       containers:
         - name: serve
-          image: ghcr.io/codelibs/recotem:2.0.0
+          image: ghcr.io/codelibs/recotem:2.1.0
           command: ["recotem", "serve", "--recipes", "/recipes/"]
           ports:
             - containerPort: 8080
@@ -158,9 +278,30 @@ spec:
                 secretKeyRef:
                   name: recotem-auth
                   key: RECOTEM_API_KEYS
+          # startupProbe は /v1/health の厳格な問いではなく readiness と同じ
+          # 問いを使う。startupProbe はトラフィックを保留するゲートではなく、
+          # 失敗するとコンテナを「再起動」する。厳格でカウントベースの
+          # /v1/health に向けると、未学習のレシピが 1 つあるだけで新規 Pod が
+          # 再起動ループに陥り、稼働中のレプリカが正常に応答している一方で
+          # ローリングアップデートや HPA のスケールアウトが収束しなくなる。
+          # /v1/health/ready もコールドな状態 (何もロードされていない) では
+          # 503 を返すため、初回インストール時の保証 — train がアーティファクトを
+          # 生成するまで serve は Service に入らない — は維持される。
+          # readiness と liveness にも /v1/health を使ってはいけない — 1 つでも
+          # 未ロードのレシピがあれば 503 を返すため、稼働中のフリートに未学習の
+          # レシピを追加すると全レプリカが Service から外れ、さらに CrashLoop する。
+          startupProbe:
+            httpGet:
+              path: /v1/health/ready
+              port: 8080
+              httpHeaders:
+                - name: Host
+                  value: localhost
+            periodSeconds: 5
+            failureThreshold: 60
           readinessProbe:
             httpGet:
-              path: /v1/health
+              path: /v1/health/ready
               port: 8080
               httpHeaders:
                 - name: Host
@@ -169,15 +310,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
-          # /v1/health への httpGet にはしないこと: このエンドポイントは
-          # レシピが 1 つでも未ロードなら 503 を返すため、未学習のレシピが
-          # 1 つあるだけで全 Pod が再起動ループに入り、再起動では直らない。
-          # TCP プローブは「プロセスがまだ listen しているか」だけを問う。
-          # これが liveness の意味である。(Host ヘッダを送らないため
-          # TrustedHostMiddleware も関与しない。)
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /v1/health/live
               port: 8080
+              httpHeaders:
+                - name: Host
+                  value: localhost
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 10
@@ -191,7 +330,21 @@ spec:
             claimName: recotem-artifacts
 ```
 
-複数レプリカについての注意: 各 Pod はすべてのモデルの独自のインメモリコピーを保持し、独自のウォッチャースレッドを実行します。これは意図的な設計であり、共有キャッシュはありません。レシピあたりアーティファクトサイズの 1 倍ではなく、おおよそ **4.8 倍** を見積もってください: ロード時にはファイルのバイト列とそのペイロード部分が同時に保持され、さらにデシリアライズ済みのモデルが上乗せされます。644.5 MiB のアーティファクトで実測 3,292 MiB が常駐しました。したがって `RECOTEM_MAX_PAYLOAD_BYTES` のデフォルト 512 MiB で 10 レシピなら Pod あたり 25 GiB 程度、`RECOTEM_MAX_ARTIFACT_BYTES` のデフォルト 2 GiB まで許すなら 96 GiB 程度になります — レプリカを割り当てる前の値です。
+::: warning `livenessProbe` / `readinessProbe` を `/v1/health` に向けないでください
+`/v1/health` はロード可能なモデル数ではなくレシピ数を数えます。ディレクトリ内のレシピが 1 つでもアーティファクトを持たなければ、他のレシピが正常に応答していても **503** を返します。稼働中のフリートに未学習のレシピを 1 つ追加するだけで起こります。`readinessProbe` に使うと全レプリカが同時に Service から外れます (すべて同じレシピディレクトリを読むため)。`livenessProbe` ではさらに悪く、kubelet が Pod を再起動し、置き換わった Pod も同じディレクトリを読んで同じように失敗し、CrashLoopBackOff になります。再起動のたびに、ロード済みだったモデルまで失われます。存在しないアーティファクトは再起動では生まれません。
+
+3 つの問いには 3 つのエンドポイントを使ってください:
+
+| プローブ | エンドポイント | 問い |
+|---|---|---|
+| `startupProbe` | `/v1/health/ready` | この新規 Pod はロードを終えたか (レシピが 1 つ以上ロード済みなら `200`) |
+| `readinessProbe` | `/v1/health/ready` | このレプリカは何か 1 つでも応答できるか (レシピが 1 つ以上ロード済みなら `200`) |
+| `livenessProbe` | `/v1/health/live` | プロセスはまだ応答しているか (アーティファクトの状態を読まない) |
+
+どのプローブも `/v1/health` を読みません。startupProbe は失敗するとトラフィックを保留するのではなくコンテナを **再起動** するため、厳格でカウントベースの `/v1/health` に向けると、未学習のレシピが 1 つあるだけで新規 Pod が再起動ループに陥ります。`/v1/health` はダッシュボードとアラートには適切です — レシピの欠落を教えてくれるのはこれだけです — が、プローブには使わないでください。同梱の Helm チャートはまさにこの分割をレンダリングします。[サービング API — ヘルスとメトリクス](../serving-api#ヘルスとメトリクス) を参照してください。
+:::
+
+複数レプリカについての注意: 各 Pod はすべてのモデルの独自のインメモリコピーを保持し、独自のウォッチャースレッドを実行します。これは意図的な設計であり、共有キャッシュはありません。レシピあたりアーティファクトサイズの 1 倍ではなく、おおよそ **4.8 倍** を見積もってください: ロード時にはファイルのバイト列とそのペイロード部分が同時に保持され、さらにデシリアライズ済みのモデルが上乗せされます。644.5 MiB のアーティファクトで実測 3,292 MiB が常駐しました。したがって `RECOTEM_MAX_PAYLOAD_BYTES` のデフォルト 512 MiB で 10 レシピなら Pod あたり 24 GiB 程度、`RECOTEM_MAX_ARTIFACT_BYTES` のデフォルト 2 GiB まで許すなら 96 GiB 程度になります — レプリカを割り当てる前の値です。[オペレーション — recotem serve のメモリサイジング](../operations#recotem-serve-のメモリサイジング) を参照してください。
 
 ### Pod セキュリティコンテキスト
 
@@ -213,7 +366,13 @@ securityContext:                 # コンテナレベル
 
 ### ローリングアップデートとウォームアップ
 
-各新しい Pod は、readinessProbe が通過する前 (デフォルト `initialDelaySeconds: 10`) に、起動時にすべてのアーティファクトを再フェッチして HMAC 検証します。レシピ数が多い場合や大きなアーティファクトがある場合は、`initialDelaySeconds` を増やし、ロールアウトが希望のレプリカ数を下回らないように `maxSurge` / `maxUnavailable` を調整してください。ウォッチャーは各 Pod 内で共有インターバルでポーリングします — `train` が新しいアーティファクトを書き込むと、すべてのレプリカは `RECOTEM_WATCH_INTERVAL` 秒以内にそれを検知します。ホットスワップにロールアウトは不要です。
+各新しい Pod は、`startupProbe` が通過し (`periodSeconds: 5`、`failureThreshold: 60` — 5 分の猶予) readinessProbe が通過する前に、起動時にすべてのアーティファクトを再フェッチして HMAC 検証します。レシピ数が多い場合や大きなアーティファクトがある場合は、`startupProbe` の `failureThreshold` と readiness の `initialDelaySeconds` を増やし、ロールアウトが希望のレプリカ数を下回らないように `maxSurge` / `maxUnavailable` を調整してください。ウォッチャーは各 Pod 内で共有インターバルでポーリングします — `train` が新しいアーティファクトを書き込むと、すべてのレプリカは `RECOTEM_WATCH_INTERVAL` 秒以内にそれを検知します。ホットスワップにロールアウトは不要です。
+
+::: warning 注意 — ネットワークファイルシステムでは属性キャッシュがホットスワップ時間に上乗せされます
+アーティファクトが NFS ベースの `ReadWriteMany` PVC 上にある場合、レイテンシは `RECOTEM_WATCH_INTERVAL` だけでは決まりません。ウォッチャーの `stat` が新しい mtime を見るには、クライアントの属性キャッシュが期限切れになる必要があります。このキャッシュ項は定数ではなく**分布**です。Linux クライアントは通常ファイルの属性を `clamp(file_age/10, acregmin=3 秒, acregmax=60 秒)` の間保持し、書き込みはその窓の任意の位置に落ちるため、長時間アイドルだったファイルが遅く、次のものが速い、ということが起こります。インターバル 10 秒でデフォルトマウントの実測は 7 試行で **1.2 秒～54.5 秒**。同じボリュームを `noac` でマウントするとこの項は消え、4 試行で **1.9 秒～4.2 秒**、ウォッチャのティックのみで押さえられます。`acregmax` + `RECOTEM_WATCH_INTERVAL`（既定値で約 70 秒）で見積もるか、`noac` でマウントしてメタデータの往復が増えることを受け入れてください。
+
+**スワップ中のレプリカ間の一致は保証されません。** レプリカは独立してスワップするため、最後のレプリカがスワップし終えるまで同じ `user_id` が 2 つの異なるモデルから応答を受け取りえます。同じ PVC 上の 3 レプリカで **21.8 秒**の乖離を実測しました。どのモデルが応答したかはレスポンスの `model_version` (および `X-Recotem-Model-Version` ヘッダー) で識別できるため、セッション内で一貫した結果が必要なクライアントはこれで固定できます。
+:::
 
 ### Secret のローテーション
 
@@ -247,11 +406,21 @@ spec:
 Ingress または LoadBalancer を通じて外部に公開してください。TLS を終端するプロキシなしで Pod ポートを直接公開しないでください。
 
 ::: warning 注意 — RECOTEM_ALLOWED_HOSTS と Ingress
-`TrustedHostMiddleware` は `RECOTEM_ALLOWED_HOSTS` が空の場合、デフォルトで `127.0.0.1,localhost` に設定されます — これは Pod 内の readiness プローブ (`Host: localhost` ヘッダーを使用) には十分です (`tcpSocket` の liveness プローブは HTTP リクエストを送りません)。ただし、異なるホスト名 (通常は Ingress ホスト) で Pod に届くリクエストは **400 Bad Request** を返します。
+`TrustedHostMiddleware` は `RECOTEM_ALLOWED_HOSTS` が空の場合、デフォルトで `127.0.0.1,localhost` に設定されます — これは Pod 内の liveness/readiness プローブ (`Host: localhost` ヘッダーを使用) には十分です。ただし、異なるホスト名 (通常は Ingress ホスト) で Pod に届くリクエストは **400 Bad Request** を返します。
 
-バンドルされた Helm チャート (`helm/recotem/templates/deployment.yaml`) は `ingress.enabled=true` のとき `ingress.hosts[*].host` から `RECOTEM_ALLOWED_HOSTS` を自動導出し、レンダリングしたリストの先頭に `localhost` を付加します — `env.RECOTEM_ALLOWED_HOSTS` による明示的な上書きに対しても同様です。
+バンドルされた Helm チャート (`helm/recotem/templates/deployment.yaml`) は `RECOTEM_ALLOWED_HOSTS` を、`localhost`、設定されていれば `env.RECOTEM_ALLOWED_HOSTS`、および (`ingress.enabled=true` のとき) `ingress.hosts[*].host` の **和集合** としてレンダリングします。明示的な上書きは Ingress のホストを置き換えなくなったため、それらを書き直す必要はありません:
 
-**チャートの外で自分で環境変数を書く場合、`localhost` を含めるのはあなたの責任です。** HTTP プローブはいずれも `Host: localhost` を送るため、`localhost` を含まないリストにすると readiness チェックが 400 を返し、Deployment は永久に Ready になりません。`TrustedHostMiddleware` の 400 は通常の拒否リクエストと区別がつかないため、アプリケーションログには手がかりが残らないまま CrashLoop します。
+```console
+$ helm template recotem ./helm/recotem --set ingress.enabled=true \
+    --set 'ingress.hosts[0].host=api.example.com' \
+    --set 'env.RECOTEM_ALLOWED_HOSTS=recotem.internal.svc.cluster.local'
+            - name: RECOTEM_ALLOWED_HOSTS
+              value: "localhost,recotem.internal.svc.cluster.local,api.example.com"
+```
+
+和集合であるため、この変数を設定してもリストが指定した値に絞り込まれるわけではありません — 追加しかできません。受け入れる Host ヘッダーを実際に制限するには、`ingress.hosts` からもホストを削除してください。
+
+**チャートの外で自分で環境変数を書く場合、`localhost` を含めるのはあなたの責任です。** 3 つのプローブはいずれも `Host: localhost` を送るため、`localhost` を含まないリストにすると readiness/liveness チェックがすべて 400 を返し、Deployment は永久に Ready になりません。`TrustedHostMiddleware` の 400 は通常の拒否リクエストと区別がつかないため、アプリケーションログには手がかりが残らないまま CrashLoop します。
 
 ```yaml
 - name: RECOTEM_ALLOWED_HOSTS
@@ -282,6 +451,82 @@ kubectl rollout restart deployment/recotem-serve
 `ReadWriteMany` PVC (例: NFS、EFS、GCS FUSE) を CronJob と Deployment の両方にマウントします。新しいレシピファイルは次のポーリングインターバルでウォッチャーに検知されます — 再起動は不要です。
 
 PVC が `ReadWriteMany` をサポートしない場合は、Deployment に `ReadWriteOnce` を使用し、CronJob との同時マウントができないことを受け入れてください。その場合は代わりにオブジェクトストレージにアーティファクトを書き込んでください (以下を参照)。
+
+#### ネットワークファイルシステムの障害は `train` を無言で停止させます
+
+RWX PVC の背後にあるファイルサーバーが応答しなくなったとき、serve と train の劣化の仕方は同じではありません。NFS ベースの RWX PVC を持つ実際の 3 ノードクラスターで、実行中に NFS サーバーのレプリカ数を 0 にして計測しました:
+
+| | 何が起きるか | オペレーターに見えるもの |
+|---|---|---|
+| `serve` (実行中) | `:recommend` に応答し続ける (10/10 が `200`)、`1/1` Ready のまま、再起動 0 回、2〜3 ミリコア | マウントが単にハングしている間は `artifact_stat_timeout` (WARN、レシピごと、約 20 秒に 1 回のスキャン)。ファイルハンドルが障害を越えられなかった場合はこれに加えて `OSError [Errno 116] Stale file handle` を伴う `artifact_stat_failed`。403 秒の障害ではタイムアウト段階を越えませんでした |
+| `serve` (新規 Pod) | 起動しない | Pod に `FailedMount ... exit status 32`; ロールアウトが停止する |
+| `train` (実行中) | **障害が続く限りアーティファクト書き込みでブロックする** — 計測値 23 分 19 秒 (1 ミリコア)、2 回目の実行では 6 分 52 秒 — その後、マウントのファイルハンドルが有効かどうかによって、完了するか破棄されるかが決まる | ブロック中は何も出力されない: 最後のログ行は `final_model_trained`、エラーも進捗もなし。復帰時、エクスポート識別子が生き残っていれば `exit 0`、そうでなければ `exit 1` |
+
+この非対称性が意図的なのは片側だけです。ウォッチャーはワーカースレッド上で実時間タイムアウト付きに `stat` を実行し、ハングしたものを報告します。そのためマウントが固まってもコストはスキャンループのタイムアウトで済み、プロセスは死にません。一方アーティファクト書き込みは素朴な `makedirs` → `mkstemp` → `write` → `fsync` → `os.replace` です。サーバーが消えた hard マウントの NFS では、このすべてがカーネル内で、サーバーが戻るまで中断不能にブロックします。
+
+**ストレージが戻ったあと実行がどうなるかはマウント次第で、それが実行の成否を決めることがあります。** ファイルサーバーが同じエクスポート識別子で戻れば、クライアントのハンドルは生き残り、ブロックしていた書き込みはそのまま完了します。そうでない場合 — サーバーが作り直された、あるいはフェイルオーバーしてエクスポートの `fsid` が変わった場合 — ノードのマウントは次のメタデータ呼び出しに `ESTALE` を返し、それが実行を終わらせます:
+
+```console
+Training failed: [Errno 17] File exists: '/artifacts'
+RECOTEM_EXIT=1
+```
+
+`os.makedirs(dir, exist_ok=True)` が `mkdir` の `FileExistsError` を抑止するのは、直後に続く*ただ 1 回*の `os.path.isdir()` が True を返したときだけです。そして `os.path.isdir` は `OSError` のとき False を返します。つまり `stat` が 1 回 stale になるだけで、完了済みの学習実行が破棄されるのに十分です。アーティファクト書き込みは数分間の純 CPU チューニングのあと最初に走るメタデータアクセスなので、探索の間アイドルだったハンドルが stale になるのはまさにこの呼び出しです。チャートの `restartPolicy: OnFailure` により Job はリトライし、リトライのたびにデータ取得・Optuna 探索・最終再学習を丸ごと支払ってから同じ行で死にました。5 回連続で実行が破棄されました。
+
+2.1.0 以降、Recotem は諦める前にこのパスを 1 回再チェックします。書き込み先が本当にディレクトリでない場合は再チェックも失敗するため、これまでどおり失敗します。**しかしこの再チェックが救えるのは一瞬だけ stale になった応答であり、識別子が変わったエクスポートはその一瞬を与えません。** 探索の途中でファイルサーバーを取り除き、異なるエクスポート `fsid` を持つ新しい Pod として戻したときの計測:
+
+| `output.path` のディレクトリ | `os.makedirs(dir, exist_ok=True)` が送出するもの | 再チェックの答え |
+|---|---|---|
+| マウントポイント自身 (`/artifacts`、チャートの `artifacts.mountPath`) | `FileExistsError` — `mkdir` はマウント下のディレクトリエントリから `EEXIST` を受け取り、サーバーには到達しない | `os.path.isdir('/artifacts')` → `False`、以後も False のまま |
+| マウント配下のディレクトリ (`/artifacts/models`) | `OSError [Errno 116] Stale file handle` — `mkdir` 自体がエクスポートに踏み込む | 参照されない: 捕捉されるのは `FileExistsError` だけ |
+
+1 つの Pod の生存期間中 3 秒ごとに調べたところ、エクスポートの識別子が変わったあと `os.path.isdir` はマウントポイントに対して 80 回すべて `False` を返し、一度も `True` を返しませんでした。再チェックが機能するには 2 回の `os.path.isdir` が**マイクロ秒差で**異なる答えを返す必要があり、1 回目は `os.makedirs(..., exist_ok=True)` がすでに実行済みです。実際の一瞬の stale 期間に対してこの並びを毎秒約 45 回ぶつけたところ、**1,130 回連続で再送出され、救われた回数は 0** でした。したがって、同一の注入に対する 2 つの学習 Job — 再チェックを含むイメージと素の `os.makedirs` のイメージ — は同じ結末になります:
+
+```console
+Training failed: [Errno 116] Stale file handle: '/artifacts/<recipe>.recotem'
+RECOTEM_EXIT=1
+```
+
+障害を乗り越えた実行も再チェックの証拠にはなりません。エクスポート識別子が生き残った場合、書き込みは完了し、再チェックが**なくても** `exit 0` に到達します。どの場合にも残るのはストールです。プロセス内にこれを打ち切るものはなく、書き込みが本物の I/O エラーを返した場合は **終了コード 1** (`internal_error`) となり、アーティファクト書き込み処理を通るトレースバックだけが残り、ファイルサーバーを指し示すものはありません。
+
+stale 経路からの復旧は**コンテナ単位ではなく Pod 単位**です。ボリュームが mount し直されるよう、Pod (または Job) を削除してください。`kubectl rollout restart` や同じ Pod 内での単純なリトライでは解消できません。
+
+::: warning Job の成否をアラートの根拠にしないでください
+特徴的な結末というものがありません。エクスポート識別子が障害を越えて生き残った場合、書き込みは完了し、実行は終了コード 0 で終わり、Job は `SuccessCriteriaMet,Complete` とマークされます — 397 秒のあいだ 1 行もログを出さず、そのうち 5 分間はファイルサーバーが不在でした。したがって Job が完了したことは障害が起きなかった証拠にも、どのコード経路を通ったかの証拠にもなりません。識別子が生き残らなかった場合、実行は終了コード 1 で終わりますが、Job が必ず失敗するわけでもありません。チャートの `restartPolicy: OnFailure` によりコンテナは**同じ Pod 内で**再起動され、したがって同じ stale なマウントの上に戻ります。計測では kubelet はコンテナを 2 回目に作成すること自体ができず (`CreateContainerError: ... failed to stat ...: stale file handle`)、`restartCount` は `0` のまま、`backoffLimit` は消費されず、`kubectl get job` は `Running 0/1` と `active: 1` を無期限に報告しました。`Complete` も `Failed` も、ファイルサーバーを名指しするイベントもありません。
+
+どの結末にも共通するのは**ストール**です。`train` は `final_model_trained` のあと数分から数十分にわたり何も出力せず、約 1 ミリコアでレシピロックを保持し続けます。学習実行の所要時間、またはアーティファクトの `trained_at` の古さでアラートしてください。
+:::
+
+同梱チャートでの帰結:
+
+- プロセス内にこの停止を終わらせるものはありません。train Job の `activeDeadlineSeconds: 3600` が唯一の上限であり、これより長い障害はその実行のスロットをまるごと消費します。
+- その後 `DeadlineExceeded` (`Job was active longer than specified deadline`) として kill されます。これはデッドラインを示すだけでストレージを示しません。Job の status にも events にもファイルサーバーへの言及はありません。
+- `concurrencyPolicy: Forbid` (チャートのデフォルト) では、停止した 1 実行が同じ時間帯の後続のスケジュール実行をすべて抑止し、それぞれ `JobAlreadyActive` でスキップされます。
+- レシピごとのロックは、プロセスがもう到達できないファイルの上で、停止のあいだずっと保持され続けます。
+
+#### 実行の*開始時点*で既に stale なら、ロックで死にます
+
+ここまではアーティファクト書き込みの話で、チューニング*中*に障害が起きた実行が行き着く先です。既に stale なマウントの上で始まった実行は、そこまで到達しません。レシピごとのロックはもっと早い段階で同じディレクトリに触れます — データを 1 バイトも取得する前に `<output.path>` の親ディレクトリを作成します — ため、実行はそこで失敗します:
+
+```console
+{"error": "[Errno 17] File exists: '/artifacts'", "code": "internal_error",
+ "exit_code": 1, "event": "train_error"}
+```
+
+これは、`train.recipeFiles` に複数のレシピが並び 1 つ目が障害をまたいで走った場合の *2 つ目*のレシピ、および `initContainer` や長いイメージ取得のあとに開始した実行にとって、ごく普通の終わり方です。
+
+同じ環境での計測。注入は 1 回、エクスポートの `fsid` が変わる前にマウントが確立されていた 3 つの Job:
+
+| `output.path` | ロックのディレクトリの位置 | どう終わるか |
+|---|---|---|
+| `/artifacts/a.recotem` | マウントポイント | `exit 1`、`FileExistsError [Errno 17] File exists: '/artifacts'` |
+| `/artifacts/models/c.recotem` | マウント配下 | `exit 1`、`OSError [Errno 116] Stale file handle: '/artifacts/models'` |
+
+機構は上の表と同じ 2 つで、再チェックがどちらも救えない理由も同じです。識別子が変わったエクスポートは、一瞬だけ stale な応答を与えないからです。
+
+違うのはタイミングで、それがアラートを無力化します。上記はいずれもコンテナ起動から **4 秒**で終わりました。停止 (stall) が起きないため、学習実行時間のアラートは発火せず、Job の `activeDeadlineSeconds` に近づくこともありません。**アーティファクトの `trained_at` の経過時間でアラートしてください。**こちらならこの終わり方も停止も両方捕捉できます。
+
+アーティファクトストアがネットワークファイルシステムなら、`timeo`/`retrans` を制限した `soft` マウントにして書き込みを待機ではなく失敗させる (soft マウントは短い書き込みもエラーとして表面化しうる点は許容する)、`activeDeadlineSeconds` を待てる値まで下げる、あるいはアーティファクトをオブジェクトストレージ (次節) に置いてください。オブジェクトストレージなら、停止したリクエストはカーネル内ではなく HTTP タイムアウトで失敗します。
 
 ### オブジェクトストレージ (S3 / GCS)
 
@@ -320,7 +565,7 @@ Recotem はロックパスごとの最初の発生時に WARNING レベルで `r
 ```yaml
 image:
   repository: ghcr.io/codelibs/recotem
-  tag: "2.0.0"
+  tag: "2.1.0"
   pullPolicy: IfNotPresent
 
 # serve Deployment
@@ -387,6 +632,102 @@ hpa:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
 ```
+
+### PodDisruptionBudget は serve だけを対象にします
+
+serve Pod は `app.kubernetes.io/component: serve` を持ち、PDB はこれをセレクタにします。これが効くのは、PDB の許容中断数が `currentHealthy − minAvailable` を**そのセレクタが一致する Pod 全体**に対して計算するからです。スコープを絞らないセレクタでは、train の CronJob Pod が healthy として数えられてしまいます。
+
+| serve レプリカ数 | 学習の実行中か | `currentHealthy` | `minAvailable: 1` が許す中断 |
+|---|---|---|---|
+| 1 | いいえ | 1 | 0 件 — serve は保護される |
+| 1 | はい | 2 | 1 件 — **ドレインが唯一の serve Pod を退去させうる** |
+
+さもなければ、たまたま学習ジョブが走っているあいだだけ保護が外れることになります。スケジュール依存で見落としやすい挙動です。
+
+Service のセレクタは意図的に同じスコープにして**いません**。`targetPort` が名前 `http` であり、train コンテナはこの名前を宣言していないため、train Pod は Endpoints に入りません。代わりにセレクタを絞ると、対応する Pod ラベルを追加するロールアウトのあいだ Endpoints が空になります。train コンテナに `http` という名前のポートを追加した場合は、ここを見直してください。
+
+### NetworkPolicy: デフォルトは inbound の deny-all ではありません
+
+::: danger 危険 — チャートのデフォルトでは 8080 への inbound があらゆるソースに開いています
+`ingressFromPodSelector: {}` だけなら ingress ルールはレンダリングされません。しかしデフォルトの `allowKubeletProbes: true` は **`from:` フィールドを持たない**ルールをレンダリングします。Kubernetes の NetworkPolicy API では `from:` の無い ingress ルールは**すべての**ソースに一致します。deny-all の正反対です。inbound の deny-all の正規の形は、`policyTypes` に `Ingress` を含めたうえでの `ingress: []` です。
+:::
+
+実際に何が入ったかを確認してください。その際、**`ingress` だけでなく `policyTypes` も併せて取得してください**。
+
+```console
+$ kubectl get networkpolicy recotem -o jsonpath='{.spec.policyTypes} {.spec.ingress}'
+["Ingress","Egress"] [{"ports":[{"port":8080,"protocol":"TCP"}]}]
+```
+
+API サーバーは書き込み時に空の `ingress` リストを落とすため、正しく動く deny-all では保存されたオブジェクトに `ingress` キーそのものが存在しません。したがって素の `{.spec.ingress}` は、deny-all のときも、ポリシーが存在しないとき (この失敗は stderr に出ます) も、どちらも何も表示しません。2 フィールド形式なら stderr を読まずに 3 つの状態を区別できます。
+
+| ポリシー | `{.spec.ingress}` | `{.spec.policyTypes} {.spec.ingress}` |
+|---|---|---|
+| 存在しない | *(空)* | *(空)* |
+| deny-all | *(空)* | `["Ingress","Egress"] ` |
+| チャートのデフォルト | `[{"ports":[{"port":8080,"protocol":"TCP"}]}]` | `["Ingress","Egress"] [{"ports":[{"port":8080,"protocol":"TCP"}]}]` |
+
+`allowKubeletProbes` がデフォルトで `true` なのには理由があります。kubelet のヘルスチェックは Pod ではなく**ノード**のネットワークから発生するため、どんな `podSelector` ルールでも一致させられません。
+
+::: danger 危険 — `allowKubeletProbes: false` はロールアウト失敗より悪い結果になります
+`ingressFromPodSelector` も空のままだと、チャートは真の inbound deny-all である `ingress: []` をレンダリングします。NetworkPolicy を実際に強制する CNI を使った 3 ノードの実クラスタで適用してから 3 分後の実測:
+
+| | 観測結果 |
+|---|---|
+| Pod | `1/1 Ready`、`restartCount 0` |
+| Service エンドポイント | 全レプリカで `ready=true` |
+| クラスタ内クライアント → Service | 接続タイムアウト |
+| 外部クライアント → Ingress → Service | 接続タイムアウト |
+
+多くの CNI はノード発のトラフィックを Pod の NetworkPolicy から除外するため、プローブは通り続けます。その結果 Kubernetes は完璧に健全なフリートを報告する一方で、**クライアントトラフィックの 100% がブラックホールに落ちます**。Pod の再起動もエンドポイントの変化もイベントも、原因を指し示しません。プローブが生き残るかは CNI 次第ですが、クライアントトラフィックが失われることは CNI に依りません。
+:::
+
+プローブを生かしたまま inbound を絞るには、`allowKubeletProbes: false` に**せず**、ノードの CIDR を列挙してください。これによりプローブのルールが「あらゆるソース」から `ipBlock` の一致へ変わります。
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingressFromPodSelector:
+    app.kubernetes.io/name: ingress-nginx   # API を呼んでよい Pod
+  allowKubeletProbes: true
+  kubeletCIDRs:                             # プローブの発信元として許すレンジ
+    - "10.0.0.0/8"
+```
+
+`allowKubeletProbes: false` にしてよいのは、ノード発のプローブトラフィック**と**クライアントの双方を許可する別の NetworkPolicy がすでに存在する場合だけです。`ingress: []` はすべてを拒否し、追加型のポリシーだけが戻り道になります。この状況で `kubeletCIDRs` は役に立ちません。テンプレートがこれを読むのは `allowKubeletProbes` が `true` のあいだだけだからです。`kubectl get pods` ではなく実際のリクエストで確認してください。Pod はどちらの場合も健全に見えます。
+
+### NetworkPolicy: egress は train の CronJob にも効きます
+
+::: warning 注意 — このポリシーは train Pod にも一致し、その egress ルールは SQL やプレーン HTTP をカバーしません
+`podSelector` は `app.kubernetes.io/name` と `app.kubernetes.io/instance` で一致しますが、これらのラベルは serve Pod だけでなく train CronJob の Pod も持っています。組み込みの egress ルールは serve 向け (DNS とオブジェクトストレージ用の HTTPS) なので、チャートのデフォルトでは `source.type: sql` やプレーン `http://` の `source.path` を使う学習実行がこのポリシーで落とされます。**NetworkPolicy らしいエラーは出ません。** ジョブは接続でタイムアウトするだけで、ポリシーではなくデータベースを疑わせます。
+:::
+
+組み込みルールが開けて**いない**ポート。該当するデータソースを使う場合は追加してください。
+
+| ポート | プロトコル | 必要になるケース |
+|---|---|---|
+| 5432 | TCP | PostgreSQL に対する `source.type: sql` |
+| 3306 | TCP | MySQL / MariaDB に対する `source.type: sql` |
+| 1433 | TCP | SQL Server に対する `source.type: sql` |
+| 80 | TCP | プレーン `http://` の `source.path` |
+
+BigQuery、オブジェクトストアのパス (`s3://`、`gs://`、`az://`)、`https://` の URL はすでに動作します。443 を通るからです。
+
+ルールを追加するには `networkPolicy.extraEgress` を使います。エントリは Kubernetes の `NetworkPolicyEgressRule` スキーマで、そのまま出力されます。
+
+```yaml
+networkPolicy:
+  enabled: true
+  extraEgress:
+    - to:
+        - ipBlock:
+            cidr: "10.0.0.0/8"     # データベースが存在するサブネット
+      ports:
+        - port: 5432
+          protocol: TCP
+```
+
+serve と train が 1 つのポリシーを共有しているため、**ここで開けたものは serve Pod からも到達可能になります**。それが問題になる場合は各ルールを `to:` でスコープしてください。入った内容は `kubectl get networkpolicy recotem -o jsonpath='{.spec.egress}'` で確認できます。
 
 チャートをインストールする前に auth Secret を作成してください。
 

@@ -62,6 +62,12 @@ recotem serve --recipes <directory> [flags]
 recotem serve --recipes ./recipes/ --port 8080
 ```
 
+`--port` / `-p` and `--host` / `-H` override `RECOTEM_PORT` and `RECOTEM_HOST` for a single invocation, so you can move one run off the configured bind without editing the environment.
+
+::: warning The loopback posture wins over `--host`
+With no `RECOTEM_API_KEYS` set and no `--insecure-no-auth`, the bind host is forced back to `127.0.0.1` whatever you pass — `--host 0.0.0.0` included. The server does not refuse to start; it logs a `host_forced_to_loopback` warning recording the host you asked for and binds to loopback anyway. If a container or Pod is unreachable on the port you set, check that warning before looking at the network. Configure API keys (see [Installation](/guide/installation#api-key)) to bind a real interface.
+:::
+
 The server polls for new artifacts every `RECOTEM_WATCH_INTERVAL` seconds (default 5). When `recotem train` writes a new artifact, the server loads it and begins serving the updated model — no restart required.
 
 ---
@@ -108,16 +114,23 @@ What it does:
    - **BigQuery** — issues a free dry-run query that validates ADC, project access, and SQL/parameter syntax.
    - **SQL** — opens a connection and runs a trivial liveness query.
 
+::: tip `item_metadata` is the one block read in full
+`source` and `features.*.source` are only probed — for reachability and for the declared columns — because a BigQuery scan is billed and a large CSV is slow. `item_metadata:` is the exception: `validate` **reads it in full**. It has to, because item metadata is a serve-time join that `train` never touches, so a broken metadata block would otherwise pass `validate` *and* `train` — both exit 0, artifact signed — and first surface when `serve` starts and the recipe registers `loaded: false`. Metadata files are catalog-sized rather than interaction-sized, and the read is capped by `RECOTEM_MAX_DOWNLOAD_BYTES`, so the cost is bounded.
+:::
+
 **Example:**
 
 ```bash
 recotem validate recipes/news_articles.yaml
 # Recipe 'news_articles': schema OK
-# DataSource: probe OK (csv)
+# Algorithms: OK (IALSRecommender, CosineKNNRecommender, TopPopRecommender)
+# Optuna storage: OK (in-memory, no resume)
+# DataSource: probe OK (csv) [source]
+# Schema columns: OK (csv) [source]
 # Validation passed.
 ```
 
-If validation fails, the exit code tells you what went wrong (2 for a recipe schema error, 3 for a data source error). See [Exit Codes](/docs/exit-codes).
+If validation fails, the exit code tells you what went wrong: **2** for a recipe schema, env-var or path-scheme error, **3** for a data source error, **4** for an unknown algorithm name, and **8** for a `training.storage_path` that cannot be opened (unsupported dialect, or a driver whose extra is not installed). See [Exit Codes](/docs/exit-codes).
 
 ---
 
